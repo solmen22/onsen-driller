@@ -51,6 +51,25 @@ describe('地下のカメラ（道具の先を上から 30% に置き、地表�
     expect(undergroundCenterY(0, viewH)).toBe(50);
     expect(undergroundCenterY(10, viewH)).toBe(50);
   });
+  it('道具を 0〜40 タイル（m）まで 1/4 タイルずつ動かすと、道具はいつも見える範囲の中で、地表を離れた後は上から 30%（BL-097 のレビュー S-1）', () => {
+    // viewH は地下の見える高さ（世界の画素）: 1280×720（地下 499px・×4）、800×450（297px・×3）、390×844 の縦（314px・×3）、1920×1080（770px・×4）
+    for (const viewH of [499 / 4, 297 / 3, 314 / 3, 770 / 4]) {
+      let followed = false;
+      for (let q = 0; q <= 40 * 4; q++) {
+        const toolY = (q / 4) * TILE;
+        const c = undergroundCenterY(toolY, viewH);
+        const top = c - viewH / 2;
+        expect(top, `viewH ${viewH} toolY ${toolY}: 地表より上を映さない`).toBeGreaterThanOrEqual(0);
+        expect(toolY, `viewH ${viewH} toolY ${toolY}: 道具が見える範囲の中`).toBeGreaterThanOrEqual(top);
+        expect(toolY, `viewH ${viewH} toolY ${toolY}: 道具が見える範囲の中`).toBeLessThanOrEqual(top + viewH * 0.3 + 1e-9);
+        if (top > 0) {
+          followed = true;
+          expect(toolY - top, `viewH ${viewH} toolY ${toolY}: 地表を離れたら上から 30%`).toBeCloseTo(viewH * 0.3, 9);
+        }
+      }
+      expect(followed, `viewH ${viewH}: 40 タイルまでに地表を離れて追い始める`).toBe(true);
+    }
+  });
   it('見える分のタイルの数は画面の大きさだけで決まる（深さによらない）', () => {
     expect(tileGridSize(426, 180)).toEqual({ cols: Math.ceil(426 / TILE) + 2, rows: Math.ceil(180 / TILE) + 2 });
     expect(tileGridSize(-1, Number.NaN)).toEqual({ cols: 2, rows: 2 });
