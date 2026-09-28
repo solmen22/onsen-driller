@@ -1,54 +1,116 @@
-// GameState（arch §6-1 の PoC 版の部分集合）。core だけが書き換える。
-import type { SpringId } from '../content/springs.ts';
+// GameState（arch §6-1。BL-010）。core だけが書き換える。UI と描画は selectors で読む
+import { PARAMS } from '../content/params.ts';
 import type { GuestId } from '../content/guests.ts';
-import { num, type Num } from './num.ts';
-import { seedSfc32, sfc32Next, type Sfc32State } from './rng.ts';
+import type { OreId } from '../content/ores.ts';
+import type { SpringId } from '../content/springs.ts';
+import { INITIAL_TERRAIN, type TerrainId } from '../content/terrains.ts';
+import { ZERO, type Num } from './num.ts';
+import { normalizeSeed, seedSfc32, sfc32Next, type Sfc32State } from './rng.ts';
 
+/** 保存データの版（save/schema.ts が再輸出する。形を変えたら上げて移行関数を足す） */
 export const SAVE_SCHEMA_VERSION = 1;
 
+export type { OreId } from '../content/ores.ts';
+/** 改良・湯の華の木・実績の ID（S2 以降で定義する） */
+export type UpgradeId = string;
+export type PerkId = string;
+export type AchId = string;
+
 export interface RunState {
+  /** 周回のシード（鉱石の配置など） */
   seed: number;
+  terrain: TerrainId;
   coins: Num;
+  /** 今掘っているブロックの深さ（掘り終えた m 数）。最初のブロックは 0 */
   depth: number;
+  /** 周回の最深 */
   maxDepth: number;
+  /** 今のブロックに入ったダメージ */
   blockDmg: Num;
-  /** 端数の打撃（刻み幅によらず同じ打数にするため繰り越す） */
-  hitCarry: number;
-  hold: boolean;
+  /** 長押し・自動掘りの基本の打撃の端数（刻み幅によらないため） */
+  digCarry: number;
+  /** 自動掘削機の打撃の端数 */
+  diggerCarry: number;
+  /** 幕間の残り（ロジックの時間。0 なら幕間ではない。Q-06） */
+  interludeMs: number;
   drill: { level: number; tool: number };
   autoDig: { level: number; on: boolean };
+  /** 発見済みの源泉とポンプのレベル */
   springs: Partial<Record<SpringId, { pump: number }>>;
   bath: { level: number; slots: (SpringId | null)[] };
+  upgrades: UpgradeId[];
   guests: GuestId[];
+  /** 掘削ブースト（S2）: 効果の残り（オンライン中だけ減る）と、次に使える壁時計の時刻 */
+  boost: { remainingMs: number; readyAtWallMs: number };
+  /** ラッキー鉱脈（S2） */
+  vein: { nextAtMs: number; active: null | { depth: number; hits: number; expiresAtMs: number } };
+  /** 幕間を出した帯（0 始まり） */
+  stratumSeen: number[];
+}
+
+export interface MetaState {
+  yunohana: { lifetime: Num; spent: Num };
+  perks: PerkId[];
+  prestiges: number;
+  terrainsUnlocked: TerrainId[];
+  endingSeen: boolean;
+  /** 温泉チケット（0〜10） */
+  tickets: number;
 }
 
 export interface GameState {
   schema: number;
   rng: { run: Sfc32State };
+  /** ロジックの時間の累計。壁時計の「最後に保存した時刻」は持たない（封筒の savedAt を使う） */
   clock: { playedMs: number };
   run: RunState;
-  meta: { yunohanaLifetime: Num; prestiges: number };
-  collection: { guestsSeen: GuestId[]; springsSeen: SpringId[] };
-  stats: { totalCoins: Num; hits: number; blocks: number; bestDepth: number };
+  meta: MetaState;
+  collection: {
+    ores: Partial<Record<OreId, number>>;
+    springsSeen: SpringId[];
+    /** 初来訪の壁時計（ms）。core は時刻を読まないので来訪時は 0 を入れ、app が埋める（S2） */
+    guestsSeen: Partial<Record<GuestId, number>>;
+    achievements: AchId[];
+  };
+  stats: { totalCoins: Num; taps: number; hits: number; blocks: number; bestDepth: number; offlineMaxMs: number };
+  tutorial: { step: number; dismissed: boolean };
+  /** 入力の一時状態。保存しない（読み込み後は初期値。Q-10） */
+  input: InputState;
 }
 
-export function createRun(seed: number): RunState {
+export interface InputState {
+  /** 長押し中か */
+  hold: boolean;
+  /** 直近の手動の打撃の時刻（playedMs。古い順、最大 8 件。連打の上限を移動窓で数える。Q-04） */
+  manualLog: number[];
+}
+
+export const createInput = (): InputState => ({ hold: false, manualLog: [] });
+
+export function createRun(seed: number, terrain: TerrainId = INITIAL_TERRAIN): RunState {
   return {
-    seed: seed >>> 0,
-    coins: num(0),
+    seed: normalizeSeed(seed),
+    terrain,
+    coins: ZERO,
     depth: 0,
     maxDepth: 0,
-    blockDmg: num(0),
-    hitCarry: 0,
-    hold: false,
+    blockDmg: ZERO,
+    digCarry: 0,
+    diggerCarry: 0,
+    interludeMs: 0,
     drill: { level: 0, tool: 0 },
     autoDig: { level: 0, on: false },
     springs: {},
     bath: { level: 0, slots: [null] },
+    upgrades: [],
     guests: [],
+    boost: { remainingMs: 0, readyAtWallMs: 0 },
+    vein: { nextAtMs: 0, active: null },
+    stratumSeen: [0],
   };
 }
 
+/** 新しいゲーム。シードから擬似乱数の状態と周回のシードを作る（同じシードなら同じ状態） */
 export function createInitialState(seed: number): GameState {
   const rng = seedSfc32(seed);
   const runSeed = sfc32Next(rng);
@@ -57,8 +119,17 @@ export function createInitialState(seed: number): GameState {
     rng: { run: rng },
     clock: { playedMs: 0 },
     run: createRun(runSeed),
-    meta: { yunohanaLifetime: num(0), prestiges: 0 },
-    collection: { guestsSeen: [], springsSeen: [] },
-    stats: { totalCoins: num(0), hits: 0, blocks: 0, bestDepth: 0 },
+    meta: {
+      yunohana: { lifetime: ZERO, spent: ZERO },
+      perks: [],
+      prestiges: 0,
+      terrainsUnlocked: [INITIAL_TERRAIN],
+      endingSeen: false,
+      tickets: PARAMS.tickets.initial,
+    },
+    collection: { ores: {}, springsSeen: [], guestsSeen: {}, achievements: [] },
+    stats: { totalCoins: ZERO, taps: 0, hits: 0, blocks: 0, bestDepth: 0, offlineMaxMs: 0 },
+    tutorial: { step: 0, dismissed: false },
+    input: createInput(),
   };
 }

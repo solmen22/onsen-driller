@@ -8,9 +8,11 @@ import { deflateSync, crc32 } from 'node:zlib';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const palette = JSON.parse(readFileSync(resolve(root, 'assets-src/palette.json'), 'utf8')).colors;
-const { tiles } = await import('../assets-src/sprites/tiles.ts');
+// 地層タイルは 6 帯 × 4 種の変化形（strata.ts が tiles.ts の手で打ったタイルから作る）。tiles.ts のタイル自体はアトラスに入れない
+const { strataTiles } = await import('../assets-src/sprites/strata.ts');
 const { objects } = await import('../assets-src/sprites/objects.ts');
-const sprites = [...tiles, ...objects];
+const { props } = await import('../assets-src/sprites/props.ts');
+const sprites = [...strataTiles, ...objects, ...props];
 
 // ---- 検査 ----
 const errors = [];

@@ -3,6 +3,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   advance,
+  BAND_STARTS,
   createInitialState,
   isHealthy,
   refreshGuests,
@@ -30,6 +31,7 @@ function makeState(seed: number, drill: number, auto: number, bath: number, pump
   const n = slotsForBathLevel(bath);
   const found = Object.keys(r.springs) as SpringId[];
   r.bath.slots = Array.from({ length: n }, (_, i) => found[i] ?? null);
+  r.stratumSeen = [0, 1, 2, 3, 4, 5].filter((b) => BAND_STARTS[b]! <= depth);
   refreshGuests(s, []);
   return s;
 }
@@ -55,7 +57,9 @@ describe('刻み幅', () => {
           expect(isHealthy(a.stats.totalCoins) && isHealthy(b.stats.totalCoins)).toBe(true);
           expect(rel(a.stats.totalCoins.toNumber(), b.stats.totalCoins.toNumber())).toBeLessThanOrEqual(0.01);
           expect(Math.abs(a.run.maxDepth - b.run.maxDepth)).toBeLessThanOrEqual(1);
-          expect(a.stats.hits).toBe(b.stats.hits);
+          // 帯の境目では「そのステップの残りの打撃」を捨て、幕間 1.5 秒の始まりもステップの終わりにそろうので、
+          // 境目を越えた回数 × 1 ステップぶんまで打数がずれうる（arch §8-3 の 1% 以内に入る）
+          expect(rel(a.stats.hits, b.stats.hits)).toBeLessThanOrEqual(0.01);
         },
       ),
       { numRuns: 20, seed: 20260928 },

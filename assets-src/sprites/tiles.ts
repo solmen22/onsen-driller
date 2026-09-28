@@ -1,4 +1,4 @@
-// 地層タイル 16×16（gdd §5-1 の帯 1〜4）。手で打った画素配列
+// 地層タイル 16×16（gdd §5-1 の帯 1〜4）。手で打った画素配列。strata.ts がこれをもとに 4 種の変化形を作る（アトラスにはそちらが入る）
 import type { SpriteDef } from '../lib.ts';
 
 export const tileTopsoil: SpriteDef = {

@@ -1,14 +1,24 @@
 # 素材台帳（gdd §14-3）
 
-ビルドに含まれる画像・音声・フォントをすべて記録する。`check:assets`（E12）はこの表と突き合わせる。
+ビルドに含まれる画像・音声・フォントをすべて記録する。`npm run check:assets`（BL-008）はこの表と突き合わせる。
 
-| 素材 | 区分 | 入手元・作り方 | ライセンス | 改変 | ツール・モデル | 作成日 | 備考 |
-|---|---|---|---|---|---|---|---|
-| tile-topsoil・tile-clay・tile-sandstone・tile-tuff（16×16） | コードで描画 | `assets-src/sprites/tiles.ts` の画素配列を `scripts/build-art.mjs` で PNG 化 | 自作（本プロダクトの権利） | — | AI エージェント（Claude）が画素配列を記述 | 2026-09-28 | PoC 版。帯ごとに 4 種へ増やす（E12） |
-| tool-shovel・tool-pickaxe（24×24） | コードで描画 | `assets-src/sprites/objects.ts`（Grid の線・楕円＋画素） | 自作 | — | 同上 | 2026-09-28 | |
-| guest-tanuki（24×24） | コードで描画 | 同上 | 自作 | — | 同上 | 2026-09-28 | 他作品のキャラクターを参照していない |
-| bath-tub（48×24） | コードで描画 | 同上 | 自作 | — | 同上 | 2026-09-28 | |
-| p-chip・p-steam・p-spark・p-coin | コードで描画 | 同上 | 自作 | — | 同上 | 2026-09-28 | パーティクル |
-| パレット（32 色） | 自作 | `assets-src/palette.json` | 自作 | — | — | 2026-09-28 | |
-| DotGothic16 | フォント（OFL） | https://github.com/google/fonts/tree/main/ofl/dotgothic16 （原作 https://github.com/fontworks-fonts/DotGothic16） | SIL OFL 1.1（`LICENSES/OFL-DotGothic16.txt`） | 使用文字だけにサブセット（`scripts/subset-font.mjs`） | subset-font 2.9.0（harfbuzz） | 2026-09-28 取得 | 元の TTF はリポジトリに入れない（.gitignore） |
-| 効果音（打撃・破壊） | コードで生成 | ZzFX のパラメータ（`src/audio/sfx.ts`） | ZzFX は MIT | — | — | 2026-09-28 | 音声ファイルなし |
+- 書式は DevOps の infra.md 付録 B-3（Q-15 の回答）。見出しの 1 列目が「素材名」の表を台帳として読む。
+- 「ファイル名」の列には、ビルドに出るファイル名を Vite のハッシュなしで書く（`assets/atlas-hmrc6vr3.png` → `atlas.png`）。アトラスのように 1 つのファイルに複数の素材が入る場合は、各行に同じファイル名を書く。ファイルのない行（パレット・コードで生成する効果音）は「—」。
+- 区分は「AI 生成」「コードで描画」「CC0」「自作」と、CEO 承認で追加した「フォント（OFL）」「コードで生成（効果音など）」。
+- 画像生成 AI は使っていない（使うときは「ツール／モデル／プラン」「プロンプトの要旨」を必ず書く。有料なら事前にオーナー承認）。
+
+| 素材名 | ファイル名 | 区分 | 入手元 | ライセンス | 改変の有無 | ツール／モデル／プラン | 生成日 | プロンプトの要旨 | 人の修正の有無 |
+|---|---|---|---|---|---|---|---|---|---|
+| アトラス（下の行の絵をまとめたもの） | `atlas.png` | コードで描画 | `scripts/build-art.mjs` が `assets-src/sprites/` の画素配列から生成 | 自作（本プロダクトの権利） | — | AI エージェント（Claude）が画素配列を記述 | 2026-09-28 | —（画像生成 AI は不使用） | なし |
+| 地層タイル tile-topsoil・clay・sandstone・tuff・granite・basalt の -0〜-3（6 帯 × 4 種、16×16） | `atlas.png` | コードで描画 | 帯 1〜4 は `assets-src/sprites/tiles.ts` の手で打った画素配列、帯 5・6 と変化形（ずらし・反転・粒）は `assets-src/sprites/strata.ts` が決まった擬似乱数で生成 | 自作 | 帯 1〜4 の元の絵から変化形を作った | 同上 | 2026-09-28 | — | なし |
+| tool-shovel・tool-pickaxe（24×24） | `atlas.png` | コードで描画 | `assets-src/sprites/objects.ts`（Grid の線・楕円＋画素） | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| 道具の仮の絵 tool-yagura・tool-boring・tool-bigdrill・tool-geodrill・tool-giantdrill・tool-legenddrill（24×24。S1 の仮。本番の絵は S4） | `atlas.png` | コードで描画 | `assets-src/sprites/props.ts`（Grid の線・矩形・円錐） | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| ひび crack-1〜crack-4（16×16） | `atlas.png` | コードで描画 | `assets-src/sprites/props.ts` | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| 飾り deco-pebble・deco-root・deco-fossil・deco-crystal・deco-lava（16×16） | `atlas.png` | コードで描画 | `assets-src/sprites/props.ts` | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| 鉱石のきらめき ore-gem・源泉の気配 spring-hint（16×16。鉱石の色は描画で付ける） | `atlas.png` | コードで描画 | `assets-src/sprites/props.ts` | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| guest-tanuki（24×24） | `atlas.png` | コードで描画 | 同上。他作品のキャラクターを参照していない | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| bath-tub（48×24） | `atlas.png` | コードで描画 | 同上 | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| パーティクル p-chip・p-steam・p-spark・p-coin（8×8） | `atlas.png` | コードで描画 | 同上 | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| パレット（32 色） | — | 自作 | `assets-src/palette.json` | 自作 | — | — | 2026-09-28 | — | — |
+| DotGothic16 サブセット | `dotgothic16-subset.woff2` | フォント（OFL） | https://github.com/google/fonts/tree/main/ofl/dotgothic16 （原作 https://github.com/fontworks-fonts/DotGothic16） | SIL OFL 1.1（`LICENSES/OFL-DotGothic16.txt`） | 使用文字だけにサブセット（`scripts/subset-font.mjs`。2026-09-28 に帯・鉱石の名前などを足して作り直した。同日、HUD・購入ボタンの文言を足して作り直した） | subset-font 2.9.0（harfbuzz） | 2026-09-28 取得 | — | なし |
+| 効果音（打撃・破壊） | —（音声ファイルなし） | コードで生成（効果音など） | ZzFX のパラメータ（`src/audio/sfx.ts`） | ZzFX は MIT | — | — | 2026-09-28 | — | なし |

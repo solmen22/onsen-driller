@@ -1,14 +1,14 @@
 // バランス用のボット（gdd §8-2 の PoC 版。アクティブ・標準・放置の 3 種）
 import {
+  autoDigUnlocked,
   blockHp,
   blockValue,
   dispatch,
   drillPower,
   hitsPerSec,
-  incomePerSec,
+  bathIncomePerSec,
   nextTool,
-
-  quote,
+  buyQuote,
   springIncome,
   yunohanaGain,
   type GameState,
@@ -22,14 +22,16 @@ export interface BotDef {
   id: string;
   hold: boolean;
   autoDig: boolean;
+  /** 自動掘りが使えるようになるまで（最初の強化の前。Q-03）の毎秒のタップ数（標準の入力は毎秒 2 打。Q-02） */
+  tapsUntilAuto: number;
   /** 買い物の間隔（プレイ時間の秒） */
   buyEverySec: number;
 }
 
 export const BOTS: Readonly<Record<'active' | 'standard' | 'idle', BotDef>> = {
-  active: { id: 'active', hold: true, autoDig: true, buyEverySec: 2 },
-  standard: { id: 'standard', hold: false, autoDig: true, buyEverySec: 5 },
-  idle: { id: 'idle', hold: false, autoDig: true, buyEverySec: 60 },
+  active: { id: 'active', hold: true, autoDig: true, tapsUntilAuto: 0, buyEverySec: 2 },
+  standard: { id: 'standard', hold: false, autoDig: true, tapsUntilAuto: 2, buyEverySec: 5 },
+  idle: { id: 'idle', hold: false, autoDig: true, tapsUntilAuto: 2, buyEverySec: 60 },
 };
 
 export interface BotMemory {
@@ -46,7 +48,7 @@ const AVG_ORE = 1 + PARAMS.block.oreChance * (PARAMS.block.oreMult - 1);
 export function totalRate(s: GameState): Num {
   const d = s.run.depth;
   const dig = drillPower(s).mul(hitsPerSec(s)).div(blockHp(s, d)).mul(blockValue(s, d, false)).mul(AVG_ORE);
-  return dig.add(incomePerSec(s));
+  return dig.add(bathIncomePerSec(s));
 }
 
 function withLevel<T>(s: GameState, item: LevelItem, fn: () => T): T {
@@ -106,8 +108,8 @@ function arrangeSlots(s: GameState): void {
 /** ボットの 1 回の判断（買い物・枠・転生）。時刻は s.clock.playedMs だけを見る */
 export function botAct(s: GameState, bot: BotDef, mem: BotMemory): void {
   const r = s.run;
-  if (r.hold !== bot.hold) dispatch(s, { type: 'hold', on: bot.hold });
-  if (r.autoDig.on !== bot.autoDig) dispatch(s, { type: 'setAutoDig', on: bot.autoDig });
+  if (s.input.hold !== bot.hold) dispatch(s, { type: 'hold', on: bot.hold });
+  if (r.autoDig.on !== bot.autoDig && (!bot.autoDig || autoDigUnlocked(s))) dispatch(s, { type: 'setAutoDig', on: bot.autoDig });
 
   if (r.maxDepth !== mem.lastMaxDepth) {
     mem.lastMaxDepth = r.maxDepth;
@@ -139,8 +141,8 @@ export function botAct(s: GameState, bot: BotDef, mem: BotMemory): void {
     let best: { item: LevelItem; score: number; affordable: boolean } | null = null;
     let bestAffordable: { item: LevelItem; score: number } | null = null;
     for (const item of candidates(s)) {
-      const q = quote(s, item, 1);
-      if (!q) continue;
+      const q = buyQuote(s, item, 1);
+      if (q.state === 'locked' || q.state === 'maxed') continue;
       const gainRate = withLevel(s, item, () => totalRate(s)).sub(base);
       const score = gainRate.div(q.cost).toNumber();
       const affordable = q.cost.lte(r.coins);
