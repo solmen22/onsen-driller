@@ -4,7 +4,7 @@ import type { SpringId } from '../content/springs.ts';
 import type { GameEvent } from './events.ts';
 import { slotsForBathLevel, yunohanaGain } from './formulas.ts';
 import { applyManualRateChange, autoDigUnlocked, manualRate, setHold } from './input.ts';
-import { add, sub } from './num.ts';
+import { add, sub, toStr } from './num.ts';
 import { sfc32Next } from './rng.ts';
 import { buyQuote, isItemId, isQty, isSpringId, type ItemId, type LevelItem, type Qty } from './selectors.ts';
 import { createRun, type GameState } from './state.ts';
@@ -117,7 +117,7 @@ export function dispatch(s: GameState, input: unknown): ActionResult {
       s.meta.prestiges += 1;
       s.run = createRun(sfc32Next(s.rng.run), s.run.terrain);
       applyManualRateChange(s, 0); // 長押し中のまま転生したら、新しい周回の端数も 0.5 から
-      events.push({ type: 'PrestigeDone', gained: gain.toString() });
+      events.push({ type: 'PrestigeDone', gained: toStr(gain) }); // Decimal はイベントでも "<仮数>e<指数>"（arch §6-3。レビュー N-1）
       return { ok: true, events };
     }
     default:

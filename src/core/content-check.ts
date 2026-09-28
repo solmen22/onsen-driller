@@ -1,4 +1,5 @@
-// コンテンツ定義の整合の検査（arch §10）: ID の重複・参照切れ・順番・コストの単調性。テストと dev の起動で使う。
+// コンテンツ定義の整合の検査（arch §10）: ID の重複・参照切れ・順番・コストの単調性。テスト（tests/unit/strata-ores.test.ts）で使う
+// （dev の起動での検査は main.ts に足していない。定義を変えると unit テストが落ちるので、それで代える。レビュー N-9）。
 // 問題の一覧（文字列）を返す。空なら問題なし。i18n のキーの有無は i18n を import できない core の外（テスト）で確かめる
 import { GUESTS } from '../content/guests.ts';
 import { ORE_BY_ID, ORES } from '../content/ores.ts';

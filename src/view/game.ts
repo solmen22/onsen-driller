@@ -72,7 +72,9 @@ export function createView(parent: HTMLElement, bridge: ViewBridge): Promise<Vie
       const scale = game.scale.width > 0 ? r.width / game.scale.width : 1;
       return scene.toolScreenRect({ left: r.left, top: r.top }, scale);
     },
+    // テスト用（フックの view.loseContext）。テスト用フックのないビルドでは中身ごと落とす（本番に WEBGL_lose_context を残さない。レビュー N-7）
     loseContext: () => {
+      if (import.meta.env.VITE_TEST_HOOKS !== 'true') return false;
       const r = game.renderer;
       if (!(r instanceof Phaser.Renderer.WebGL.WebGLRenderer)) return false;
       loseExt = r.gl.getExtension('WEBGL_lose_context');
@@ -80,7 +82,7 @@ export function createView(parent: HTMLElement, bridge: ViewBridge): Promise<Vie
       return !!loseExt;
     },
     restoreContext: () => {
-      if (!loseExt) return false;
+      if (import.meta.env.VITE_TEST_HOOKS !== 'true' || !loseExt) return false;
       loseExt.restoreContext();
       return true;
     },
