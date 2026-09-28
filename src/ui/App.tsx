@@ -1,194 +1,110 @@
-// UI（Preact・DOM）: HUD・タブ・購入の一覧（PoC は「掘る」「湯宿」「設定」だけ中身がある）
-import { useState } from 'preact/hooks';
-import { incomePerSec, nextTool, num, quote, type GameState, type LevelItem, type Qty } from '../core/index.ts';
-import { TOOLS } from '../content/tools.ts';
-import type { SpringId } from '../content/springs.ts';
+// UI（Preact・DOM。arch §15・gdd §11-1）: HUD の帯・キャンバスの下端のボタン（BL-042）、タブと一覧（BL-043）
+// - 縦・横の配置は styles/global.css（#app の data-layout。判定は ui/layout.ts の layoutOf）
+// - タブは 5 つ（tab-1〜tab-5。クリックか 1〜5 キー）。S1 で中身があるのは T1 だけで、T2〜T5 は「準備中」（panel-placeholder。Q-09）
+// - 購入数（×1 → ×10 → 最大）は切り替えボタン（qty-toggle）か Shift。タブをまたいで共通で、保存しない（再読み込みで ×1）
+import { useEffect, useState } from 'preact/hooks';
+import type { Qty } from '../core/index.ts';
 import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
-import { formatNum } from './format.ts';
-import { useGame, useUi } from './hooks/useGame.ts';
+import { useUi } from './hooks/use-game.ts';
+import { Hud } from './hud/Hud.tsx';
+import { StageActions } from './hud/StageActions.tsx';
+import { keyCommand, nextQty, type TabNo } from './keys.ts';
+import { DigPanel } from './panels/DigPanel.tsx';
 
-type Tab = 'dig' | 'onsen' | 'upgrades' | 'prestige' | 'menu';
-const TABS: { id: Tab; key: TextKey; icon: string }[] = [
-  { id: 'dig', key: 'tab.dig', icon: '⛏' },
-  { id: 'onsen', key: 'tab.onsen', icon: '♨' },
-  { id: 'upgrades', key: 'tab.upgrades', icon: '⚙' },
-  { id: 'prestige', key: 'tab.prestige', icon: '✿' },
-  { id: 'menu', key: 'tab.menu', icon: '≡' },
+export type { TabNo } from './keys.ts';
+
+/** タブ（1＝掘る・2＝湯宿・3＝改良・4＝転生・5＝≡。data-testid は tab-<番号>。Q-17） */
+export const TABS: readonly { no: TabNo; key: TextKey; icon: string }[] = [
+  { no: 1, key: 'tab.dig', icon: '⛏' },
+  { no: 2, key: 'tab.onsen', icon: '♨' },
+  { no: 3, key: 'tab.upgrades', icon: '⚙' },
+  { no: 4, key: 'tab.prestige', icon: '✿' },
+  { no: 5, key: 'tab.menu', icon: '≡' },
 ];
 
-function Hud({ lang }: { lang: Lang }) {
-  const v = useGame((s) => ({
-    coins: formatNum(s.run.coins, lang),
-    perSec: formatNum(incomePerSec(s), lang),
-    depth: s.run.depth,
-    maxDepth: s.run.maxDepth,
-    hits: s.stats.hits,
-  }));
-  return (
-    <div class="hud" data-testid="hud">
-      <div class="hud-box">
-        <div class="hud-coins" data-testid="hud-coins">
-          <span class="coin-icon" aria-hidden="true" /> {v.coins}
-        </div>
-        <div class="hud-sub">
-          +{v.perSec} {t('hud.perSec')} · {t('hud.depth')} {v.depth}m
-        </div>
-      </div>
-      {v.hits === 0 && <div class="hint">{t('hud.tapHint')}</div>}
-    </div>
-  );
-}
+/** 購入の一覧があるタブ（購入数の切り替えを出す。S2 で湯宿〔2〕を足す） */
+const BUY_TABS: readonly TabNo[] = [1];
 
-function BuyRow(props: { item: LevelItem; label: string; level: number; qty: Qty; lang: Lang }) {
-  const { store } = useUi();
-  const q = useGame((s) => {
-    const r = quote(s, props.item, props.qty);
-    return r ? { n: r.n, cost: formatNum(r.cost, props.lang), ok: r.cost.lte(s.run.coins) } : null;
-  });
-  if (!q) return null;
-  return (
-    <button
-      class={`row ${q.ok ? 'ok' : 'ng'}`}
-      data-testid={`buy-${props.item.replace(':', '-')}`}
-      aria-disabled={!q.ok}
-      onClick={() => store.dispatch({ type: 'buy', item: props.item, qty: props.qty })}
-    >
-      <span class="row-name">
-        {props.label} <small>{t('buy.level', { n: props.level })}</small>
-      </span>
-      <span class="row-cost">
-        {props.qty !== 1 && `×${q.n} `}
-        {t('buy.cost', { cost: q.cost })}
-      </span>
-    </button>
-  );
-}
-
-function ToolRow({ lang }: { lang: Lang }) {
-  const { store } = useUi();
-  const v = useGame((s) => {
-    const cur = TOOLS[s.run.drill.tool];
-    const nt = nextTool(s);
-    const future = TOOLS[s.run.drill.tool + 1];
-    return {
-      cur: cur?.id ?? 'shovel',
-      next: nt?.id ?? null,
-      cost: nt ? formatNum(num(nt.cost), lang) : '',
-      ok: nt ? s.run.coins.gte(nt.cost) : false,
-      lockedAt: !nt && future ? future.unlockDepth : null,
-    };
-  });
-  return (
-    <button
-      class={`row ${v.ok ? 'ok' : 'ng'}`}
-      data-testid="buy-tool"
-      aria-disabled={!v.ok}
-      onClick={() => store.dispatch({ type: 'buy', item: 'tool', qty: 1 })}
-    >
-      <span class="row-name">
-        {t('item.tool')} <small>{t(`tool.${v.cur}` as TextKey)}</small>
-      </span>
-      <span class="row-cost">
-        {v.next ? `→ ${t(`tool.${v.next}` as TextKey)} ${t('buy.cost', { cost: v.cost })}` : v.lockedAt !== null ? `${t('buy.locked')} (${v.lockedAt}m)` : t('buy.maxed')}
-      </span>
-    </button>
-  );
-}
-
-function DigTab({ qty, lang }: { qty: Qty; lang: Lang }) {
-  const { store } = useUi();
-  const v = useGame((s) => ({ drill: s.run.drill.level, auto: s.run.autoDig.level, on: s.run.autoDig.on }));
-  return (
-    <div class="list">
-      <ToolRow lang={lang} />
-      <BuyRow item="drill" label={t('item.drill')} level={v.drill} qty={qty} lang={lang} />
-      <BuyRow item="autoDigger" label={t('item.autoDigger')} level={v.auto} qty={qty} lang={lang} />
-      <button class="row toggle" data-testid="toggle-autodig" aria-pressed={v.on} onClick={() => store.dispatch({ type: 'setAutoDig', on: !v.on })}>
-        <span class="row-name">{t('item.autoDig')}</span>
-        <span class="row-cost">{v.on ? t('state.on') : t('state.off')}</span>
-      </button>
-    </div>
-  );
-}
-
-function OnsenTab({ qty, lang }: { qty: Qty; lang: Lang }) {
-  const v = useGame((s: GameState) => ({
-    bath: s.run.bath.level,
-    slots: s.run.bath.slots.join(','),
-    springs: Object.entries(s.run.springs)
-      .map(([id, sp]) => `${id}:${sp?.pump ?? 0}`)
-      .join(','),
-  }));
-  const springs = v.springs ? v.springs.split(',').map((x) => x.split(':') as [SpringId, string]) : [];
-  return (
-    <div class="list">
-      <div class="slots" data-testid="slots">
-        <span>{t('slot.title')}:</span>
-        {v.slots.split(',').map((id, i) => (
-          <span class="slot" key={i}>
-            {id ? t(`spring.${id}` as TextKey) : t('slot.empty')}
-          </span>
-        ))}
-      </div>
-      <BuyRow item="bath" label={t('item.bath')} level={v.bath} qty={qty} lang={lang} />
-      {springs.length === 0 && <p class="note">{t('onsen.none')}</p>}
-      {springs.map(([id, lv]) => (
-        <BuyRow key={id} item={`pump:${id}`} label={`${t('item.pump')}: ${t(`spring.${id}` as TextKey)}`} level={Number(lv)} qty={qty} lang={lang} />
-      ))}
-    </div>
-  );
-}
-
-function MenuTab({ lang, onLang }: { lang: Lang; onLang: (l: Lang) => void }) {
+/** S1 で中身のないタブ（T2〜T5）の仮の表示（Q-09）。T5 だけ言語の切り替えと版を残す（設定の本体は S3 の BL-045） */
+function Placeholder({ tab, lang, onLang }: { tab: TabNo; lang: Lang; onLang: (l: Lang) => void }) {
   const { platform, version } = useUi();
   return (
     <div class="list">
-      <button class="row" data-testid="lang-toggle" onClick={() => onLang(lang === 'ja' ? 'en' : 'ja')}>
-        <span class="row-name">{t('menu.lang')}</span>
-        <span class="row-cost">{lang === 'ja' ? '日本語' : 'English'}</span>
-      </button>
-      <p class="note">
-        {t('menu.version')}: {version} · {t('menu.target')}: {platform.target}
+      <p class="note placeholder" data-testid="panel-placeholder">
+        {t(TABS[tab - 1]?.key ?? 'tab.menu')}: {t('panel.soon')}
       </p>
+      {tab === 5 && (
+        <>
+          <button class="row" type="button" data-testid="lang-toggle" onClick={() => onLang(lang === 'ja' ? 'en' : 'ja')}>
+            <span class="row-name">{t('menu.lang')}</span>
+            <span class="row-cost">{lang === 'ja' ? '日本語' : 'English'}</span>
+          </button>
+          <p class="note">
+            {t('menu.version')}: {version} · {t('menu.target')}: {platform.target}
+          </p>
+        </>
+      )}
     </div>
+  );
+}
+
+/** 購入数の切り替えボタン（×1 → ×10 → 最大 → ×1。data-qty に今の値） */
+function QtyToggle({ qty, onNext }: { qty: Qty; onNext: () => void }) {
+  return (
+    <button type="button" class="qty-btn" data-testid="qty-toggle" data-qty={String(qty)} aria-label={t('buy.qty')} title={t('buy.qty')} onClick={onNext}>
+      <span class="qty-label">{t('buy.qty')}</span>
+      <span class="qty-value">{qty === 'max' ? t('buy.max') : `×${qty}`}</span>
+    </button>
   );
 }
 
 export function App() {
-  const [tab, setTab] = useState<Tab>('dig');
+  const { onLangChange } = useUi();
+  const [tab, setTab] = useState<TabNo>(1);
   const [qty, setQty] = useState<Qty>(1);
   const [lang, setLangState] = useState<Lang>(getLang());
   const onLang = (l: Lang): void => {
     setLang(l);
     setLangState(l);
+    onLangChange?.(l);
   };
+
+  // キー操作（1〜5 でタブ、Shift で購入数）。Space・矢印は app/input.ts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const c = keyCommand(e);
+      if (c?.kind === 'tab') setTab(c.tab);
+      else if (c?.kind === 'cycleQty') setQty(nextQty);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <>
-      <Hud lang={lang} />
+      <Hud lang={lang} onSettings={() => setTab(5)} />
+      <StageActions />
       <section class="panel" data-testid="panel">
         <nav class="tabs" role="tablist">
           {TABS.map((x) => (
-            <button key={x.id} role="tab" class="tab" aria-selected={tab === x.id} data-testid={`tab-${x.id}`} onClick={() => setTab(x.id)}>
+            <button
+              key={x.no}
+              type="button"
+              role="tab"
+              class="tab"
+              aria-selected={tab === x.no}
+              data-testid={`tab-${x.no}`}
+              title={`${t(x.key)} (${x.no})`}
+              onClick={() => setTab(x.no)}
+            >
               <span aria-hidden="true">{x.icon}</span>
               <span class="tab-label">{t(x.key)}</span>
             </button>
           ))}
         </nav>
-        <div class="panel-body">
-          {(tab === 'dig' || tab === 'onsen') && (
-            <div class="qty" role="group">
-              {([1, 10, 'max'] as Qty[]).map((q) => (
-                <button key={String(q)} class="qty-btn" aria-pressed={qty === q} data-testid={`qty-${q}`} onClick={() => setQty(q)}>
-                  {q === 'max' ? t('buy.max') : `×${q}`}
-                </button>
-              ))}
-            </div>
-          )}
-          {tab === 'dig' && <DigTab qty={qty} lang={lang} />}
-          {tab === 'onsen' && <OnsenTab qty={qty} lang={lang} />}
-          {tab === 'upgrades' && <p class="note">{t('upgrades.soon')}</p>}
-          {tab === 'prestige' && <p class="note">{t('prestige.soon')}</p>}
-          {tab === 'menu' && <MenuTab lang={lang} onLang={onLang} />}
+        <div class="panel-body" role="tabpanel">
+          {BUY_TABS.includes(tab) && <QtyToggle qty={qty} onNext={() => setQty(nextQty)} />}
+          {tab === 1 ? <DigPanel qty={qty} lang={lang} /> : <Placeholder tab={tab} lang={lang} onLang={onLang} />}
         </div>
       </section>
     </>

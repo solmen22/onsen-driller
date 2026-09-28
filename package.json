@@ -4,8 +4,9 @@
   "private": true,
   "description": "Onsen Driller (working title) - incremental web game",
   "type": "module",
+  "packageManager": "npm@11.13.0",
   "engines": {
-    "node": ">=24"
+    "node": ">=24 <25"
   },
   "scripts": {
     "dev": "vite --mode web",
@@ -22,7 +23,7 @@
     "build:itch": "vite build --mode itch",
     "build:poki": "vite build --mode poki",
     "build:all": "npm run build:web && npm run build:crazygames && npm run build:itch && npm run build:poki",
-    "build:e2e": "vite build --mode e2e && vite build --mode e2e-crazygames && vite build --mode e2e-poki",
+    "build:e2e": "vite build --mode e2e && vite build --mode e2e-crazygames",
     "check:size": "node scripts/check-size.mjs",
     "check:assets": "node scripts/check-assets.mjs",
     "test:checks": "node --test scripts/check-selftest.mjs",
@@ -48,6 +49,7 @@
     "eslint": "10.11.0",
     "fast-check": "4.10.2",
     "globals": "17.12.0",
+    "jsdom": "30.1.1",
     "subset-font": "2.9.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.70.1",

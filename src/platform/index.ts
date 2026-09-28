@@ -14,9 +14,10 @@ export async function loadPlatform(): Promise<Platform> {
     const m = await import('./poki.ts');
     return m.createPokiPlatform({ getSdk: () => window.PokiSDK });
   }
-  if (target === 'dev') {
+  // dev（開発）と、偽の広告を使う e2e（target は web のまま）
+  if (target === 'dev' || import.meta.env.VITE_FAKE_ADS === 'true') {
     const m = await import('./dev.ts');
-    return m.createDevPlatform();
+    return m.createDevPlatform({ target: target === 'itch' ? 'itch' : target === 'dev' ? 'dev' : 'web' });
   }
   const m = await import('./web.ts');
   return m.createWebPlatform(target === 'itch' ? 'itch' : 'web');

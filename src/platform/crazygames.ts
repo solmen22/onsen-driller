@@ -125,13 +125,9 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
       if (s.data) {
         const d = s.data;
         storage = {
-          get: (k) => {
-            try {
-              return d.getItem(k);
-            } catch {
-              return null;
-            }
-          },
+          kind: 'sdk',
+          // 読めないときは例外をそのまま投げる（「ない」＝null と区別する。KeyValueStore.get の約束。レビュー S-1）
+          get: (k) => d.getItem(k),
           set: (k, v) => {
             try {
               d.setItem(k, v);

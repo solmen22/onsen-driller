@@ -1,6 +1,8 @@
 // シミュレーターの本体（Node・テストの両方から使う）。時刻は now を注入する（決定論の lint の対象）
 import {
+  autoDigUnlocked,
   createInitialState,
+  dispatch,
   isHealthy,
   stateHash,
   step,
@@ -45,6 +47,7 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
   const events: GameEvent[] = [];
   let nextAct = 0;
   let steps = 0;
+  let tapAcc = 0;
   let healthy = true;
   const minuteSteps = Math.max(1, Math.round(60_000 / opt.stepMs));
   let earlyUs = 0;
@@ -61,6 +64,13 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
     step(s, opt.stepMs, events);
     if (steps < minuteSteps) earlyUs += (now() - a) * 1000;
     else if (steps >= lateFrom) lateUs += (now() - a) * 1000;
+    // 自動掘りが使えるまでは手で叩く（ステップの終わりの時刻に、等間隔のタップ）
+    if (bot.tapsUntilAuto > 0 && !autoDigUnlocked(s)) {
+      tapAcc += (bot.tapsUntilAuto * opt.stepMs) / 1000;
+      const n = Math.floor(tapAcc + 1e-9);
+      tapAcc -= n;
+      if (n > 0) dispatch(s, { type: 'tap', count: n });
+    }
     events.length = 0;
     steps++;
     if ((steps & 1023) === 0 && !(isHealthy(s.run.coins) && isHealthy(s.stats.totalCoins))) healthy = false;
@@ -76,7 +86,7 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
     hash: stateHash(s),
     bestDepth: s.stats.bestDepth,
     prestiges: s.meta.prestiges,
-    yunohana: s.meta.yunohanaLifetime.toString(),
+    yunohana: s.meta.yunohana.lifetime.toString(),
     totalCoins: s.stats.totalCoins.toString(),
     coins: s.run.coins.toString(),
     healthy,

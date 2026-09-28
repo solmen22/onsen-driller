@@ -10,11 +10,15 @@
 | 素材名 | ファイル名 | 区分 | 入手元 | ライセンス | 改変の有無 | ツール／モデル／プラン | 生成日 | プロンプトの要旨 | 人の修正の有無 |
 |---|---|---|---|---|---|---|---|---|---|
 | アトラス（下の行の絵をまとめたもの） | `atlas.png` | コードで描画 | `scripts/build-art.mjs` が `assets-src/sprites/` の画素配列から生成 | 自作（本プロダクトの権利） | — | AI エージェント（Claude）が画素配列を記述 | 2026-09-28 | —（画像生成 AI は不使用） | なし |
-| tile-topsoil・tile-clay・tile-sandstone・tile-tuff（16×16） | `atlas.png` | コードで描画 | `assets-src/sprites/tiles.ts` の画素配列 | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| 地層タイル tile-topsoil・clay・sandstone・tuff・granite・basalt の -0〜-3（6 帯 × 4 種、16×16） | `atlas.png` | コードで描画 | 帯 1〜4 は `assets-src/sprites/tiles.ts` の手で打った画素配列、帯 5・6 と変化形（ずらし・反転・粒）は `assets-src/sprites/strata.ts` が決まった擬似乱数で生成 | 自作 | 帯 1〜4 の元の絵から変化形を作った | 同上 | 2026-09-28 | — | なし |
 | tool-shovel・tool-pickaxe（24×24） | `atlas.png` | コードで描画 | `assets-src/sprites/objects.ts`（Grid の線・楕円＋画素） | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| 道具の仮の絵 tool-yagura・tool-boring・tool-bigdrill・tool-geodrill・tool-giantdrill・tool-legenddrill（24×24。S1 の仮。本番の絵は S4） | `atlas.png` | コードで描画 | `assets-src/sprites/props.ts`（Grid の線・矩形・円錐） | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| ひび crack-1〜crack-4（16×16） | `atlas.png` | コードで描画 | `assets-src/sprites/props.ts` | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| 飾り deco-pebble・deco-root・deco-fossil・deco-crystal・deco-lava（16×16） | `atlas.png` | コードで描画 | `assets-src/sprites/props.ts` | 自作 | — | 同上 | 2026-09-28 | — | なし |
+| 鉱石のきらめき ore-gem・源泉の気配 spring-hint（16×16。鉱石の色は描画で付ける） | `atlas.png` | コードで描画 | `assets-src/sprites/props.ts` | 自作 | — | 同上 | 2026-09-28 | — | なし |
 | guest-tanuki（24×24） | `atlas.png` | コードで描画 | 同上。他作品のキャラクターを参照していない | 自作 | — | 同上 | 2026-09-28 | — | なし |
 | bath-tub（48×24） | `atlas.png` | コードで描画 | 同上 | 自作 | — | 同上 | 2026-09-28 | — | なし |
 | パーティクル p-chip・p-steam・p-spark・p-coin（8×8） | `atlas.png` | コードで描画 | 同上 | 自作 | — | 同上 | 2026-09-28 | — | なし |
 | パレット（32 色） | — | 自作 | `assets-src/palette.json` | 自作 | — | — | 2026-09-28 | — | — |
-| DotGothic16 サブセット | `dotgothic16-subset.woff2` | フォント（OFL） | https://github.com/google/fonts/tree/main/ofl/dotgothic16 （原作 https://github.com/fontworks-fonts/DotGothic16） | SIL OFL 1.1（`LICENSES/OFL-DotGothic16.txt`） | 使用文字だけにサブセット（`scripts/subset-font.mjs`） | subset-font 2.9.0（harfbuzz） | 2026-09-28 取得 | — | なし |
+| DotGothic16 サブセット | `dotgothic16-subset.woff2` | フォント（OFL） | https://github.com/google/fonts/tree/main/ofl/dotgothic16 （原作 https://github.com/fontworks-fonts/DotGothic16） | SIL OFL 1.1（`LICENSES/OFL-DotGothic16.txt`） | 使用文字だけにサブセット（`scripts/subset-font.mjs`。2026-09-28 に帯・鉱石の名前などを足して作り直した。同日、HUD・購入ボタンの文言を足して作り直した） | subset-font 2.9.0（harfbuzz） | 2026-09-28 取得 | — | なし |
 | 効果音（打撃・破壊） | —（音声ファイルなし） | コードで生成（効果音など） | ZzFX のパラメータ（`src/audio/sfx.ts`） | ZzFX は MIT | — | — | 2026-09-28 | — | なし |

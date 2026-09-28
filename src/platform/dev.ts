@@ -7,7 +7,8 @@ export interface DevPlatform extends Platform {
   setAdResult(r: RewardResult): void;
 }
 
-export function createDevPlatform(adMs = 800): DevPlatform {
+export function createDevPlatform(opts: { adMs?: number; target?: 'dev' | 'web' | 'itch' } = {}): DevPlatform {
+  const adMs = opts.adMs ?? 800;
   const log = new CallLog();
   const playingL = new Listeners<boolean>();
   const gate = gameplayGate(log, () => {}, () => {});
@@ -27,7 +28,7 @@ export function createDevPlatform(adMs = 800): DevPlatform {
       }, adMs);
     });
   return {
-    target: 'dev',
+    target: opts.target ?? 'dev',
     init: async () => {
       log.push('init');
       return Promise.resolve();
