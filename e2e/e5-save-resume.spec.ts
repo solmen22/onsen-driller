@@ -183,9 +183,16 @@ test.describe('E5 保存と再開', () => {
     needs('hook:seed', 'hook:advance.input', 'feature:twoSlotSave', 'feature:tickets');
     const { g } = await prepare(page, harness);
     await threeSaves(page, harness, g);
+    // 4 回目の保存で新しいほうを b にする（3 回では新しいほうがいつも a で、「読めなければ a」と見分けられない。レビュー N-2）
+    await triggerAutosave(page);
     const slots = await readSlots(page.context(), harness.origin);
+    const newer = newerOlder(slots).newer;
+    expect(newer, '4 回目の保存（a → b → a → b）で新しいほうは b').toBe('b');
     const half = (raw: string | null): string => (raw ?? '').slice(0, Math.floor((raw ?? '').length / 2));
     const broken = { a: half(slots.a.raw), b: half(slots.b.raw) };
+    // 途中で切った文字列にも seq が残る（封筒の先頭のほうのキー）ので、仕様の「seq の大きいほう」で退避先は一意に決まる
+    expect(broken.a).toContain('"seq":');
+    expect(broken.b).toContain('"seq":');
     const reopened = await reopenWithStorage(harness, page.context(), (ls) => {
       ls.set(SLOT_KEYS.a, broken.a);
       ls.set(SLOT_KEYS.b, broken.b);
@@ -206,9 +213,8 @@ test.describe('E5 保存と再開', () => {
     await triggerAutosave(reopened.page);
     const ls = await readLocalStorage(reopened.context, harness.origin);
     const backup = ls.get(BROKEN_SLOT_KEY) ?? null;
-    const newer = newerOlder(slots).newer;
     test.info().annotations.push({ type: '退避した枠', description: backup === broken.a ? 'a' : backup === broken.b ? 'b' : String(backup?.slice(0, 20)) });
-    expect([broken[newer], broken.a], 'seq の大きそうなほう（読めなければ a）を退避する').toContain(backup);
+    expect(backup, 'seq の大きいほう（b）の壊れた文字列を 1 つだけ退避する').toBe(broken[newer]);
     const after = await readSlots(reopened.context, harness.origin);
     expect(after.a.env, 'その後は a から書く').not.toBeNull();
     expect(after.a.env!.seq).toBe(1);

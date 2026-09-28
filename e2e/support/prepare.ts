@@ -17,7 +17,7 @@ export async function prepareSaveState(page: Page, harness: Harness): Promise<{ 
   await g.pause(); // seed が新しいゲームでループを動かし直す実装でも、ロジックは止めたままにする
   await g.advance(30_000, { tapsPerSec: 2 });
   expect((await g.dispatch({ type: 'buy', item: 'tool', qty: 1 })).ok).toBe(true);
-  await g.dispatch({ type: 'setAutoDig', on: true });
+  expect((await g.dispatch({ type: 'setAutoDig', on: true })).ok).toBe(true);
   await g.advance(30_000);
   return { g, base: await readSlots(page.context(), harness.origin) };
 }

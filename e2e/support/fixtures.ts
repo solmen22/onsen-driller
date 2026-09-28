@@ -5,7 +5,19 @@
 // - テストの開始時に、ストレージと Cookie が空であることを確かめる（TS-073-04。前のテストの保存が漏れない）
 // - harness.newContext(): 同じ設定の context を追加で開く（storageState を書き換えて開き直す E5・E9 用）。見張りも付く
 import { test as base, expect, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from '@playwright/test';
-import { CommonCheckError, ContextMonitor, localStorageKeys, type Violation } from './privacy.ts';
+import { CommonCheckError, ContextMonitor, localStorageKeys, type CheckId, type Violation } from './privacy.ts';
+
+/** 自己テストが期待した違反を、共通の検査が検出しなかった（検査が効いていない＝偽の緑のおそれ） */
+export class ExpectedViolationMissingError extends Error {
+  constructor(missing: readonly CheckId[], found: readonly Violation[]) {
+    super(
+      `期待した違反（${missing.join('・')}）が共通の検査で検出されませんでした。検出した違反: ${
+        found.length > 0 ? found.map((v) => `${v.check} ${v.detail}`).join(' / ') : 'なし'
+      }`,
+    );
+    this.name = 'ExpectedViolationMissingError';
+  }
+}
 
 export class Harness {
   private readonly monitors: ContextMonitor[] = [];
@@ -60,10 +72,17 @@ export class Harness {
     return all;
   }
 
-  /** 共通の検査（TS-COM-01〜04）。違反があれば CommonCheckError を投げる */
-  async assertCommonChecks(): Promise<void> {
+  /**
+   * 共通の検査（TS-COM-01〜04）。違反があれば CommonCheckError を投げる。
+   * expected（偽の緑を防ぐ自己テスト TS-COM-08 だけが使う）: その ID の違反が 1 件も無ければ ExpectedViolationMissingError、
+   * それ以外の ID の違反があれば CommonCheckError を投げる（通信と無関係な失敗では通らない。PR #4 のレビュー S-1）
+   */
+  async assertCommonChecks(expected: readonly CheckId[] = []): Promise<void> {
     const v = await this.violations();
-    if (v.length > 0) throw new CommonCheckError(v);
+    const missing = expected.filter((id) => !v.some((x) => x.check === id));
+    if (missing.length > 0) throw new ExpectedViolationMissingError(missing, v);
+    const unexpected = v.filter((x) => !expected.includes(x.check));
+    if (unexpected.length > 0) throw new CommonCheckError(unexpected);
   }
 
   /** 見張りから外して閉じる（偽の緑の自己テストで、わざと違反を起こした context を片付ける） */
@@ -89,6 +108,12 @@ export class Harness {
 interface Fixtures {
   /** 通信の許可リスト（オリジン）。既定は同一オリジンだけ（e2e-web）。S2 の e2e-crazygames で sdk.crazygames.com を足す */
   allowedOrigins: string[];
+  /**
+   * このテストの終わりの共通の検査で「検出されるはずの違反」（既定は空＝違反 0 件が合格）。
+   * 偽の緑を防ぐ自己テスト（TS-COM-08）だけが test.use で指定する。指定した ID が検出されなければ失敗、
+   * ほかの ID の違反があっても失敗（test.fail と違い、通信と無関係な理由の失敗では通らない）
+   */
+  expectViolations: CheckId[];
   harness: Harness;
 }
 
@@ -99,9 +124,10 @@ export const test = base.extend<Fixtures>({
     },
     { option: true },
   ],
+  expectViolations: [[], { option: true }],
   harness: [
     async (
-      { browser, context, page, baseURL, viewport, locale, isMobile, hasTouch, deviceScaleFactor, userAgent, timezoneId, allowedOrigins },
+      { browser, context, page, baseURL, viewport, locale, isMobile, hasTouch, deviceScaleFactor, userAgent, timezoneId, allowedOrigins, expectViolations },
       use,
     ) => {
       if (!baseURL) throw new Error('baseURL がありません（playwright.config.ts）');
@@ -121,8 +147,8 @@ export const test = base.extend<Fixtures>({
       void page; // 既定のページを検査の後まで開いておく（document.cookie を読むため）
       await use(h);
       try {
-        // TS-E1-17・TS-E9-13 ほか: すべての E2E の後の共通の検査
-        await h.assertCommonChecks();
+        // TS-E1-17・TS-E9-13 ほか: すべての E2E の後の共通の検査（TS-COM-08 の自己テストは期待した違反だけを許す）
+        await h.assertCommonChecks(expectViolations);
       } finally {
         await h.dispose();
       }

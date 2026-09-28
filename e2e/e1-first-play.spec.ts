@@ -16,6 +16,8 @@ import { recordedKeydowns } from './support/privacy.ts';
 import { SEED_A, SEED_B } from '../tests/helpers/seeds.ts';
 
 const PICKAXE_COST = 3; // gdd §5-3・content/tools.ts（ツルハシ 3 コイン）
+/** 画面で叩いてツルハシの代金をためる回数（必要な打撃は 29〔Q-02〕。叩いた数が落ちたら購入の前の expect で気づく。レビュー N-1） */
+const TAPS_FOR_PICKAXE = 32;
 
 /** advance(500, {tapsPerSec: 2}) を繰り返し、コインが 3 以上になった時刻 t（ms）を返す（最大 40 回＝20 秒） */
 async function timeToPickaxe(g: Hooks): Promise<number | null> {
@@ -184,6 +186,8 @@ test.describe('E1 初回起動 → 最初の強化', () => {
     expect(evolved).toHaveLength(1);
     await page.clock.runFor(250);
     await expect(page.getByTestId('hud-coins')).not.toHaveText(hudBefore);
+    // HUD の値（data-value。Q-17: 表示の文字ではなく data-* で判定）が購入後の getState() のコインと同じ（レビュー N-3）
+    expect(Number(await page.getByTestId('hud-coins').getAttribute('data-value'))).toBeCloseTo(coinsOf(after), 9);
     const toggle = page.getByTestId('toggle-auto-dig');
     await expect(toggle).toBeEnabled();
     await expect(toggle).toHaveAttribute('data-state', 'off');
@@ -273,9 +277,11 @@ test.describe('E1 初回起動 → 最初の強化', () => {
 
   test('TS-E1-13 E1 の一連の操作で、ページの例外と console.error が 0 件', async ({ page, harness }) => {
     const g = await bootGame(page);
-    await tapUnderground(page, 30); // 画面の操作だけでツルハシの代金をためる
+    await tapUnderground(page, TAPS_FOR_PICKAXE); // 画面の操作だけでツルハシの代金をためる
     await page.clock.runFor(250);
-    if (coinsOf(await g.getState()) >= PICKAXE_COST) await page.getByTestId('buy-tool').click();
+    expect(coinsOf(await g.getState()), '画面で叩いてツルハシの代金がたまる').toBeGreaterThanOrEqual(PICKAXE_COST);
+    await page.getByTestId('buy-tool').click();
+    expect((await g.getState()).run.drill.tool).toBe(1);
     for (const tab of await page.getByRole('tab').all()) {
       await tab.click();
       await page.clock.runFor(200);
@@ -288,7 +294,7 @@ test.describe('E1 初回起動 → 最初の強化', () => {
   test('TS-E1-13 E1 の一連の操作で、__game.errors() が 0 件', async ({ page }) => {
     needs('hook:errors');
     const g = await bootGame(page);
-    await tapUnderground(page, 30);
+    await tapUnderground(page, TAPS_FOR_PICKAXE);
     await page.clock.runFor(2_000);
     expect(await g.errors()).toEqual([]);
   });
@@ -306,7 +312,14 @@ test.describe('E1 初回起動 → 最初の強化', () => {
       { name: '390x844', width: 390, height: 844, touch: true },
     ]) {
       test.describe(vp.name, () => {
-        test.use({ viewport: { width: vp.width, height: vp.height }, hasTouch: vp.touch });
+        test.use({
+          viewport: { width: vp.width, height: vp.height },
+          hasTouch: vp.touch,
+          // シナリオ: 390×844 は hasTouch・isMobile。Playwright の isMobile は Firefox では使えないので、そこだけ外す（レビュー N-4）
+          isMobile: async ({ browserName }, use) => {
+            await use(vp.touch && browserName !== 'firefox');
+          },
+        });
         test(`TS-E1-15 ${vp.name}: 0 クリックでゲーム画面、最初のタップで 1 打、ツルハシを画面で買える`, async ({ page }) => {
           needs('hook:seed', 'hook:rect', 'hook:advance.input', 'feature:buyState');
           const g = await bootGame(page, { seed: SEED_A });
@@ -334,9 +347,11 @@ test.describe('E1 初回起動 → 最初の強化', () => {
 
   test('TS-E1-17 E1 の一連の操作の後、共通の検査（通信・Cookie・キー名）がすべて合格', async ({ page, harness }) => {
     const g = await bootGame(page);
-    await tapUnderground(page, 30);
+    await tapUnderground(page, TAPS_FOR_PICKAXE);
     await page.clock.runFor(250);
-    if (coinsOf(await g.getState()) >= PICKAXE_COST) await page.getByTestId('buy-tool').click();
+    expect(coinsOf(await g.getState()), '画面で叩いてツルハシの代金がたまる').toBeGreaterThanOrEqual(PICKAXE_COST);
+    await page.getByTestId('buy-tool').click();
+    expect((await g.getState()).run.drill.tool).toBe(1);
     await triggerAutosave(page);
     await harness.assertCommonChecks();
   });

@@ -3,10 +3,10 @@
 // このファイルでは、代表の遊び方の後に同じ検査を目に見える形で行い、検査そのものが効くこと（偽の緑でないこと。TS-COM-08）を確かめる。
 // PR: TS-COM-01〜04・08（S1）。毎晩: TS-COM-05（BL-089）。保留: TS-COM-07・09（S4）。
 // 欠番: TS-COM-06（BL-007 の TS-007-10 の静的検査に統合）、TS-073-08（TS-COM-08 に統合）。
-import { test, expect } from './support/fixtures.ts';
+import { test, expect, ExpectedViolationMissingError } from './support/fixtures.ts';
 import { bootGame, reloadGame, tapUnderground, triggerAutosave } from './support/boot.ts';
 import { later } from './support/gaps.ts';
-import { CommonCheckError } from './support/privacy.ts';
+import { CommonCheckError, localStorageKeys, NET_JOURNAL_KEY } from './support/privacy.ts';
 
 /** 代表の遊び方: 叩く → タブを一巡 → 自動保存 → 再読み込み（画面の操作だけ。フックの不足に左右されない） */
 async function playTypicalSession(page: import('@playwright/test').Page): Promise<void> {
@@ -56,22 +56,54 @@ test.describe('共通の検査（通信・Cookie・キー名）', () => {
   });
 });
 
-test.describe('TS-COM-08 偽の緑を防ぐ自己テスト（「失敗するのが正しい」テスト）', () => {
-  test('TS-COM-08 (a) 外部への fetch を入れると、テストの終わりの検査（TS-COM-01）で失敗する', async ({ page }) => {
-    test.fail(true, 'TS-COM-08 (a): 許可リスト外への通信を入れたので、テストの終わりの共通の検査（TS-COM-01）で失敗するのが正しい');
-    await bootGame(page);
-    await page.evaluate(() => fetch('https://example.com/x').catch(() => {}));
-    // 本体の中ではほかに失敗の原因を作らない（失敗の理由がテストの終わりの検査だけになるように）
-    expect(await page.evaluate(() => 1 + 1)).toBe(2);
+// (a)(b)(c) は、テストの終わりの共通の検査（harness の後片付け。すべての E2E と同じ経路）が、指定した ID の違反を検出したときだけ通る
+// （test.use の expectViolations。検出されなければ「期待した違反が検出されなかった」で失敗し、ほかの ID の違反や、
+// 本体の別の例外でも失敗する。以前の test.fail は理由を問わず「期待どおりの失敗」にしていた。PR #4 のレビュー S-1）
+test.describe('TS-COM-08 偽の緑を防ぐ自己テスト（共通の検査が違反を検出することの確認）', () => {
+  test.describe('(a)', () => {
+    test.use({ expectViolations: ['TS-COM-01'] });
+    test('TS-COM-08 (a) 外部への fetch を入れると、テストの終わりの検査が TS-COM-01 の違反を検出する', async ({ page }) => {
+      await bootGame(page);
+      await page.evaluate(() => fetch('https://example.com/x').catch(() => {}));
+    });
   });
 
-  test('TS-COM-08 (b) 外部への WebSocket を開くと、テストの終わりの検査（TS-COM-02）で失敗する', async ({ page }) => {
-    test.fail(true, 'TS-COM-08 (b): WebSocket を開いたので、テストの終わりの共通の検査（TS-COM-02）で失敗するのが正しい');
-    await bootGame(page);
-    await page.evaluate(() => {
-      new WebSocket('wss://example.com/ws');
+  test.describe('(b)', () => {
+    test.use({ expectViolations: ['TS-COM-02'] });
+    test('TS-COM-08 (b) 外部への WebSocket を開くと、テストの終わりの検査が TS-COM-02 の違反を検出する', async ({ page }) => {
+      await bootGame(page);
+      await page.evaluate(() => {
+        new WebSocket('wss://example.com/ws');
+      });
     });
-    expect(await page.evaluate(() => 1 + 1)).toBe(2);
+  });
+
+  test.describe('(c)', () => {
+    test.use({ expectViolations: ['TS-COM-01', 'TS-COM-02'] });
+    test('TS-COM-08 (c) ページを離れるとき（pagehide）のビーコン・keepalive の fetch・画像を外部へ送って再読み込みすると、テストの終わりの検査が検出する（M-1）', async ({ page, harness }) => {
+      // pagehide の送信は context.on('request')・context.route に来ない（レビュー M-1 の P3a）。ページの記録（sessionStorage）で拾う
+      await bootGame(page);
+      await page.evaluate(() => {
+        addEventListener('pagehide', () => {
+          navigator.sendBeacon('https://example.com/unload-beacon', 'x');
+          void fetch('https://example.com/unload-keepalive', { method: 'POST', body: 'x', keepalive: true }).catch(() => {});
+          new Image().src = 'https://example.com/unload-image.png';
+        });
+      });
+      await reloadGame(page);
+      const v = await harness.violations();
+      // 3 つとも、送り先と種類まで正しく数えている（テストの終わりの検査はこれと同じ関数）
+      expect(v).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ check: 'TS-COM-02', detail: expect.stringContaining('https://example.com/unload-beacon') }),
+          expect.objectContaining({ check: 'TS-COM-01', detail: expect.stringContaining('https://example.com/unload-keepalive') }),
+          expect.objectContaining({ check: 'TS-COM-01', detail: expect.stringContaining('https://example.com/unload-image.png') }),
+        ]),
+      );
+      // 記録のキーは sessionStorage の onsen-driller: の接頭辞（localStorage には書かないので TS-COM-04 と矛盾しない）
+      expect(await page.evaluate(() => Object.keys(sessionStorage))).toContain(NET_JOURNAL_KEY);
+      expect((await localStorageKeys(page.context())).map((k) => k.name).filter((k) => k === NET_JOURNAL_KEY)).toEqual([]);
+    });
   });
 
   test('TS-COM-08 補助: 失敗の中身が正しい（どの検査が、どの要求・値で違反としたか）', async ({ harness }) => {
@@ -100,7 +132,11 @@ test.describe('TS-COM-08 偽の緑を防ぐ自己テスト（「失敗するの�
     );
     // テストの終わりに使う関数と同じもので失敗になる
     await expect(harness.assertCommonChecks()).rejects.toThrow(CommonCheckError);
+    // expectViolations（S-1）: 期待した ID のほかに違反があれば失敗する（TS-COM-02〜04 が残っている）
+    await expect(harness.assertCommonChecks(['TS-COM-01'])).rejects.toThrow(CommonCheckError);
     await harness.release(ctx);
     await expect(harness.assertCommonChecks()).resolves.toBeUndefined();
+    // expectViolations（S-1）: 期待した違反が検出されなければ失敗する（違反 0 件の context で TS-COM-01 を期待する）
+    await expect(harness.assertCommonChecks(['TS-COM-01'])).rejects.toThrow(ExpectedViolationMissingError);
   });
 });

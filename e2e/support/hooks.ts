@@ -1,7 +1,6 @@
 // テスト用フック window.__game を Node 側から呼ぶための型付きの薄い包み（arch §8-4・BL-071）。
 // ここに書く API は設計書どおり。いまのビルドに無いものは gaps.ts の KNOWN_GAPS に載せ、使うテストを保留にする。
 import type { Page } from '@playwright/test';
-import { blockHp, deserializeState, drillPower } from '../../src/core/index.ts';
 
 /**
  * getState() の戻り値（JSON。Decimal は "<仮数>e<指数>" の文字列）。E2E が読むフィールドだけを型にする（arch §6-1）。
@@ -154,16 +153,13 @@ export async function presentHookMembers(page: Page): Promise<HookMember[]> {
 }
 
 /**
- * 打撃の総数（E1 の「打撃数の数え方」）。state.stats.hits があればそれを使う。
- * 無ければ「壊したブロックの HP の合計＋今のブロックのダメージ」÷ ドリル威力 で求める
- * （測る間は威力が変わらない前提。式は core の blockHp・drillPower をそのまま使う）
+ * 打撃の総数（E1 の「打撃数の数え方」）。state.stats.hits（arch §6-1。実際に入った打撃の総数）を使う。
+ * 無ければ例外にする（本体の式〔blockHp・drillPower〕で予備の計算をすると、式の誤りをテストが同じ式でなぞるため。
+ * PR #4 のレビュー N-6。S1 の本体には stats.hits がある）
  */
 export function hitsOf(s: SerializedState): number {
-  if (typeof s.stats.hits === 'number') return s.stats.hits;
-  const gs = deserializeState(JSON.stringify(s));
-  let dmg = Number(s.run.blockDmg);
-  for (let d = 0; d < s.run.depth; d++) dmg += blockHp(gs, d).toNumber();
-  return Math.round(dmg / drillPower(gs).toNumber());
+  if (typeof s.stats.hits !== 'number') throw new Error('getState().stats.hits がありません（arch §6-1。打撃の総数）');
+  return s.stats.hits;
 }
 
 /** Decimal の文字列（"3.418"・"1.2e45"）を number に（E2E で扱う範囲は小さい） */
