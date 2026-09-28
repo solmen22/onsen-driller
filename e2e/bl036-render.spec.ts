@@ -26,10 +26,12 @@ test.describe('BL-036 地下の描画', () => {
   }) => {
     const g = await bootGame(page, { seed: SEED_A });
     await g.pause();
-    // 100m まで 1 分弱で届く強さ（ドリル Lv 60: 威力 61×2^2×1.5＝366）。自動掘り（毎秒 2 打）で掘る
-    await g.grant({ coins: '1e7' });
+    // 100m まで約 20 秒で届く強さ（ドリル Lv 80: 威力 81×2^3×1.5＝972）。自動掘り（毎秒 2 打）で掘る。
+    // 1 秒ごとの読み取りのたびに描画のフレームを約 9 回描くので、読み取りの回数が CI（GPU なし・ソフトウェアの WebGL）の時間に効く
+    // （Lv 60〔100m まで 53 秒・54 回〕では PR #6 の CI で 45.6 秒かかった。上限 60 秒）
+    await g.grant({ coins: '1e9' });
     expect((await g.dispatch({ type: 'buy', item: 'tool', qty: 1 })).ok).toBe(true);
-    for (let i = 0; i < 6; i++) expect((await g.dispatch({ type: 'buy', item: 'drill', qty: 10 })).ok).toBe(true);
+    for (let i = 0; i < 8; i++) expect((await g.dispatch({ type: 'buy', item: 'drill', qty: 10 })).ok).toBe(true);
     expect((await g.dispatch({ type: 'setAutoDig', on: true })).ok).toBe(true);
     const canvas = (await page.locator('[data-testid="stage"] canvas').boundingBox())!;
     const layer = layerRects(Math.round(canvas.height));
@@ -65,7 +67,7 @@ test.describe('BL-036 地下の描画', () => {
     test.info().annotations.push({ type: 'TS-036-02 の道具の位置（秒・深さ・上端〜下端）', description: samples.join(' / ') });
     test.info().annotations.push({ type: '地下の範囲', description: JSON.stringify(ug) });
     expect(outside).toEqual([]);
-    expect(samples.length).toBeGreaterThanOrEqual(10); // 途中を十分な回数読んだ
+    expect(samples.length).toBeGreaterThanOrEqual(10); // 途中を十分な回数読んだ（0m・帯 2〔30m〕・帯 3〔80m〕の境目を越える間）
   });
 
   test('TS-036-08・TS-071-07 描画が動いている状態で seed(42) → pause() → advance(60000, {tapsPerSec: 2}) の stateHash が 2 回とも同じで、Node の core の値と一致する', async ({
