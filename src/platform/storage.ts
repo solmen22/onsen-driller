@@ -5,6 +5,8 @@ const assertKey = (k: string): void => {
   if (!k.startsWith(STORAGE_PREFIX)) throw new Error(`storage key must start with ${STORAGE_PREFIX}: ${k}`);
 };
 
+export type StoreKind = 'local' | 'memory';
+
 export function memoryStore(): KeyValueStore & { readonly kind: 'memory' } {
   const m = new Map<string, string>();
   return {
@@ -18,13 +20,24 @@ export function memoryStore(): KeyValueStore & { readonly kind: 'memory' } {
   };
 }
 
-/** localStorage が使えなければ（シークレット・埋め込みの制限など）メモリに切り替える */
-export function localStore(ls: Storage | undefined = globalThis.localStorage): KeyValueStore & { readonly kind: 'local' | 'memory' } {
+/** localStorage を取り出す。`window.localStorage` の参照そのものが SecurityError を投げる環境がある（Safari のサードパーティ iframe など） */
+const globalLocalStorage = (): Storage | null | undefined => globalThis.localStorage;
+
+/**
+ * localStorage が使えなければ（シークレット・埋め込みの制限など）メモリに切り替える。
+ * `ls` を省くとグローバルの localStorage を使う。**参照も try の中で行う**（既定の引数で参照すると、
+ * 参照が SecurityError を投げたときに try の外で例外になり、起動が止まる。E2E の V1・TS-E9-01・04）。
+ * 引数に関数を渡すと、その呼び出しも try の中で行う（テストで参照の例外を再現するため）。
+ */
+export function localStore(ls?: Storage | null | (() => Storage | null | undefined)): KeyValueStore & { readonly kind: StoreKind } {
+  let store: Storage;
   try {
-    if (!ls) return memoryStore();
+    const found = ls === undefined ? globalLocalStorage() : typeof ls === 'function' ? ls() : ls;
+    if (!found) return memoryStore();
     const probe = `${STORAGE_PREFIX}__probe`;
-    ls.setItem(probe, '1');
-    ls.removeItem(probe);
+    found.setItem(probe, '1');
+    found.removeItem(probe);
+    store = found;
   } catch {
     return memoryStore();
   }
@@ -33,7 +46,7 @@ export function localStore(ls: Storage | undefined = globalThis.localStorage): K
     get: (k) => {
       assertKey(k);
       try {
-        return ls.getItem(k);
+        return store.getItem(k);
       } catch {
         return null;
       }
@@ -41,7 +54,7 @@ export function localStore(ls: Storage | undefined = globalThis.localStorage): K
     set: (k, v) => {
       assertKey(k);
       try {
-        ls.setItem(k, v);
+        store.setItem(k, v);
         return true;
       } catch {
         return false; // QuotaExceededError など
@@ -50,7 +63,7 @@ export function localStore(ls: Storage | undefined = globalThis.localStorage): K
     remove: (k) => {
       assertKey(k);
       try {
-        ls.removeItem(k);
+        store.removeItem(k);
       } catch {
         /* 無視 */
       }
