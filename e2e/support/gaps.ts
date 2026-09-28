@@ -10,6 +10,7 @@
 //   （実装が入ったのに一覧に残っている → 行を消す／一覧に無いのに欠けている → BL-071 などの不足）。
 //
 // 基準にしたビルド: main c6a1f60（PoC。技術リードの T-022）。S1 の実装（BL-071 など）が main に入ったら見直す。
+// 参考: feat/S1-core 00d2cd4（BL-010 まで）のビルドでも、下の KNOWN_GAPS はすべて「無い」ままだった（2026-09-28 の参考の実行）。
 import { test } from '@playwright/test';
 
 /** テストが宣言できる前提（フック・機能）と、その中身 */
@@ -20,6 +21,7 @@ const REQUIREMENTS = {
   'hook:setClock': 'BL-071: __game.setClock(wallMs)（アプリの壁時計の差し替え）',
   'hook:grant': 'BL-071: __game.grant({coins, tickets, depth})',
   'hook:rect': "BL-071: __game.rect('drill')（キャンバス内の要素の画面上の矩形）",
+  'hook:renderStats': 'BL-071: __game.renderStats()（描画の数と倍率。arch §8-4・Q-16）',
   'hook:events': 'BL-071: __game.events(limit?)（直近のドメインイベント）',
   'hook:errors': 'BL-071: __game.errors()（捕まえたエラーの記録）',
   'hook:advance.input': 'BL-071: __game.advance(ms, {tapsPerSec, hold})（入力の引数。PoC は advance(ms) だけ）',
@@ -42,6 +44,7 @@ export const KNOWN_GAPS: readonly Requirement[] = [
   'hook:setClock',
   'hook:grant',
   'hook:rect',
+  'hook:renderStats',
   'hook:events',
   'hook:errors',
   'hook:advance.input',

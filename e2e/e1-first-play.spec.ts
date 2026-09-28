@@ -4,6 +4,9 @@
 // 分けても PR は 1 分未満。いまのビルドに無いフック・機能による保留を ID ごとに付けられ、失敗の場所も分かる）。
 // 保留: TS-E1-03・04・TS-071-17（S2。CEO 決定 Q-01）、TS-E1-14（S3）、TS-E1-16（S2）。
 // いまのビルドに無いフック・機能を使うテストは needs() で保留になる（e2e/support/gaps.ts）。
+// 技術リードの回答（traceability.md §5-2）に合わせた前提
+// - Q-02: 0〜4m は鉱石にしない → 最初の強化はどのシードでも 14.5 秒。TS-E1-07 も #2 の範囲（5〜15 秒）で判定する（記録のみをやめた）。
+// - Q-03: 自動掘りは道具が 1 段目（ツルハシ）から。Q-04(c)(d): 押した瞬間に 1 打、300ms で長押し（毎秒 4 打）、Space の短押しは 1 打。
 import type { Page } from '@playwright/test';
 import { test, expect } from './support/fixtures.ts';
 import { BOOT_TIMEOUT_MS, bootGame, centerOf, T0, tapUnderground, triggerAutosave } from './support/boot.ts';
@@ -150,13 +153,17 @@ test.describe('E1 初回起動 → 最初の強化', () => {
     expect(t!).toBeLessThanOrEqual(15_000);
   });
 
-  test('TS-E1-07 SEED_B（序盤に鉱石）で最初の強化までの時刻を記録する（Q-02 の回答まで記録のみ） @nightly', async ({ page }) => {
+  test('TS-E1-07 SEED_B（保護のすぐ下の 5m が鉱石）でも 5〜15 秒後にツルハシを買える（Q-02: どのシードでも同じ） @nightly', async ({ page }) => {
+    // Q-02 の回答: 0〜4m は鉱石にしないので、最初の強化までの時間はシードによらない（見込み 14,500ms）。
+    // 旧 SEED_B（0m・1m が鉱石で 5 秒を下回る場合）は作れなくなったので、鉱石がいちばん浅く出るシードで #2 の範囲を確かめる
     needs('hook:seed', 'hook:advance.input');
     const g = await bootGame(page, { seed: SEED_B });
     await g.pause();
     const t = await timeToPickaxe(g);
-    test.info().annotations.push({ type: 'TS-E1-07 t(ms)（記録のみ）', description: String(t) });
+    test.info().annotations.push({ type: 'TS-E1-07 t(ms)', description: String(t) });
     expect(t).not.toBeNull();
+    expect(t!).toBeGreaterThanOrEqual(5_000);
+    expect(t!).toBeLessThanOrEqual(15_000);
   });
 
   test('TS-E1-08 画面でツルハシを買う（コインがちょうど 3 減り、ToolEvolved が 1 回、自動掘りが使えるようになる）', async ({ page }) => {
@@ -210,6 +217,7 @@ test.describe('E1 初回起動 → 最初の強化', () => {
     await page.clock.runFor(2_000);
     await page.mouse.up();
     const h1 = hitsOf(await g.getState());
+    // Q-04(c): 押した瞬間に 1 打、300ms で長押しを始め毎秒 4 打（最初の 1 打は間隔の半分の後）→ 1＋(2.0−0.3)×4＋0.5 ≒ 8 打
     test.info().annotations.push({ type: '長押し 2 秒の打撃', description: String(h1 - h0) });
     expect(h1 - h0).toBeGreaterThanOrEqual(7);
     expect(h1 - h0).toBeLessThanOrEqual(9);
@@ -234,12 +242,14 @@ test.describe('E1 初回起動 → 最初の強化', () => {
     // 自動リピートをタップとして数えると 10 打多くなる
     expect(h1 - h0).toBeGreaterThanOrEqual(7);
     expect(h1 - h0).toBeLessThanOrEqual(9);
-    // 短い押し 1 回（1 打かは Q-04(d)。回答まで記録のみ）
+    // 短い押し 1 回（300ms 未満）は 1 打（Q-04(d)）。直前の 1 秒で連打の上限の窓を空けてから押す
     await page.clock.runFor(1_000);
     const h2 = hitsOf(await g.getState());
     await page.keyboard.press('Space');
     await page.clock.runFor(500);
-    test.info().annotations.push({ type: 'Space の短い押しの打撃（Q-04(d)。記録のみ）', description: String(hitsOf(await g.getState()) - h2) });
+    const shortPress = hitsOf(await g.getState()) - h2;
+    test.info().annotations.push({ type: 'Space の短い押しの打撃', description: String(shortPress) });
+    expect(shortPress).toBe(1);
     for (const k of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) await page.keyboard.press(k);
     // ページ側で記録した keydown（準備の 2）。ゲームの処理の後の defaultPrevented を見る
     const keys = await recordedKeydowns(page);

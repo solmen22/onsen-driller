@@ -173,11 +173,53 @@ export async function reloadGame(page: Page): Promise<Hooks> {
   return hooks(page);
 }
 
-/** タブの表示・非表示を模す（document.visibilityState・hidden を差し替えて visibilitychange を送る） */
+/** 退出時の保存の契機を数える sessionStorage のキー（同じタブの再読み込みでも残る。読んだら消す） */
+const UNLOAD_PROBE_KEY = 'onsen-driller:e2e:unload-triggers';
+
+/**
+ * 今の文書が閉じるときの保存の契機（pagehide と、hidden への visibilitychange）の回数を数え始める。
+ * arch §11・Q-11 の 6: この 2 つはそれぞれ保存を 1 回起こし、続けて来れば 2 回書く（seq は 2 増える）。
+ * Chromium の page.reload() では pagehide → visibilitychange(hidden) の順に両方来る（2026-09-28 の実測）ので、
+ * 再読み込みでの seq の増え方は、実際に来た契機の数で判定する。readUnloadTriggers で読む
+ */
+export async function armUnloadTriggerProbe(page: Page): Promise<void> {
+  await page.evaluate((key) => {
+    const bump = (k: 'pagehide' | 'hidden'): void => {
+      const c = JSON.parse(sessionStorage.getItem(key) ?? '{"pagehide":0,"hidden":0}') as Record<string, number>;
+      c[k] = (c[k] ?? 0) + 1;
+      sessionStorage.setItem(key, JSON.stringify(c));
+    };
+    sessionStorage.removeItem(key);
+    addEventListener('pagehide', () => bump('pagehide'));
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') bump('hidden');
+    });
+  }, UNLOAD_PROBE_KEY);
+}
+
+/** armUnloadTriggerProbe で数えた回数を読み、キーを消す（再読み込みの後に呼ぶ） */
+export async function readUnloadTriggers(page: Page): Promise<{ pagehide: number; hidden: number }> {
+  return page.evaluate((key) => {
+    const c = JSON.parse(sessionStorage.getItem(key) ?? '{"pagehide":0,"hidden":0}') as { pagehide: number; hidden: number };
+    sessionStorage.removeItem(key);
+    return c;
+  }, UNLOAD_PROBE_KEY);
+}
+
+/**
+ * タブの表示・非表示を模す（document.visibilityState・hidden を差し替えて visibilitychange を送る）。
+ * 表示に戻すときは差し替えを消して、ブラウザ本来の値に戻す（差し替えたままだと、後の再読み込みで来る本物の
+ * visibilitychange でも 'visible' と読めてしまい、退出時の保存の契機が実際と変わる。2026-09-28 の実測）
+ */
 export async function setHidden(page: Page, hidden: boolean): Promise<void> {
   await page.evaluate((h) => {
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (h ? 'hidden' : 'visible') });
-    Object.defineProperty(document, 'hidden', { configurable: true, get: () => h });
+    if (h) {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    } else {
+      delete (document as unknown as Record<string, unknown>)['visibilityState'];
+      delete (document as unknown as Record<string, unknown>)['hidden'];
+    }
     document.dispatchEvent(new Event('visibilitychange'));
   }, hidden);
 }

@@ -11,6 +11,8 @@ import { STORAGE_PREFIX } from './privacy.ts';
 
 export const SLOT_KEYS = { a: `${STORAGE_PREFIX}save:a`, b: `${STORAGE_PREFIX}save:b` } as const;
 export type SlotName = keyof typeof SLOT_KEYS;
+/** 両方の枠が壊れていたときに、壊れた生の文字列を 1 つだけ退避するキー（Q-11 の 4・arch §11「2 枠の規則」の 4） */
+export const BROKEN_SLOT_KEY = `${STORAGE_PREFIX}save:broken`;
 
 export interface SlotEnvelope {
   schema: number;

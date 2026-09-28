@@ -3,10 +3,13 @@
 import type { Page } from '@playwright/test';
 import { blockHp, deserializeState, drillPower } from '../../src/core/index.ts';
 
-/** getState() の戻り値（JSON。Decimal は文字列）。E2E が読むフィールドだけを型にする（arch §6-1） */
+/**
+ * getState() の戻り値（JSON。Decimal は "<仮数>e<指数>" の文字列）。E2E が読むフィールドだけを型にする（arch §6-1）。
+ * 保存する封筒の game と同じ形で、入力の一時状態（input）は含まない。壁時計の「最後に保存した時刻」も持たない（Q-10・Q-16）
+ */
 export interface SerializedState {
   schema: number;
-  clock: { lastWallMs?: number; playedMs: number };
+  clock: { playedMs: number };
   run: {
     seed: number;
     coins: string;
@@ -40,12 +43,22 @@ export interface Rect {
   h: number;
 }
 
+/** platform.calls() の 1 件（Q-16: 呼び出し順、直近 100 件。arg は R1〜R3・M1・M2・URL） */
 export interface PlatformCall {
   name: string;
-  [k: string]: unknown;
+  arg?: string;
 }
 
 export type AdResult = 'rewarded' | 'failed' | 'unavailable';
+
+/** renderStats() の戻り値（arch §8-4・Q-16。zoom は Q-18 の整数） */
+export interface RenderStats {
+  zoom: number;
+  tileSprites: number;
+  particles: number;
+  popups: number;
+  layout: 'landscape' | 'portrait';
+}
 
 /** arch §8-4 の TestHooks のメンバー名（TS-071-01 の一覧。platform は 2 つに分けて数える） */
 export const HOOK_MEMBERS = [
@@ -62,6 +75,7 @@ export const HOOK_MEMBERS = [
   'dispatch',
   'grant',
   'rect',
+  'renderStats',
   'events',
   'platform.calls',
   'platform.setAdResult',
@@ -114,6 +128,9 @@ export function hooks(page: Page) {
     grant: (p: { coins?: string; tickets?: number; depth?: number }) => call<void>(page, 'grant', [p]),
     /** キャンバス内の要素の画面上の矩形（CSS ピクセル）。無ければ null */
     rect: (id: string) => call<Rect | null>(page, 'rect', [id]),
+    /** 描画の数と倍率（TS-071-22） */
+    renderStats: () => call<RenderStats>(page, 'renderStats'),
+    /** 直近のイベント（古い順。既定 100 件） */
     events: (limit?: number) => call<GameEvent[]>(page, 'events', limit === undefined ? [] : [limit]),
     calls: () => call<PlatformCall[]>(page, 'platform.calls'),
     setAdResult: (r: AdResult) => call<void>(page, 'platform.setAdResult', [r]),

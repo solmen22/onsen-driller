@@ -72,6 +72,7 @@ test.describe('E2E の基盤（BL-073）', () => {
       setClock: 'hook:setClock',
       grant: 'hook:grant',
       rect: 'hook:rect',
+      renderStats: 'hook:renderStats',
       events: 'hook:events',
       errors: 'hook:errors',
     };

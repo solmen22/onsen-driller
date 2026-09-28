@@ -3,6 +3,9 @@
 // 毎晩: TS-E9-05・06・09（BL-089）。保留: TS-E9-11（S3）、TS-E9-12（S2）。
 // 保存できない状態は context.addInitScript でページのスクリプトより先に入れる（e2e/support/storage.ts の V1〜V5）。
 // 文言は S1 では data-testid（save-warning）で存在だけを見る。文言の一致は S2（BL-052）から。
+// 技術リードの回答 Q-11 の 5（traceability.md §5-2）: 状態は ok・failing・unavailable。unavailable は起動直後、failing は最初の失敗で出し、
+// ok 以外の間は出したまま（15 秒ごとに出し直さない。TS-E9-05）。読み戻しの不一致も「保存できない」に含める（TS-E9-09）。
+// TS-E9-03 の判定は回答どおり「遅くとも最初の保存（15 秒）の後には出ている」。
 import type { Page } from '@playwright/test';
 import { test, expect } from './support/fixtures.ts';
 import { BOOT_TIMEOUT_MS, bootGame, centerOf, pageNow, reloadGame, T0, tapUnderground, triggerAutosave } from './support/boot.ts';
@@ -106,16 +109,22 @@ test.describe('E9 保存できない環境', () => {
       await injectStorageFault(context, 'V1');
     });
 
-    test('TS-E9-05 60 秒（自動保存 4 回）の間に案内が出た回数を記録する（Q-11） @nightly', async ({ page }) => {
+    test('TS-E9-05 60 秒（自動保存 4 回）の間、案内は出したままで出し直さない（出た回数 1。Q-11） @nightly', async ({ page }) => {
+      // Q-11 の 5: S1 の仮の表示（save-warning）は、状態が ok 以外の間ずっと出したままにし、15 秒ごとに出し直さない。
+      // unavailable（起動時からメモリだけ）はそのセッションでは再試行しない。S2 のトースト（BL-046）の回数は BL-046 で見直す
       needs('feature:saveWarning');
       await bootGame(page);
       await page.evaluate(() => {
         const w = window as unknown as { __warnShown: number };
-        w.__warnShown = 0;
-        let visible = false;
-        new MutationObserver(() => {
+        const shown = (): boolean => {
           const el = document.querySelector('[data-testid="save-warning"]');
-          const now = !!el && (el as HTMLElement).offsetParent !== null;
+          return !!el && (el as HTMLElement).offsetParent !== null;
+        };
+        // 見張りを付けた時点で出ていれば 1 回と数える（起動直後に出す実装でも、最初の保存で出す実装でも同じに数える）
+        let visible = shown();
+        w.__warnShown = visible ? 1 : 0;
+        new MutationObserver(() => {
+          const now = shown();
           if (now && !visible) w.__warnShown++;
           visible = now;
         }).observe(document.body, { subtree: true, childList: true, attributes: true });
@@ -125,8 +134,9 @@ test.describe('E9 保存できない環境', () => {
         await page.clock.runFor(1_000);
       }
       const n = await page.evaluate(() => (window as unknown as { __warnShown: number }).__warnShown);
-      test.info().annotations.push({ type: '60 秒で案内が出た回数（Q-11 の回答まで記録）', description: String(n) });
-      expect(n).toBeGreaterThanOrEqual(1);
+      test.info().annotations.push({ type: '60 秒で案内が出た回数', description: String(n) });
+      await expect(warning(page)).toBeVisible();
+      expect(n).toBe(1);
     });
 
     test('TS-E9-06 60 秒遊んだ後の再読み込みは新しいゲーム（チケット 2・コイン 0）で、案内がもう一度出る @nightly', async ({ page }) => {
