@@ -1,0 +1,9 @@
+{
+  "name": "onsen-driller-deploy",
+  "version": "0.0.0",
+  "private": true,
+  "description": "CI の Cloudflare Pages へのデプロイ専用（wrangler だけ）。deploy/package-lock.json で推移的な依存まで固定し、CI は npm ci --prefix deploy --ignore-scripts で入れる（トークンのない step で）",
+  "devDependencies": {
+    "wrangler": "4.142.0"
+  }
+}
