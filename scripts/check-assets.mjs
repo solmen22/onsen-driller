@@ -16,7 +16,8 @@
 //     ビルド側は Vite のハッシュ「-xxxxxxxx」を外して比べる。大文字小文字は区別する
 //   - 1 つのファイル（アトラスなど）に複数の素材が入る場合は、各行に同じファイル名を書いてよい
 // 失敗: 台帳にない素材がビルドにある / 台帳の表がない / 必要な列がない
-// 警告（終了コード 0）: 区分が 4 種（AI 生成・コードで描画・CC0・自作）以外 / 台帳にあってビルドにない
+// 警告（終了コード 0）: 区分が 6 種（AI 生成・コードで描画・CC0・自作と、CEO 承認で追加したフォント（OFL）・コードで生成（効果音など））以外
+//   / 台帳にあってビルドにない
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join, posix, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -32,7 +33,8 @@ const ledgerPath = resolve(values.ledger ?? join(root, 'ASSETS.md'));
 
 /** 必要な列（見出しにこの語が含まれていればよい） */
 const REQUIRED_COLUMNS = ['素材名', '区分', '入手元', 'ライセンス', '改変', 'ツール', '生成日', 'プロンプト', '人の修正'];
-const CATEGORIES = ['AI生成', 'コードで描画', 'CC0', '自作'];
+/** 区分（空白を除いて比べる）。フォント（OFL）・コードで生成（効果音など）は 2026-09-28 に CEO 承認で追加 */
+const CATEGORIES = ['AI生成', 'コードで描画', 'CC0', '自作', 'フォント（OFL）', 'コードで生成（効果音など）'];
 
 const fails = [];
 const warns = [];
@@ -77,7 +79,7 @@ else {
     if (catCol >= 0) {
       const cat = (cells[catCol] ?? '').replace(/\s+/g, '');
       if (!CATEGORIES.includes(cat))
-        warns.push(`[ledger.category] ${basename(ledgerPath)}:${i + 1} 区分「${cells[catCol] ?? ''}」が 4 種（AI 生成／コードで描画／CC0／自作）以外`);
+        warns.push(`[ledger.category] ${basename(ledgerPath)}:${i + 1} 区分「${cells[catCol] ?? ''}」が 6 種（AI 生成／コードで描画／CC0／自作／フォント（OFL）／コードで生成（効果音など））以外`);
     }
   }
   if (!header) fails.push(`[ledger.table] ${ledgerPath} に、見出しの 1 列目が「素材名」の表がない`);

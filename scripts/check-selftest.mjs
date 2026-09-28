@@ -334,12 +334,21 @@ describe('check:assets', () => {
     assertFail(assets(d, ledger(['| `a.png` | 自作 | 自作 | 自作 |'], head), 'web'), /\[ledger\.columns\].*改変/);
   });
 
-  test('TS-008-17 区分が 4 種以外なら警告（終了コード 0）', () => {
+  test('TS-008-17 区分が 6 種以外なら警告（終了コード 0）', () => {
     const d = newDist();
     write(join(makeTarget(d, 'web'), 'assets', 'atlas-abcd1234.png'), 'x');
     const r = assets(d, ledger([row('`atlas.png`', 'その他')]), 'web');
     assertPass(r);
     assert.match(r.out, /WARN \[ledger\.category\]/);
+  });
+
+  test('TS-008-17 区分の 6 種（CEO 承認で追加したフォント（OFL）・コードで生成（効果音など）を含む）は警告なし', () => {
+    const d = newDist();
+    write(join(makeTarget(d, 'web'), 'assets', 'atlas-abcd1234.png'), 'x');
+    const cats = ['AI 生成', 'コードで描画', 'CC0', '自作', 'フォント（OFL）', 'コードで生成（効果音など）'];
+    const r = assets(d, ledger(cats.map((c) => row('`atlas.png`', c))), 'web');
+    assertPass(r);
+    assert.doesNotMatch(r.out, /\[ledger\.category\]/);
   });
 });
 
