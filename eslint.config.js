@@ -165,4 +165,25 @@ export default defineConfig(
   { files: ['src/view/**'], rules: restrictedImports(viewImports) },
   { files: ['src/ui/**'], rules: restrictedImports(uiImports) },
   { files: ['src/platform/**'], rules: restrictedImports(platformImports) },
+  // E2E の spec は共通の検査（通信・Cookie・キー名）の付いた test を使う（BL-073。PR #4 のレビュー S-2）。
+  // @playwright/test の test を直接使うと harness の自動の検査が黙って外れるため。PoC の道具（PW_POC=1 のときだけ動く）は除く
+  {
+    files: ['e2e/**/*.spec.ts'],
+    ignores: ['e2e/perf.spec.ts', 'e2e/screens.spec.ts', 'e2e/sdk-live.spec.ts', 'e2e/smoke.spec.ts'],
+    rules: {
+      'no-restricted-imports': 'off',
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@playwright/test',
+              importNames: ['test'],
+              message: "E2E の spec は './support/fixtures.ts' の test を使う（共通の検査 TS-COM-01〜04 と TS-073-04 が自動で付く。BL-073）",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );
