@@ -2,9 +2,10 @@
 // - 押した瞬間に 1 打（タップ）。300ms 押し続けると長押し（毎秒 4 打）。Space も同じ（自動リピートの keydown は使わない）
 // - 長押しは pointerup・pointercancel・pointerleave・lostpointercapture、ウィンドウの blur、visibilitychange（hidden）、
 //   pagehide、Space の keyup、入力の無効化（広告の再生中）で終わる。長押しのタイマーも取り消す
-// - 押し始めたポインタ以外（2 本目の指など。isPrimary=false）は打撃にしない
+// - 押し始めたポインタ以外（2 本目の指など。isPrimary=false）は打撃にしない。長押しは押し始めたポインタの終わりだけで終える（N-8）
 // - Space と矢印キーは、編集できる要素（input・textarea・select・contenteditable）が対象のとき以外は必ず preventDefault する。
 //   フォーカスのあるボタンも Space では押さない（キーボードでボタンを押すのは Enter）
+// - Ctrl・Alt・Meta と組み合わせたキーは、掘削にも preventDefault にも使わない（ブラウザ・OS のショートカット）
 // ブラウザがなくても確かめられるように、EventTarget と タイマーを引数で受け取る（tests/integration/input.test.ts）
 import { PARAMS } from '../content/params.ts';
 
@@ -52,13 +53,20 @@ interface KeyLike {
   repeat?: boolean;
   target?: unknown;
   timeStamp?: number;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  metaKey?: boolean;
   preventDefault(): void;
 }
 interface PointerLike {
   isPrimary?: boolean;
+  pointerId?: number;
   timeStamp?: number;
   preventDefault(): void;
 }
+
+/** Ctrl・Alt・Meta（⌘）と組み合わせたキーか（ブラウザ・OS のショートカットなので、掘削にも preventDefault にも使わない） */
+const withModifier = (e: KeyLike): boolean => e.ctrlKey === true || e.altKey === true || e.metaKey === true;
 
 /** 編集できる要素か（そこでは Space・矢印を扱わない。Q-05） */
 export function isEditableTarget(t: unknown): boolean {
@@ -79,6 +87,8 @@ export function setupInput(env: InputEnv, sink: InputSink, opts: InputOptions = 
   let holdTimer: unknown = null;
   let holding = false;
   let keyDown = false;
+  /** 長押しを始めたポインタ（その終わりだけで長押しを終える。2 本目の指を離しても終えない。レビュー N-8） */
+  let activePointer: number | null = null;
   const offs: (() => void)[] = [];
   const on = <E>(t: EventTarget, type: string, fn: (e: E) => void, capture = false): void => {
     const h = (e: Event): void => fn(e as unknown as E);
@@ -119,13 +129,21 @@ export function setupInput(env: InputEnv, sink: InputSink, opts: InputOptions = 
   on<PointerLike>(env.stage, 'pointerdown', (e) => {
     if (!enabled || e.isPrimary === false) return;
     e.preventDefault();
+    activePointer = typeof e.pointerId === 'number' ? e.pointerId : null;
     press(e.timeStamp);
   });
-  for (const type of ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture']) on(env.stage, type, endHold);
+  const endPointer = (e: PointerLike): void => {
+    if (activePointer !== null && typeof e.pointerId === 'number' && e.pointerId !== activePointer) return; // ほかの指の終わり
+    activePointer = null;
+    endHold();
+  };
+  for (const type of ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture']) on<PointerLike>(env.stage, type, endPointer);
 
   on<KeyLike>(env.win, 'keydown', (e) => {
     if (isEditableTarget(e.target)) return;
     const code = e.code ?? '';
+    // Ctrl・Alt・Meta との組み合わせは掘削に使わず、ブラウザ・OS に任せる（PM の指摘。Ctrl+Space の入力切り替えなど）
+    if (withModifier(e)) return;
     if (code === 'Space' || code.startsWith('Arrow')) e.preventDefault(); // ポータルの枠をスクロールさせない
     if (code !== 'Space' || !enabled || e.repeat === true || keyDown) return;
     keyDown = true;

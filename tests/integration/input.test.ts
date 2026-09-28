@@ -125,6 +125,46 @@ describe('TS-012-19 長押しの終わらせ方（ポインタ・blur・非表�
   });
 });
 
+describe('Ctrl・Alt・Meta と組み合わせた Space・矢印は掘らず、preventDefault もしない（PM の指摘）', () => {
+  it('Ctrl+Space・Alt+Space・Meta+Space は打撃にも長押しにもならない。修飾なしの Space は今までどおり', () => {
+    for (const mod of ['ctrlKey', 'altKey', 'metaKey']) {
+      const e = ev('keydown', { code: 'Space', [mod]: true });
+      win.dispatchEvent(e);
+      expect(e.defaultPrevented, mod).toBe(false);
+      vi.advanceTimersByTime(1000);
+      expect(hits(), mod).toBe(0);
+      expect(holdOn(), mod).toBe(false);
+      win.dispatchEvent(ev('keyup', { code: 'Space', [mod]: true }));
+    }
+    const arrow = ev('keydown', { code: 'ArrowLeft', altKey: true });
+    win.dispatchEvent(arrow);
+    expect(arrow.defaultPrevented).toBe(false); // Alt+← の「戻る」を止めない
+    win.dispatchEvent(ev('keydown', { code: 'Space', shiftKey: true }));
+    expect(hits()).toBe(1); // Shift は修飾に数えない（今までどおり掘る）
+  });
+});
+
+describe('長押しは押し始めたポインタの終わりだけで終わる（レビュー N-8）', () => {
+  it('指 1 で長押し中に、指 2 の pointerup・pointerleave では終わらず、指 1 の pointerup で終わる', () => {
+    stage.dispatchEvent(ev('pointerdown', { isPrimary: true, pointerId: 1 }));
+    vi.advanceTimersByTime(300);
+    expect(holdOn()).toBe(true);
+    stage.dispatchEvent(ev('pointerdown', { isPrimary: false, pointerId: 2 }));
+    stage.dispatchEvent(ev('pointerup', { pointerId: 2 }));
+    stage.dispatchEvent(ev('pointerleave', { pointerId: 2 }));
+    expect(holdOn()).toBe(true);
+    stage.dispatchEvent(ev('pointerup', { pointerId: 1 }));
+    expect(holdOn()).toBe(false);
+  });
+  it('長押しになる前に指 2 を離しても、指 1 の長押しは 300ms でなる', () => {
+    stage.dispatchEvent(ev('pointerdown', { isPrimary: true, pointerId: 7 }));
+    vi.advanceTimersByTime(100);
+    stage.dispatchEvent(ev('pointercancel', { pointerId: 8 }));
+    vi.advanceTimersByTime(200);
+    expect(holdOn()).toBe(true);
+  });
+});
+
 describe('Space（Q-04(d)・Q-05）と TS-012-20', () => {
   it('Space の keydown で 1 打、300ms で長押し、keyup で終わる。preventDefault される', () => {
     const down = ev('keydown', { code: 'Space' });
