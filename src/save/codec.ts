@@ -8,6 +8,7 @@
 // どの段階でも例外を呼び出し側に投げず、{ ok:false, reason } で返す
 import LZString from 'lz-string';
 import { checksumOf, MAX_JSON_DEPTH, toSaveGame, type GameState, type SaveGame } from '../core/index.ts';
+import { decompressUriBounded } from './lz-bounded.ts';
 import { parseGame, SAVE_SCHEMA_VERSION } from './schema.ts';
 
 export interface SaveEnvelope {
@@ -153,30 +154,70 @@ export function parseGameForHook(input: unknown): GameState {
   return g.state;
 }
 
-// ---- 書き出し・読み込み（S3 の BL-029 で画面に出す。形式は arch §11） ----
+// ---- 書き出し・読み込み（S3 の BL-029 で画面に出す。形式は arch §11・Q-24） ----
+// 書き出し文字列: `ODR1:` ＋ lz-string の compressToEncodedURIComponent(JSON.stringify(game)) ＋ `.` ＋ checksum（小文字の 16 進 8 桁）
+// 読み込みはユーザーの入力なので、どんな入力でも例外を投げず { ok:false, reason } で拒否する（レビュー S-6）。
+// 検査の順番: 型・長さ → 接頭辞（ODR2: 以上は newer）→ 形 → 展開（上限つき）→ 入れ子 → JSON → 新しい版（checksum より先）→ checksum → game
 
-const EXPORT_PREFIX = 'ODR1:';
+/** 書き出し文字列の形式の版（接頭辞 ODR<版>:） */
+const EXPORT_FORMAT_VERSION = 1;
+const EXPORT_PREFIX = `ODR${EXPORT_FORMAT_VERSION}:`;
+/** 読み込む書き出し文字列の長さの上限（前後の空白を除いた長さ。ちょうどは通る。Q-24） */
+export const MAX_IMPORT_CHARS = 300_000;
+
+/** 書き出し文字列を拒否する理由（Q-24）。format は書き出し文字列の形でないもの */
+export type ImportFail = 'format' | 'tooLarge' | 'notJson' | 'shape' | 'newer' | 'checksum' | 'invalidGame';
+export type ImportResult = { ok: true; state: GameState; corrected: string[] } | { ok: false; reason: ImportFail };
 
 export function exportString(s: GameState): string {
   const env = makeEnvelope(s, 0, 0, '');
   return `${EXPORT_PREFIX}${LZString.compressToEncodedURIComponent(JSON.stringify(env.game))}.${env.checksum}`;
 }
 
-/** 書き出し文字列を読む（接頭辞・checksum・スキーマ）。読めなければ null（今のセーブを上書きしない） */
-export function importString(str: string): GameState | null {
-  if (typeof str !== 'string' || str.length > MAX_SAVE_CHARS) return null;
-  const m = /^ODR1:([A-Za-z0-9+\-$]+)\.([0-9a-f]{8})$/.exec(str.trim());
-  if (!m?.[1] || !m[2]) return null;
-  const json = LZString.decompressFromEncodedURIComponent(m[1]);
-  if (!json || json.length > MAX_SAVE_CHARS || jsonNestingDepth(json, MAX_JSON_DEPTH + 1) > MAX_JSON_DEPTH) return null;
+const importFail = (reason: ImportFail): ImportResult => ({ ok: false, reason });
+const EXPORT_HEAD = /^ODR(\d{1,9}):/;
+const EXPORT_BODY = /^ODR1:([A-Za-z0-9+\-$]+)\.([0-9a-f]{8})$/;
+
+/**
+ * 書き出し文字列を読む（純粋な関数。ストレージに触らない）。失敗しても今のセーブを上書きする材料にしない。
+ * 例外を投げない（型の違う引数・想定外の例外も { ok:false, reason } にする）
+ */
+export function importString(input: unknown): ImportResult {
+  try {
+    return importUnchecked(input);
+  } catch {
+    return importFail('notJson');
+  }
+}
+
+function importUnchecked(input: unknown): ImportResult {
+  if (typeof input !== 'string') return importFail('format');
+  if (input.length > MAX_IMPORT_CHARS * 2) return importFail('tooLarge'); // 前後の空白を除く前に、極端に長いものを弾く
+  const str = input.trim();
+  if (str.length > MAX_IMPORT_CHARS) return importFail('tooLarge');
+  const head = EXPORT_HEAD.exec(str);
+  if (!head?.[1]) return importFail('format');
+  if (Number(head[1]) > EXPORT_FORMAT_VERSION) return importFail('newer'); // 新しい版の書き出しの形式（ODR2: など）
+  const m = EXPORT_BODY.exec(str);
+  if (!m?.[1] || !m[2]) return importFail('format');
+  // 展開しながら長さを数え、セーブの上限（100 万文字）を超えたら止める（膨らむ入力で固まらない）
+  const d = decompressUriBounded(m[1], MAX_SAVE_CHARS);
+  if (!d.ok) return importFail(d.reason === 'tooLarge' ? 'tooLarge' : 'notJson');
+  const json = d.text;
+  if (json.length === 0) return importFail('notJson');
+  if (jsonNestingDepth(json, MAX_JSON_DEPTH + 1) > MAX_JSON_DEPTH) return importFail('shape');
   const game = safeJsonParse(json);
+  if (game === undefined) return importFail('notJson');
+  // 新しい版は checksum より先に見る（知らない ID を捨てた状態で読んで、今のセーブを上書きする材料にしない。Q-24）
+  if (isRecord(game) && isNewer(game.schema)) return importFail('newer');
   let sum: string;
   try {
     sum = checksumOf(game);
   } catch {
-    return null;
+    return importFail('shape');
   }
-  if (sum !== m[2]) return null;
+  if (sum !== m[2]) return importFail('checksum');
   const g = parseGame(game);
-  return g.ok ? g.state : null;
+  if (!g.ok) return importFail('invalidGame');
+  return { ok: true, state: g.state, corrected: g.corrected };
 }
