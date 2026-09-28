@@ -2,9 +2,12 @@
 
 export type Sfc32State = [number, number, number, number];
 
+/** シードを 32 ビットの符号なし整数にする（小数は切り捨て、負・2^32 以上は 2^32 で割った余り、NaN は 0） */
+export const normalizeSeed = (seed: number): number => (Number.isFinite(seed) ? Math.trunc(seed) >>> 0 : 0);
+
 /** splitmix32 でシードから sfc32 の状態を作る */
 export function seedSfc32(seed: number): Sfc32State {
-  let x = seed >>> 0;
+  let x = normalizeSeed(seed);
   const next = (): number => {
     x = (x + 0x9e3779b9) >>> 0;
     let z = x;
@@ -27,12 +30,20 @@ export function sfc32Next(s: Sfc32State): number {
   b = (c + (c << 3)) | 0;
   c = (c << 21) | (c >>> 11);
   c = (c + t) | 0;
-  s[0] = a;
-  s[1] = b;
-  s[2] = c;
-  s[3] = d;
+  // 状態は符号なしで持つ（JSON にしたときの形をそろえる。出力の列は符号の表現によらない）
+  s[0] = a >>> 0;
+  s[1] = b >>> 0;
+  s[2] = c >>> 0;
+  s[3] = d >>> 0;
   return t >>> 0;
 }
+
+/** 状態の複製（保存・比較用） */
+export const cloneSfc32 = (s: Sfc32State): Sfc32State => [s[0], s[1], s[2], s[3]];
+
+/** 状態として正しいか（32 ビットの符号なし整数 4 つで、全部 0 ではない） */
+export const isValidSfc32 = (v: unknown): v is Sfc32State =>
+  Array.isArray(v) && v.length === 4 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 0xffffffff) && v.some((x) => x !== 0);
 
 /** [0, 1) の浮動小数 */
 export const sfc32Float = (s: Sfc32State): number => sfc32Next(s) / 4294967296;
@@ -55,3 +66,7 @@ export function hash32(a: number, b: number): number {
 }
 
 export const hash01 = (a: number, b: number): number => hash32(a, b) / 4294967296;
+
+/** 鉱石の種類を選ぶための、hash32 とは独立な 2 つ目のハッシュ（Q-07） */
+export const ORE_KIND_SALT = 0x6f726573;
+export const hash01Kind = (seed: number, depth: number): number => hash32((seed ^ ORE_KIND_SALT) >>> 0, depth) / 4294967296;
