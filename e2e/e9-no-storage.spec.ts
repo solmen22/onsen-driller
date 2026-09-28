@@ -31,12 +31,18 @@ import {
 
 const warning = (page: Page) => page.getByTestId('save-warning');
 
-/** 画面の操作でツルハシの代金をため、ツルハシを買って自動掘りをオンにする（E9 の「自動掘りオン」の準備） */
-async function autoDigOn(page: Page, g: Hooks): Promise<void> {
-  for (let i = 0; i < 80 && coinsOf(await g.getState()) < 3; i++) await tapUnderground(page, 1);
+/**
+ * ツルハシの代金をため、ツルハシを買って自動掘りをオンにし、ループを動かし直す（E9 の「自動掘りオン」の準備。方法はシナリオの指定なし）。
+ * ロジックだけを進めるフック（advance）でためる。画面で約 30 回叩くと、GPU のない CI では描画のフレームだけで数十秒かかるため
+ */
+async function autoDigOn(g: Hooks): Promise<void> {
+  await g.pause();
+  await g.advance(20_000, { tapsPerSec: 2 });
+  expect(coinsOf(await g.getState())).toBeGreaterThanOrEqual(3);
   expect((await g.dispatch({ type: 'buy', item: 'tool', qty: 1 })).ok).toBe(true);
   await g.dispatch({ type: 'setAutoDig', on: true });
   expect((await g.getState()).run.autoDig.on).toBe(true);
+  await g.resume();
 }
 
 /** V1〜V4: ストレージにキーが 1 つも書かれていない（TS-E9-07・13） */
@@ -111,7 +117,7 @@ function noStorageSuite(v: 'V1' | 'V2' | 'V3', id: (n: string) => string): void 
 
     test(`${id('04')} 自動掘りで 60 秒（自動保存 4 回）動かしても、打撃・コインが増え続け、捕まえていない例外がない`, async ({ page, harness }) => {
       const g = await bootGame(page);
-      await autoDigOn(page, g);
+      await autoDigOn(g);
       const s0 = await g.getState();
       const calls0 = v === 'V2' ? await saveSetItemCalls(page) : 0;
       // runFor(60000) は実時間で約 80 秒かかるので、15 秒ごとの保存（失敗する）を 4 回起こし、そのたびにループを 1 秒回して
@@ -199,7 +205,7 @@ test.describe('E9 保存できない環境', () => {
     test('TS-E9-06 60 秒遊んだ後の再読み込みは新しいゲーム（チケット 2・コイン 0）で、案内がもう一度出る @nightly', async ({ page }) => {
       needs('feature:saveWarning', 'feature:tickets');
       const g = await bootGame(page);
-      await autoDigOn(page, g);
+      await autoDigOn(g);
       for (let i = 0; i < 4; i++) await triggerAutosave(page);
       const g2 = await reloadGame(page);
       const s = await g2.getState();

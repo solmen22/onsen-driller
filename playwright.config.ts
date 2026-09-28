@@ -55,8 +55,10 @@ export default defineConfig({
   forbidOnly: CI,
   // QA §5: 不安定なテストは 1 回だけ再実行を許す（再実行で通ったものは flaky として報告に残る）
   retries: 1,
-  // 時間の大半は Playwright の時計の待ち（実時間の setTimeout）なので、CPU の数より多めに並べてよい。PW_WORKERS で変えられる
-  workers: Number(process.env.PW_WORKERS ?? 4),
+  // 手元（GPU あり）は時計の待ちが大半なので 4。CI（非公開リポジトリの GitHub のランナーは 2 vCPU で GPU なし）は、
+  // 描画（ソフトウェアの WebGL）が CPU を使い切り、4 並びでは 1 件が 60 秒の上限に届いた（2026-09-29 の PR #4）ので vCPU と同じ 2。
+  // PW_WORKERS で変えられる
+  workers: Number(process.env.PW_WORKERS ?? (CI ? 2 : 4)),
   reporter: [
     ['list'],
     // 失敗したときの記録（CI の成果物 playwright-report/。TS-073-03）

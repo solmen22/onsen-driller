@@ -152,12 +152,18 @@ export async function undergroundPoint(page: Page): Promise<{ x: number; y: numb
   return { x: box.x + box.width / 2, y: box.y + box.height * 0.75 };
 }
 
-/** 画面の操作だけで n 回叩く（連打の上限 8 回/秒を超えないよう、1 回ごとに時計を 150ms 進める） */
+/**
+ * 画面の操作だけで n 回叩く（連打の上限 8 回/秒を超えないよう、1 回ごとに時計を 150ms 進める）。
+ * 時計は fastForward で進める（期限の来たタイマー・描画のフレームを 1 回ずつ呼ぶ）。ループは 1 フレームで経過の 150ms を
+ * ロジックに入れるので、ロジックの時間の進み方は runFor(150) と同じ。runFor は途中の約 9 フレームをすべて描画し、
+ * GPU のない CI（2 vCPU・ソフトウェアの WebGL）では 1 フレームに 0.1 秒前後かかって、叩く回数の多いテストが
+ * 60 秒の上限に届いた（2026-09-29 の PR #4 の CI）
+ */
 export async function tapUnderground(page: Page, n: number): Promise<void> {
   const p = await undergroundPoint(page);
   for (let i = 0; i < n; i++) {
     await page.mouse.click(p.x, p.y);
-    await page.clock.runFor(150);
+    await page.clock.fastForward(150);
   }
 }
 
