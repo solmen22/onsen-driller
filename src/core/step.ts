@@ -157,10 +157,21 @@ function dig(s: GameState, digMs: number, m: Modifiers, out: GameEvent[]): void 
 
 /**
  * 論理を dtMs だけ進める。時刻は読まない（arch §8-2）。
- * 幕間の間はドリルの打撃がすべて止まり（端数もたまらない）、入湯料は止まらない。ステップの途中で幕間が終われば、残りの時間は掘る（Q-06）
+ * 幕間の間はドリルの打撃がすべて止まり（端数もたまらない）、入湯料は止まらない。ステップの途中で幕間が終われば、残りの時間は掘る（Q-06）。
+ * dtMs が PARAMS.maxStepMs（1 秒）を超えたら、1 秒ずつに分けて進める（刻み幅によらないのは 1 秒刻みまで。arch §8-3・レビュー S-9）
  */
 export function step(s: GameState, dtMs: number, out: GameEvent[] = []): GameEvent[] {
   if (!(dtMs > 0) || !Number.isFinite(dtMs)) return out;
+  let left = dtMs;
+  while (left > 0) {
+    const dt = Math.min(PARAMS.maxStepMs, left);
+    stepOnce(s, dt, out);
+    left -= dt;
+  }
+  return out;
+}
+
+function stepOnce(s: GameState, dtMs: number, out: GameEvent[]): void {
   s.clock.playedMs += dtMs;
   const r = s.run;
   let digMs = dtMs;
@@ -180,7 +191,6 @@ export function step(s: GameState, dtMs: number, out: GameEvent[] = []): GameEve
     s.run.coins = add(s.run.coins, g);
     s.stats.totalCoins = add(s.stats.totalCoins, g);
   }
-  return out;
 }
 
 /** advance の入力（テスト用フック・リプレイ・E2E。Q-16） */
@@ -218,11 +228,13 @@ const validTapsPerSec = (v: unknown): number => (typeof v === 'number' && Number
 
 /**
  * ms だけ stepMs 刻みで進める（オフラインの早送り・シミュレーター・テスト用フック）。起きたイベントを起きた順に返す。
+ * stepMs は PARAMS.maxStepMs（1 秒）で頭打ちにする（10 秒刻みを渡しても 1 秒刻みと同じ結果。レビュー S-9）。
  * ms が 0 以下・NaN・Infinity なら何もしない（空の配列）
  */
 export function advance(s: GameState, ms: number, stepOrOpts: number | AdvanceOptions = {}, outArg?: GameEvent[]): GameEvent[] {
   const opts: AdvanceOptions = typeof stepOrOpts === 'number' ? { stepMs: stepOrOpts, out: outArg } : stepOrOpts;
-  const stepMs = opts.stepMs ?? PARAMS.stepMs;
+  // 刻みは 1 秒まで（10 秒刻みなどを渡されても 1 秒ずつ進める。タップの入れ方も同じ刻みにそろえる。レビュー S-9）
+  const stepMs = Math.min(PARAMS.maxStepMs, opts.stepMs ?? PARAMS.stepMs);
   const out = opts.out ?? [];
   if (!(ms > 0) || !Number.isFinite(ms) || !(stepMs > 0) || !Number.isFinite(stepMs)) return out;
   const carry = opts.carry;

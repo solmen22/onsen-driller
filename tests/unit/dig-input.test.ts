@@ -297,10 +297,39 @@ describe('TS-012-13 極端な威力でも 1 ステップが短時間で終わる
       dispatch(s, { type: 'tap' });
       return { ms: performance.now() - t0, hash: stateHash(s) };
     };
-    const a = run();
-    const b = run();
-    expect(a.hash).toBe(b.hash);
-    expect(a.ms).toBeLessThan(50);
+    // 実時間の判定を安定させる（全体の実行・CI では 1 回目の JIT やごみ集めで 60ms 台になることがあった。PM の指摘）:
+    // 1 回温めてから 5 回測り、中央値で判定する
+    const first = run();
+    const runs = Array.from({ length: 5 }, run);
+    for (const r of runs) expect(r.hash).toBe(first.hash);
+    const median = runs.map((r) => r.ms).sort((x, y) => x - y)[2] ?? Number.POSITIVE_INFINITY;
+    expect(median).toBeLessThan(50);
+  });
+});
+
+describe('レビュー S-9: 刻みは 1 秒まで（それより長い step・advance は 1 秒ずつ進める）', () => {
+  it('長押し 60 秒: 10 秒刻みは 1 秒刻みと同じ状態。0.1 秒刻みとの打数の差は 1% 以内（以前は 240 打と 48 打）', () => {
+    const make = (): GameState => stateWith({ seed: 3, depth: 10, drill: 5, tool: 1 });
+    const a = make();
+    const b = make();
+    const c = make();
+    advance(a, 60_000, { stepMs: 10_000, input: { hold: true } });
+    advance(b, 60_000, { stepMs: 1_000, input: { hold: true } });
+    advance(c, 60_000, { stepMs: 100, input: { hold: true } });
+    expect(stateHash(a)).toBe(stateHash(b));
+    expect(Math.abs(hits(a) - hits(c)) / hits(c)).toBeLessThanOrEqual(0.01);
+    expect(hits(c)).toBeGreaterThanOrEqual(230);
+  });
+  it('step(s, 10 秒) は step(s, 1 秒) を 10 回と同じ（自動掘削機・入湯料・帯の境目を含む）', () => {
+    const make = (): GameState => stateWith({ seed: 9, depth: 25, drill: 30, tool: 2, digger: 20, autoOn: true, pumps: { simple: 3 }, bath: 0 });
+    const a = make();
+    const b = make();
+    const ea: GameEvent[] = [];
+    const eb: GameEvent[] = [];
+    step(a, 10_000, ea);
+    for (let i = 0; i < 10; i++) step(b, 1_000, eb);
+    expect(stateHash(a)).toBe(stateHash(b));
+    expect(ea).toEqual(eb);
   });
 });
 
