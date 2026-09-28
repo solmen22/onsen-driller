@@ -50,6 +50,15 @@ export const TARGETS = {
 export const UNKNOWN_TARGET = { cg: false, poki: false, hooks: false, fakeAds: false, headers: false, production: true };
 export const PRODUCTION_TARGETS = Object.keys(TARGETS).filter((t) => TARGETS[t].production);
 
+/**
+ * CI の e2e ジョブが verify から受け取るビルド（ci.yml の成果物 dist-e2e。BL-095）。名前は dist/ の下のディレクトリ名。
+ * - e2e 系（`__game` あり）: e2e-web（E1・E5・E9 などが配信する mode e2e の出力）・e2e-crazygames（S2 の PW_MODE=e2e-crazygames）
+ * - 本番の 4 種（`__game` なし）: 本番の起動の E2E（BL-097 の TS-007-03・09・13）が配信する
+ * PoC の出力名 e2e（BL-007 の前の mode e2e）と e2e-poki（今の build:e2e は作らない）は入れない。
+ * ci.yml の dist-e2e の path と、scripts/check-e2e-dist.mjs の確認はこの一覧に合わせる（test:checks が検査する）
+ */
+export const E2E_JOB_TARGETS = ['e2e-web', 'e2e-crazygames', ...PRODUCTION_TARGETS];
+
 /** 配信時に圧縮される（gzip 換算で数える）拡張子。画像・音声・フォント（woff2 など）はそのままの大きさで数える */
 export const COMPRESSIBLE = new Set(['.html', '.htm', '.js', '.mjs', '.cjs', '.css', '.json', '.map', '.svg', '.txt', '.xml', '.webmanifest']);
 
