@@ -104,7 +104,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      PW_CHANNEL: chromium # ローカルの既定は chrome（インストール済みの Chrome）。CI は Playwright の Chromium
+      PW_CHANNEL: chromium # Playwright の Chromium（BL-073 から playwright.config.ts の既定も chromium。手元で Chrome を使うときだけ chrome）
     steps:
       - uses: actions/checkout@v7
         with:
