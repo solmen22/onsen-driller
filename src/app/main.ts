@@ -11,6 +11,7 @@ import { playBreak, playHit, setMuted, unlockAudio } from '../audio/sfx.ts';
 import { startAutosave } from './autosave.ts';
 import { createAppClock } from './clock.ts';
 import type { DevParams } from './dev-params.ts';
+import { captureErrors, createErrorLog } from './errors.ts';
 import { setupInput } from './input.ts';
 import { startLoop } from './loop.ts';
 import type { PerfMonitor } from './perf.ts';
@@ -31,6 +32,10 @@ function layout(root: HTMLElement): void {
   new ResizeObserver(apply).observe(root);
   apply();
 }
+
+/** 直近のエラー 20 件（テスト用フックの errors()・S3 の「エラー情報をコピー」）。起動の途中の例外も拾うよう最初に付ける */
+const errorLog = createErrorLog();
+captureErrors(window, errorLog);
 
 /** app の時計（テスト用フックの setClock で壁時計を差し替えられる） */
 const clock = createAppClock();
@@ -154,7 +159,7 @@ async function boot(): Promise<void> {
   }
   if (import.meta.env.VITE_TEST_HOOKS === 'true') {
     const m = await import('./test-hooks.ts');
-    m.install({ store, loop, perf, platform, view, contextEvents, clock, autosave, slots });
+    m.install({ store, loop, perf, platform, view, contextEvents, clock, autosave, slots, errors: errorLog });
   }
 }
 
