@@ -1,9 +1,11 @@
 // fast-check の GameState の生成器（BL-026 の往復テスト。BL-027・BL-028・BL-075 でも使い回す）。
-// 生成するのは「正しい」状態（読み込みの補正がかからないもの）。Decimal は 0・1・小数・1e308・上限を必ず混ぜる
+// 生成するのは「正しい」状態（読み込みの補正がかからないもの）。Decimal は 0・1・小数・1e308・上限を必ず混ぜる。
+// レベルは極端な値（上限 PARAMS.levelMax まで）も混ぜる（レビュー S-4）
 import fc from 'fast-check';
 import Decimal from 'break_infinity.js';
 import { ORE_IDS } from '../../src/content/ores.ts';
 import type { SpringId } from '../../src/content/springs.ts';
+import { PARAMS } from '../../src/content/params.ts';
 import { computeGuests, createInitialState, num, NUM_MAX, slotsForBathLevel, type GameState, type Num } from '../../src/core/index.ts';
 
 export const SPRING_IDS: SpringId[] = ['simple', 'co2', 'salt', 'sulfur', 'iron'];
@@ -18,6 +20,15 @@ export const decimalArb: fc.Arbitrary<Num> = fc.oneof(
 );
 
 const count = (max = 1e6): fc.Arbitrary<number> => fc.integer({ min: 0, max });
+/**
+ * レベル: ふだんの範囲に、極端な値（Infinity になる 2^floor(Lv/25) の境目 25,575 付近・上限 PARAMS.levelMax）を混ぜる（レビュー S-4）
+ */
+export const levelArb = (normalMax: number): fc.Arbitrary<number> =>
+  fc.oneof(
+    { weight: 4, arbitrary: count(normalMax) },
+    { weight: 1, arbitrary: fc.constantFrom(25_574, 25_575, 25_600, 30_000, PARAMS.levelMax - 1, PARAMS.levelMax) },
+    { weight: 1, arbitrary: fc.integer({ min: normalMax, max: PARAMS.levelMax }) },
+  );
 const ms = fc.oneof(fc.constant(0), fc.integer({ min: 0, max: 2 ** 40 }), fc.double({ min: 0, max: 1e12, noNaN: true, noDefaultInfinity: true }));
 
 export const gameStateArb: fc.Arbitrary<GameState> = fc
@@ -27,12 +38,12 @@ export const gameStateArb: fc.Arbitrary<GameState> = fc
     blockDmg: decimalArb,
     depth: count(2000),
     extraMax: count(500),
-    drill: count(5000),
+    drill: levelArb(5000),
     tool: fc.integer({ min: 0, max: 7 }),
-    digger: count(500),
+    digger: levelArb(500),
     autoOn: fc.boolean(),
-    bath: count(60),
-    pumps: fc.array(fc.integer({ min: 0, max: 300 }), { minLength: 5, maxLength: 5 }),
+    bath: levelArb(60),
+    pumps: fc.array(levelArb(300), { minLength: 5, maxLength: 5 }),
     digCarry: fc.double({ min: 0, max: 0.999, noNaN: true }),
     diggerCarry: fc.double({ min: 0, max: 0.999, noNaN: true }),
     interludeMs: fc.oneof(fc.constant(0), fc.integer({ min: 1, max: 1500 })),

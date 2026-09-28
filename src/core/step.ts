@@ -24,6 +24,12 @@ import type { GameState } from './state.ts';
 /** 端数の比較の許容（0.1 × 10 などの浮動小数の誤差で 1 打を落とさないため） */
 const HIT_EPS = 1e-9;
 
+/** 回数の加算（安全な整数で止める。保存・読み込みで値が変わらないように。レビュー S-4） */
+const addCount = (a: number, b: number): number => Math.min(Number.MAX_SAFE_INTEGER, a + b);
+
+/** 端数を f から n 打を引いた残り（0 以上 1 未満）にする。f が有限でなければ 0（NaN を状態に入れない。レビュー S-4） */
+const carryOf = (f: number, n: number): number => (Number.isFinite(f) ? Math.max(0, f - n) : 0);
+
 export function refreshGuests(s: GameState, out: GameEvent[]): void {
   const next = computeGuests(s);
   for (const g of next) {
@@ -71,8 +77,8 @@ function breakBlock(s: GameState, m: Modifiers, out: GameEvent[]): BreakResult {
   const v = blockValue(s, d, ore !== null, m);
   r.coins = add(r.coins, v);
   s.stats.totalCoins = add(s.stats.totalCoins, v);
-  s.stats.blocks++;
-  if (ore !== null) s.collection.ores[ore] = (s.collection.ores[ore] ?? 0) + 1;
+  s.stats.blocks = addCount(s.stats.blocks, 1);
+  if (ore !== null) s.collection.ores[ore] = addCount(s.collection.ores[ore] ?? 0, 1);
   out.push({ type: 'BlockBroken', depth: d, ore, coins: toStr(v) });
   r.depth = d + 1;
   r.blockDmg = ZERO;
@@ -100,7 +106,7 @@ function breakBlock(s: GameState, m: Modifiers, out: GameEvent[]): BreakResult {
 /** hits 回の打撃を与える（壊したブロックの余りのダメージは次のブロックへ繰り越す。Q-02）。新しい帯に入ったら残りは捨てる（Q-06） */
 export function applyHits(s: GameState, hits: number, out: GameEvent[]): void {
   if (!(hits > 0)) return;
-  s.stats.hits += hits;
+  s.stats.hits = addCount(s.stats.hits, hits);
   let m = modifiers(s);
   let dmg = mul(drillPower(s, m), hits);
   for (let broken = 0; broken < PARAMS.maxBlocksPerStep; broken++) {
@@ -135,15 +141,15 @@ function dig(s: GameState, digMs: number, m: Modifiers, out: GameEvent[]): void 
   const rate = manualRate(s);
   if (rate > 0) {
     const f = r.digCarry + rate * sec;
-    const n = Math.floor(f + HIT_EPS);
-    r.digCarry = Math.max(0, f - n);
+    const n = Number.isFinite(f) ? Math.floor(f + HIT_EPS) : 0;
+    r.digCarry = carryOf(f, n);
     hits += admitManualHits(s, n, s.clock.playedMs); // 上限を超えた分は捨てる
   }
   const auto = autoDiggerHitsPerSec(s, m);
   if (auto > 0) {
     const f = r.diggerCarry + auto * sec;
-    const n = Math.floor(f + HIT_EPS);
-    r.diggerCarry = Math.max(0, f - n);
+    const n = Number.isFinite(f) ? Math.floor(f + HIT_EPS) : 0;
+    r.diggerCarry = carryOf(f, n);
     hits += n;
   }
   applyHits(s, hits, out);
@@ -252,7 +258,7 @@ export function tapHits(s: GameState, n: number, out: GameEvent[]): number {
   if (s.run.interludeMs > 0) return 0;
   const k = admitManualHits(s, n, s.clock.playedMs);
   if (k > 0) {
-    s.stats.taps += k;
+    s.stats.taps = addCount(s.stats.taps, k);
     applyHits(s, k, out);
   }
   return k;

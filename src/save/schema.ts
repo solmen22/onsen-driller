@@ -1,6 +1,7 @@
 // セーブのスキーマ v1（arch §11・Q-10。BL-026）: valibot で形をたどり、読めるものは補正して読む。
 // - 拒否（この関数は ok:false を返す）: game がオブジェクトでない、game.run か game.meta がオブジェクトでない（invalidGame）
 // - 補正: Decimal（NaN・型違い → 0、負 → 0、Infinity・上限超え → 上限）、整数（切り捨て・0 未満は 0・読めなければ初期値）、
+//   レベル（ドリル・自動掘削機・湯船・ポンプ）は PARAMS.levelMax まで、
 //   チケット 0〜10、真偽値、知らない ID と重複は捨てる、湯船の枠は湯船のレベルに合う数、枠の知らない・未発見・重複の源泉は空き、
 //   擬似乱数の状態が不正なら周回のシードから作り直す、欠けたフィールドは初期値、知らない追加のフィールドは捨てる
 // - 直したフィールドは corrected（"run.coins" のようなパス）に入れる（入力と、補正後の保存の形を比べて求める）
@@ -96,6 +97,8 @@ const section = <E extends v.ObjectEntries>(entries: E) => {
 };
 
 const TOOL_MAX = TOOLS.length - 1;
+/** レベルの上限（ドリル・自動掘削機・湯船・ポンプ）。超えたら上限に補正する（レビュー S-4） */
+const LEVEL_MAX = PARAMS.levelMax;
 
 const RunSchema = v.object({
   seed: field((x) => normalizeSeed(toFinite(x) ?? 0)),
@@ -107,19 +110,19 @@ const RunSchema = v.object({
   digCarry: field(frac),
   diggerCarry: field(frac),
   interludeMs: field((x) => Math.min(PARAMS.interludeMs, nonNeg()(x))),
-  drill: section({ level: field(int(0)), tool: field(int(0, TOOL_MAX)) }),
-  autoDig: section({ level: field(int(0)), on: field(bool(false)) }),
+  drill: section({ level: field(int(0, LEVEL_MAX)), tool: field(int(0, TOOL_MAX)) }),
+  autoDig: section({ level: field(int(0, LEVEL_MAX)), on: field(bool(false)) }),
   springs: field((x) => {
     const out: Partial<Record<SpringId, { pump: number }>> = {};
     if (!isRecord(x)) return out;
     for (const k of Object.keys(x).sort()) {
       if (!isSpring(k)) continue;
       const e = x[k];
-      out[k] = { pump: Math.max(1, int(1)(isRecord(e) ? e.pump : undefined)) }; // 発見済みの源泉のポンプは Lv1 以上
+      out[k] = { pump: Math.max(1, int(1, LEVEL_MAX)(isRecord(e) ? e.pump : undefined)) }; // 発見済みの源泉のポンプは Lv1 以上
     }
     return out;
   }),
-  bath: section({ level: field(int(0)), slots: field((x) => (Array.isArray(x) ? (x as unknown[]) : [])) }),
+  bath: section({ level: field(int(0, LEVEL_MAX)), slots: field((x) => (Array.isArray(x) ? (x as unknown[]) : [])) }),
   upgrades: field(idList<string>(isShapedId)),
   guests: field(idList<GuestId>(isGuest)),
   boost: section({ remainingMs: field(nonNeg()), readyAtWallMs: field(nonNeg()) }),
