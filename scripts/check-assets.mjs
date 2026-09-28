@@ -10,10 +10,11 @@
 // 台帳の書き方（Q-15 の回答。traceability.md §5）:
 //   - 見出しの 1 列目が「素材名」の表を台帳として読む。列は 素材名・区分・入手元・ライセンス・改変の有無・
 //     ツール／モデル／プラン・生成日・プロンプトの要旨・人の修正の有無（BL-008。足りない列があれば失敗）
-//   - 「素材名」の列に、ビルドに出るファイル名をバッククォートで書く（例: `atlas.png`、`dotgothic16-subset.woff2`）。
+//   - ビルドに出るファイル名（例 atlas.png、dotgothic16-subset.woff2）を、見出しに「ファイル名」を含む列に書く
+//     （技術リードの Q-15 回答の形。バッククォートはあってもなくてもよい）か、「素材名」の列にバッククォートで書く。
 //     照合キーはファイル名だけ（ディレクトリは見ない。`src/generated/atlas.png` と書いても atlas.png として扱う）。
 //     ビルド側は Vite のハッシュ「-xxxxxxxx」を外して比べる。大文字小文字は区別する
-//   - 1 つのファイル（アトラスなど）に複数の素材が入る場合は、各行の素材名の列に同じファイル名を書いてよい
+//   - 1 つのファイル（アトラスなど）に複数の素材が入る場合は、各行に同じファイル名を書いてよい
 // 失敗: 台帳にない素材がビルドにある / 台帳の表がない / 必要な列がない
 // 警告（終了コード 0）: 区分が 4 種（AI 生成・コードで描画・CC0・自作）以外 / 台帳にあってビルドにない
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -48,6 +49,7 @@ else {
   const lines = readFileSync(ledgerPath, 'utf8').split(/\r?\n/);
   let inLedger = false;
   let catCol = -1;
+  let fileCol = -1;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim().startsWith('|')) {
@@ -60,13 +62,16 @@ else {
         inLedger = true;
         header ??= cells;
         catCol = cells.findIndex((c) => c.includes('区分'));
+        fileCol = cells.findIndex((c) => c.includes('ファイル名'));
         i++; // 区切り行を飛ばす
       }
       continue;
     }
     const cells = splitRow(line);
-    for (const m of (cells[0] ?? '').matchAll(/`([^`]+)`/g)) {
-      const base = posix.basename(m[1].trim().replaceAll('\\', '/'));
+    const names = [...(cells[0] ?? '').matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+    if (fileCol > 0) names.push(...(cells[fileCol] ?? '').replaceAll('`', ' ').split(/[\s,、・;；]+/));
+    for (const n of names) {
+      const base = posix.basename(n.trim().replaceAll('\\', '/'));
       if (ASSET_EXT.has(extOf(base))) ledgerKeys.set(base, [...(ledgerKeys.get(base) ?? []), i + 1]);
     }
     if (catCol >= 0) {

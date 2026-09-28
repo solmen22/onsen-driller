@@ -306,6 +306,20 @@ describe('check:assets', () => {
     assert.match(r.out, /参考: 台帳の `hit\.ogg`/);
   });
 
+  test('台帳の「ファイル名」の列（技術リードの Q-15 回答の形）でも照合できる', () => {
+    const d = newDist();
+    const dir = makeTarget(d, 'web');
+    write(join(dir, 'assets', 'atlas-abcd1234.png'), 'x');
+    write(join(dir, 'assets', 'dotgothic16-subset-abcd1234.woff2'), 'x');
+    const head = [
+      '| 素材名 | ファイル名 | 区分 | 入手元 | ライセンス | 改変の有無 | ツール／モデル／プラン | 生成日 | プロンプトの要旨 | 人の修正の有無 |',
+      '|---|---|---|---|---|---|---|---|---|---|',
+    ];
+    const r2 = (name, file) => `| ${name} | ${file} | 自作 | 自作 | 自作 | なし | — | 2026-09-28 | — | なし |`;
+    assertPass(assets(d, ledger([r2('タイル', 'atlas.png'), r2('フォント', '`dotgothic16-subset.woff2`')], head), 'web'));
+    assertFail(assets(d, ledger([r2('タイル', 'atlas.png')], head), 'web'), /dotgothic16-subset\.woff2/);
+  });
+
   test('TS-008-16 照合キーはファイル名（ディレクトリは見ない）。大文字小文字は区別する', () => {
     const d = newDist();
     write(join(makeTarget(d, 'web'), 'assets', 'atlas-abcd1234.png'), 'x');
