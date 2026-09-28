@@ -94,6 +94,7 @@ async function boot(): Promise<void> {
     stressParticles: params.particles,
     reduceMotion,
     onContext: (ev) => contextEvents.push(ev),
+    layout: () => root.dataset.layout,
   });
 
   // 音: 描画とは別に、打撃とブロックの破壊で鳴らす（イベント列は描画が消費するので、ストアの購読で数を見る）
