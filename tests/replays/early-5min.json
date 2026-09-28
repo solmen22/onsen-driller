@@ -1,0 +1,922 @@
+{
+ "name": "early-5min",
+ "seed": 20260928,
+ "stepMs": 100,
+ "durationMs": 300000,
+ "log": [
+  {
+   "atMs": 500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 1000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 1500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 2000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 2500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 3000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 3500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 4000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 4500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 5000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 5500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 6000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 6500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 7000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 7500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 8000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 8500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 9000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 9500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 10000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 10500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 11000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 11500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 12000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 12500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 13000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 13500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 14000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 14500,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 15000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 15000,
+   "action": {
+    "type": "buy",
+    "item": "tool",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 15500,
+   "action": {
+    "type": "setAutoDig",
+    "on": true
+   }
+  },
+  {
+   "atMs": 20000,
+   "action": {
+    "type": "hold",
+    "on": true
+   }
+  },
+  {
+   "atMs": 40000,
+   "action": {
+    "type": "hold",
+    "on": false
+   }
+  },
+  {
+   "atMs": 30000,
+   "action": {
+    "type": "buy",
+    "item": "drill",
+    "qty": "max"
+   }
+  },
+  {
+   "atMs": 30000,
+   "action": {
+    "type": "buy",
+    "item": "autoDigger",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 30000,
+   "action": {
+    "type": "buy",
+    "item": "tool",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 60000,
+   "action": {
+    "type": "buy",
+    "item": "drill",
+    "qty": "max"
+   }
+  },
+  {
+   "atMs": 60000,
+   "action": {
+    "type": "buy",
+    "item": "autoDigger",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 60000,
+   "action": {
+    "type": "buy",
+    "item": "tool",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 90000,
+   "action": {
+    "type": "buy",
+    "item": "drill",
+    "qty": "max"
+   }
+  },
+  {
+   "atMs": 90000,
+   "action": {
+    "type": "buy",
+    "item": "autoDigger",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 90000,
+   "action": {
+    "type": "buy",
+    "item": "tool",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 120000,
+   "action": {
+    "type": "buy",
+    "item": "drill",
+    "qty": "max"
+   }
+  },
+  {
+   "atMs": 120000,
+   "action": {
+    "type": "buy",
+    "item": "autoDigger",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 120000,
+   "action": {
+    "type": "buy",
+    "item": "tool",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 150000,
+   "action": {
+    "type": "buy",
+    "item": "drill",
+    "qty": "max"
+   }
+  },
+  {
+   "atMs": 150000,
+   "action": {
+    "type": "buy",
+    "item": "autoDigger",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 150000,
+   "action": {
+    "type": "buy",
+    "item": "tool",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 180000,
+   "action": {
+    "type": "buy",
+    "item": "drill",
+    "qty": "max"
+   }
+  },
+  {
+   "atMs": 180000,
+   "action": {
+    "type": "buy",
+    "item": "autoDigger",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 180000,
+   "action": {
+    "type": "buy",
+    "item": "tool",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 210000,
+   "action": {
+    "type": "buy",
+    "item": "drill",
+    "qty": "max"
+   }
+  },
+  {
+   "atMs": 210000,
+   "action": {
+    "type": "buy",
+    "item": "autoDigger",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 210000,
+   "action": {
+    "type": "buy",
+    "item": "tool",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 240000,
+   "action": {
+    "type": "buy",
+    "item": "drill",
+    "qty": "max"
+   }
+  },
+  {
+   "atMs": 240000,
+   "action": {
+    "type": "buy",
+    "item": "autoDigger",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 240000,
+   "action": {
+    "type": "buy",
+    "item": "tool",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 270000,
+   "action": {
+    "type": "buy",
+    "item": "drill",
+    "qty": "max"
+   }
+  },
+  {
+   "atMs": 270000,
+   "action": {
+    "type": "buy",
+    "item": "autoDigger",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 270000,
+   "action": {
+    "type": "buy",
+    "item": "tool",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 300000,
+   "action": {
+    "type": "buy",
+    "item": "drill",
+    "qty": "max"
+   }
+  },
+  {
+   "atMs": 300000,
+   "action": {
+    "type": "buy",
+    "item": "autoDigger",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 300000,
+   "action": {
+    "type": "buy",
+    "item": "tool",
+    "qty": 1
+   }
+  },
+  {
+   "atMs": 120000,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 120083,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 120166,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 120249,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 120332,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 120415,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 120498,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 120581,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 120664,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 120747,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 120830,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 120913,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 120996,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 121079,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 121162,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 121245,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 121328,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 121411,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 121494,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 121577,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 121660,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 121743,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 121826,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 121909,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 121992,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 122075,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 122158,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 122241,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 122324,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 122407,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 122490,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 122573,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 122656,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 122739,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 122822,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 122905,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 122988,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 123071,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 123154,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 123237,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 123320,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 123403,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 123486,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 123569,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 123652,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 123735,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 123818,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 123901,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 123984,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 124067,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 124150,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 124233,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 124316,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 124399,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 124482,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 124565,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 124648,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 124731,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 124814,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 124897,
+   "action": {
+    "type": "tap",
+    "count": 1
+   }
+  },
+  {
+   "atMs": 150000,
+   "action": {
+    "type": "buy",
+    "item": "drill",
+    "qty": 0
+   }
+  },
+  {
+   "atMs": 150000,
+   "action": {
+    "type": "nope"
+   }
+  }
+ ],
+ "expectedHash": "a8f053c6"
+}

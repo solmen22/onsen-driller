@@ -1,9 +1,9 @@
-// アクション（arch §6-2 の PoC 版）。買えないときは状態を変えない。
+// アクション（arch §6-2。BL-010）。どんな入力でも例外を投げず、実行できないときは { ok: false, reason } で状態を変えない
 import { PARAMS } from '../content/params.ts';
 import { SPRING_BY_ID, type SpringId } from '../content/springs.ts';
 import type { GameEvent } from './events.ts';
 import { nextTool, slotsForBathLevel, yunohanaGain } from './formulas.ts';
-import { affordGeometric, sumGeometric, type Num } from './num.ts';
+import { add, affordGeometric, gt, lt, sub, sumGeometric, type Num } from './num.ts';
 import { sfc32Next } from './rng.ts';
 import { createRun, type GameState } from './state.ts';
 import { applyHits, refreshGuests } from './step.ts';
@@ -13,20 +13,30 @@ export type ItemId = LevelItem | 'tool';
 export type Qty = 1 | 10 | 'max';
 
 export type Action =
-  | { type: 'tap'; count: number }
+  | { type: 'tap'; count?: number }
   | { type: 'hold'; on: boolean }
   | { type: 'setAutoDig'; on: boolean }
   | { type: 'buy'; item: ItemId; qty: Qty }
   | { type: 'assignSlot'; slot: number; spring: SpringId | null }
   | { type: 'prestige' };
 
+/** 失敗の理由（arch §6-2） */
+export type FailReason = 'insufficient' | 'locked' | 'maxed' | 'invalid' | 'interlude' | 'rateLimited' | 'noSlot' | 'notFound';
+
 export interface ActionResult {
   ok: boolean;
-  reason?: string;
+  reason?: FailReason;
   events: GameEvent[];
 }
 
-const fail = (reason: string): ActionResult => ({ ok: false, reason, events: [] });
+const fail = (reason: FailReason): ActionResult => ({ ok: false, reason, events: [] });
+
+export const isSpringId = (v: unknown): v is SpringId => typeof v === 'string' && Object.hasOwn(SPRING_BY_ID, v);
+export const isQty = (v: unknown): v is Qty => v === 1 || v === 10 || v === 'max';
+export function isItemId(v: unknown): v is ItemId {
+  if (v === 'drill' || v === 'autoDigger' || v === 'bath' || v === 'tool') return true;
+  return typeof v === 'string' && v.startsWith('pump:') && isSpringId(v.slice(5));
+}
 
 interface Series {
   c0: number;
@@ -57,10 +67,9 @@ export function quote(s: GameState, item: LevelItem, qty: Qty): { n: number; cos
   const se = seriesOf(s, item);
   if (!se) return null;
   let n = qty === 'max' ? affordGeometric(s.run.coins, se.c0, se.r, se.owned) : qty;
-  if (n <= 0) n = 1;
   let cost = sumGeometric(n, se.c0, se.r, se.owned);
   // 丸めで「買えるように見えて買えない」を防ぐ: 所持金を超えたら 1 つ減らす
-  while (qty === 'max' && n > 1 && cost.gt(s.run.coins)) {
+  while (qty === 'max' && n > 0 && gt(cost, s.run.coins)) {
     n--;
     cost = sumGeometric(n, se.c0, se.r, se.owned);
   }
@@ -85,59 +94,76 @@ function addLevels(s: GameState, item: LevelItem, n: number, out: GameEvent[]): 
   }
 }
 
-export function dispatch(s: GameState, a: Action): ActionResult {
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+
+export function dispatch(s: GameState, input: unknown): ActionResult {
+  if (!isObj(input) || typeof input.type !== 'string') return fail('invalid');
+  const a = input;
   const events: GameEvent[] = [];
   const r = s.run;
   switch (a.type) {
     case 'tap': {
-      const n = Math.max(0, Math.min(Math.floor(a.count), PARAMS.input.tapMaxPerSec));
+      const c = a.count === undefined ? 1 : a.count;
+      if (typeof c !== 'number' || !Number.isFinite(c) || c < 1) return fail('invalid');
+      const n = Math.min(Math.floor(c), PARAMS.input.manualMaxPerSec);
+      s.stats.taps += n;
       applyHits(s, n, events);
-      return { ok: n > 0, events };
+      return { ok: true, events };
     }
     case 'hold':
-      r.hold = a.on;
+      if (typeof a.on !== 'boolean') return fail('invalid');
+      s.input.hold = a.on;
       return { ok: true, events };
     case 'setAutoDig':
+      if (typeof a.on !== 'boolean') return fail('invalid');
       r.autoDig.on = a.on;
       return { ok: true, events };
     case 'buy': {
+      if (!isItemId(a.item) || !isQty(a.qty)) return fail('invalid');
       if (a.item === 'tool') {
         const t = nextTool(s);
         if (!t) return fail('locked');
-        if (r.coins.lt(t.cost)) return fail('insufficient');
-        r.coins = r.coins.sub(t.cost);
+        if (lt(r.coins, t.cost)) return fail('insufficient');
+        r.coins = sub(r.coins, t.cost);
         r.drill.tool += 1;
         events.push({ type: 'ToolEvolved', tool: r.drill.tool }, { type: 'Purchased', item: 'tool', qty: 1 });
         return { ok: true, events };
       }
       const q = quote(s, a.item, a.qty);
       if (!q) return fail('locked');
-      if (q.cost.gt(r.coins)) return fail('insufficient');
-      r.coins = r.coins.sub(q.cost);
+      if (q.n <= 0 || gt(q.cost, r.coins)) return fail('insufficient');
+      r.coins = sub(r.coins, q.cost);
       addLevels(s, a.item, q.n, events);
       events.push({ type: 'Purchased', item: a.item, qty: q.n });
       refreshGuests(s, events);
       return { ok: true, events };
     }
     case 'assignSlot': {
-      if (a.slot < 0 || a.slot >= r.bath.slots.length) return fail('noSlot');
-      if (a.spring !== null) {
-        if (!r.springs[a.spring]) return fail('notFound');
-        const other = r.bath.slots.indexOf(a.spring);
-        if (other >= 0) r.bath.slots[other] = r.bath.slots[a.slot] ?? null; // 入れ替え
+      const slot = a.slot;
+      if (typeof slot !== 'number' || !Number.isInteger(slot)) return fail('invalid');
+      if (a.spring !== null && !isSpringId(a.spring)) return fail('invalid');
+      if (slot < 0 || slot >= r.bath.slots.length) return fail('noSlot');
+      const spring = a.spring;
+      if (spring !== null) {
+        if (!r.springs[spring]) return fail('notFound');
+        const other = r.bath.slots.indexOf(spring);
+        if (other >= 0) r.bath.slots[other] = r.bath.slots[slot] ?? null; // 入れ替え
       }
-      r.bath.slots[a.slot] = a.spring;
+      r.bath.slots[slot] = spring;
       refreshGuests(s, events);
       return { ok: true, events };
     }
     case 'prestige': {
+      // S1 は PoC の簡易版（地形・木は S3 の BL-021・022）
       const gain = yunohanaGain(s);
-      if (gain.lte(0)) return fail('locked');
-      s.meta.yunohanaLifetime = s.meta.yunohanaLifetime.add(gain);
+      if (!gain.gt(0)) return fail('locked');
+      s.meta.yunohana.lifetime = add(s.meta.yunohana.lifetime, gain);
       s.meta.prestiges += 1;
-      s.run = createRun(sfc32Next(s.rng.run));
+      s.run = createRun(sfc32Next(s.rng.run), s.run.terrain);
       events.push({ type: 'PrestigeDone', gained: gain.toString() });
       return { ok: true, events };
     }
+    default:
+      return fail('invalid');
   }
 }

@@ -5,9 +5,8 @@ import {
   dispatch,
   drillPower,
   hitsPerSec,
-  incomePerSec,
+  bathIncomePerSec,
   nextTool,
-
   quote,
   springIncome,
   yunohanaGain,
@@ -46,7 +45,7 @@ const AVG_ORE = 1 + PARAMS.block.oreChance * (PARAMS.block.oreMult - 1);
 export function totalRate(s: GameState): Num {
   const d = s.run.depth;
   const dig = drillPower(s).mul(hitsPerSec(s)).div(blockHp(s, d)).mul(blockValue(s, d, false)).mul(AVG_ORE);
-  return dig.add(incomePerSec(s));
+  return dig.add(bathIncomePerSec(s));
 }
 
 function withLevel<T>(s: GameState, item: LevelItem, fn: () => T): T {
@@ -106,7 +105,7 @@ function arrangeSlots(s: GameState): void {
 /** ボットの 1 回の判断（買い物・枠・転生）。時刻は s.clock.playedMs だけを見る */
 export function botAct(s: GameState, bot: BotDef, mem: BotMemory): void {
   const r = s.run;
-  if (r.hold !== bot.hold) dispatch(s, { type: 'hold', on: bot.hold });
+  if (s.input.hold !== bot.hold) dispatch(s, { type: 'hold', on: bot.hold });
   if (r.autoDig.on !== bot.autoDig) dispatch(s, { type: 'setAutoDig', on: bot.autoDig });
 
   if (r.maxDepth !== mem.lastMaxDepth) {

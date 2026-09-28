@@ -1,6 +1,6 @@
 // UI（Preact・DOM）: HUD・タブ・購入の一覧（PoC は「掘る」「湯宿」「設定」だけ中身がある）
 import { useState } from 'preact/hooks';
-import { incomePerSec, nextTool, num, quote, type GameState, type LevelItem, type Qty } from '../core/index.ts';
+import { bathIncomePerSec, nextTool, num, quote, type GameState, type LevelItem, type Qty } from '../core/index.ts';
 import { TOOLS } from '../content/tools.ts';
 import type { SpringId } from '../content/springs.ts';
 import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
@@ -19,7 +19,7 @@ const TABS: { id: Tab; key: TextKey; icon: string }[] = [
 function Hud({ lang }: { lang: Lang }) {
   const v = useGame((s) => ({
     coins: formatNum(s.run.coins, lang),
-    perSec: formatNum(incomePerSec(s), lang),
+    perSec: formatNum(bathIncomePerSec(s), lang),
     depth: s.run.depth,
     maxDepth: s.run.maxDepth,
     hits: s.stats.hits,

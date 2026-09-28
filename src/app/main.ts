@@ -67,7 +67,7 @@ async function boot(): Promise<void> {
   }
   if (params.auto) {
     state.run.autoDig.on = true;
-    state.run.hold = true;
+    state.input.hold = true;
   }
   const store = new GameStore(state);
   perf?.start();

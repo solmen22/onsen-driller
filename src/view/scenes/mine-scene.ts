@@ -194,7 +194,7 @@ export class MineScene extends Phaser.Scene {
         this.hit(depth, band, e.n);
         if (e.fromTap) this.renderedInputPending = true;
       } else if (e.type === 'BlockBroken') {
-        this.pop(e.depth, e.ore);
+        this.pop(e.depth, e.ore !== null);
         if (!this.bridge.reduceMotion) cam.shake(60, 0.004);
       } else if (e.type === 'SpringFound') {
         this.steam.explode(12, 36, -20);

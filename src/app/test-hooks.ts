@@ -1,5 +1,5 @@
 // テスト用フック window.__game（arch §8-4 の PoC 版）。VITE_TEST_HOOKS=true のビルドにだけ入る
-import { advance, stateHash, type Action, type GameState } from '../core/index.ts';
+import { stateHash, type Action, type GameState } from '../core/index.ts';
 import type { Platform } from '../platform/types.ts';
 import type { View } from '../view/game.ts';
 import type { Loop } from './loop.ts';
@@ -24,7 +24,7 @@ export function install(d: HookDeps): void {
     dispatch: (a: Action) => d.store.dispatch(a),
     pause: () => d.loop.pause(),
     resume: () => d.loop.resume(),
-    advance: (ms: number) => advance(d.store.state, ms),
+    advance: (ms: number) => d.store.advance(ms),
     perf: { reset: () => d.perf?.reset(), stats: () => d.perf?.stats() ?? null },
     view: {
       renderer: () => d.view.rendererName(),

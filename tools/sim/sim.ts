@@ -76,7 +76,7 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
     hash: stateHash(s),
     bestDepth: s.stats.bestDepth,
     prestiges: s.meta.prestiges,
-    yunohana: s.meta.yunohanaLifetime.toString(),
+    yunohana: s.meta.yunohana.lifetime.toString(),
     totalCoins: s.stats.totalCoins.toString(),
     coins: s.run.coins.toString(),
     healthy,

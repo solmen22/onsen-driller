@@ -15,7 +15,7 @@ export function setupInput(stage: HTMLElement, store: GameStore, perf: PerfMonit
   };
   const stopHold = (): void => {
     clearTimeout(holdTimer);
-    if (store.state.run.hold) store.dispatch({ type: 'hold', on: false });
+    if (store.state.input.hold) store.dispatch({ type: 'hold', on: false });
   };
   stage.addEventListener('pointerdown', (e) => {
     if (!enabled || !e.isPrimary) return;
