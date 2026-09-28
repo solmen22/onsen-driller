@@ -1,0 +1,147 @@
+# CI（BL-008・BL-080。infra.md §4-3・付録 A-1 を npm に読み替えたもの）
+# - verify: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets
+#   同じジョブの連続した step なので、前が失敗したら後ろは動かない（TS-008-23）
+# - e2e: verify が緑のときだけ（needs）。PR と手動実行で動く。main への push では PR で実施済みなので省く
+# - deploy-preview / deploy-staging: Actions の Variables に CF_PAGES_PROJECT を登録するまで（BL-080）はスキップされる
+#   本番（--branch=main）には出さない。本番は release.yml（手動・G3 の後）だけ
+name: ci
+
+on:
+  pull_request:
+    paths-ignore: ['docs/**']
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**']
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read # gitleaks-action が PR のコミット一覧を読む
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # gitleaks が履歴を走査するため
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v3 # 個人アカウントのリポジトリはライセンスキー不要
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: 'false' # PR へのコメントには書き込み権限が要るので使わない（結果はジョブのサマリー）
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: install
+        run: npm ci
+      - name: lint
+        run: npm run lint
+      - name: typecheck
+        run: npm run typecheck
+      - name: test
+        run: npm run test
+      - name: test:checks（ビルド検査そのもののテスト）
+        run: npm run test:checks
+      - name: build:all（web・crazygames・itch・poki）
+        run: npm run build:all
+      - name: build:e2e（テスト用フック入り）
+        run: npm run build:e2e
+      - name: check:size
+        run: npm run check:size
+      - name: check:assets
+        run: npm run check:assets
+      - name: dist を e2e・デプロイのジョブに渡す
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          retention-days: 3
+          if-no-files-found: error
+
+  e2e:
+    needs: verify
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PW_CHANNEL: chromium # ローカルの既定は chrome（インストール済みの Chrome）。CI は Playwright の Chromium
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: install
+        run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Playwright の Chromium
+        run: npx playwright install --with-deps chromium
+      - name: test:e2e
+        run: npm run test:e2e
+      - name: 失敗したときの記録を残す
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  deploy-preview:
+    needs: [verify, e2e]
+    if: github.event_name == 'pull_request' && vars.CF_PAGES_PROJECT != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Cloudflare Pages（プレビュー https://<branch>.<project>.pages.dev）
+        run: npx --yes wrangler@4.142.0 pages deploy dist/web --project-name="$PROJECT" --branch="$BRANCH" --commit-hash="$SHA"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT: ${{ vars.CF_PAGES_PROJECT }}
+          BRANCH: ${{ github.head_ref }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+
+  deploy-staging:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CF_PAGES_PROJECT != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Cloudflare Pages（ステージング https://staging.<project>.pages.dev。本番の main にはしない）
+        run: npx --yes wrangler@4.142.0 pages deploy dist/web --project-name="$PROJECT" --branch=staging --commit-hash="$GITHUB_SHA"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT: ${{ vars.CF_PAGES_PROJECT }}
