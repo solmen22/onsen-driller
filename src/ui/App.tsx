@@ -1,6 +1,6 @@
 // UI（Preact・DOM）: HUD・タブ・購入の一覧（PoC は「掘る」「湯宿」「設定」だけ中身がある）
 import { useState } from 'preact/hooks';
-import { bathIncomePerSec, nextTool, num, quote, temperatureOf, type GameState, type LevelItem, type Qty } from '../core/index.ts';
+import { autoDigState, buyQuote, incomePerSec, nextTool, num, temperatureOf, type GameState, type LevelItem, type Qty } from '../core/index.ts';
 import { TOOLS } from '../content/tools.ts';
 import type { SpringId } from '../content/springs.ts';
 import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
@@ -19,7 +19,7 @@ const TABS: { id: Tab; key: TextKey; icon: string }[] = [
 function Hud({ lang }: { lang: Lang }) {
   const v = useGame((s) => ({
     coins: formatNum(s.run.coins, lang),
-    perSec: formatNum(bathIncomePerSec(s), lang),
+    perSec: formatNum(incomePerSec(s), lang),
     depth: s.run.depth,
     maxDepth: s.run.maxDepth,
     temp: temperatureOf(s),
@@ -44,14 +44,17 @@ function Hud({ lang }: { lang: Lang }) {
 function BuyRow(props: { item: LevelItem; label: string; level: number; qty: Qty; lang: Lang }) {
   const { store } = useUi();
   const q = useGame((s) => {
-    const r = quote(s, props.item, props.qty);
-    return r ? { n: r.n, cost: formatNum(r.cost, props.lang), ok: r.cost.lte(s.run.coins) } : null;
+    const r = buyQuote(s, props.item, props.qty);
+    // 「最大」で 1 個も買えないときは ×0・0 コインではなく次の 1 個のコストを出す（Q-09）
+    const cost = r.n > 0 ? r.cost : r.nextCost;
+    return r.state === 'locked' ? null : { n: r.n, cost: formatNum(cost, props.lang), ok: r.state === 'affordable', state: r.state };
   });
   if (!q) return null;
   return (
     <button
       class={`row ${q.ok ? 'ok' : 'ng'}`}
       data-testid={`buy-${props.item.replace(':', '-')}`}
+      data-state={q.state}
       aria-disabled={!q.ok}
       onClick={() => store.dispatch({ type: 'buy', item: props.item, qty: props.qty })}
     >
@@ -59,7 +62,7 @@ function BuyRow(props: { item: LevelItem; label: string; level: number; qty: Qty
         {props.label} <small>{t('buy.level', { n: props.level })}</small>
       </span>
       <span class="row-cost">
-        {props.qty !== 1 && `×${q.n} `}
+        {props.qty !== 1 && q.n > 0 && `×${q.n} `}
         {t('buy.cost', { cost: q.cost })}
       </span>
     </button>
@@ -99,15 +102,23 @@ function ToolRow({ lang }: { lang: Lang }) {
 
 function DigTab({ qty, lang }: { qty: Qty; lang: Lang }) {
   const { store } = useUi();
-  const v = useGame((s) => ({ drill: s.run.drill.level, auto: s.run.autoDig.level, on: s.run.autoDig.on }));
+  const v = useGame((s) => ({ drill: s.run.drill.level, auto: s.run.autoDig.level, dig: autoDigState(s) }));
+  const on = v.dig === 'on';
   return (
     <div class="list">
       <ToolRow lang={lang} />
       <BuyRow item="drill" label={t('item.drill')} level={v.drill} qty={qty} lang={lang} />
       <BuyRow item="autoDigger" label={t('item.autoDigger')} level={v.auto} qty={qty} lang={lang} />
-      <button class="row toggle" data-testid="toggle-autodig" aria-pressed={v.on} onClick={() => store.dispatch({ type: 'setAutoDig', on: !v.on })}>
+      <button
+        class="row toggle"
+        data-testid="toggle-auto-dig"
+        data-state={v.dig}
+        aria-pressed={on}
+        disabled={v.dig === 'locked'}
+        onClick={() => store.dispatch({ type: 'setAutoDig', on: !on })}
+      >
         <span class="row-name">{t('item.autoDig')}</span>
-        <span class="row-cost">{v.on ? t('state.on') : t('state.off')}</span>
+        <span class="row-cost">{v.dig === 'locked' ? t('buy.locked') : on ? t('state.on') : t('state.off')}</span>
       </button>
     </div>
   );

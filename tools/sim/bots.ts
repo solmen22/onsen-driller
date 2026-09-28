@@ -8,7 +8,7 @@ import {
   hitsPerSec,
   bathIncomePerSec,
   nextTool,
-  quote,
+  buyQuote,
   springIncome,
   yunohanaGain,
   type GameState,
@@ -141,8 +141,8 @@ export function botAct(s: GameState, bot: BotDef, mem: BotMemory): void {
     let best: { item: LevelItem; score: number; affordable: boolean } | null = null;
     let bestAffordable: { item: LevelItem; score: number } | null = null;
     for (const item of candidates(s)) {
-      const q = quote(s, item, 1);
-      if (!q) continue;
+      const q = buyQuote(s, item, 1);
+      if (q.state === 'locked' || q.state === 'maxed') continue;
       const gainRate = withLevel(s, item, () => totalRate(s)).sub(base);
       const score = gainRate.div(q.cost).toNumber();
       const affordable = q.cost.lte(r.coins);
