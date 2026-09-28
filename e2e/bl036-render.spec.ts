@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { test, expect } from './support/fixtures.ts';
 import { bootGame } from './support/boot.ts';
 import { hitsOf } from './support/hooks.ts';
-import { layerRects } from '../src/view/layout.ts';
+import { layerRects, TILE } from '../src/view/layout.ts';
 import { SEED_A } from '../tests/helpers/seeds.ts';
 
 interface HookReplayFile {
@@ -21,42 +21,73 @@ const REPLAY = JSON.parse(readFileSync(resolve(import.meta.dirname, '..', 'tests
 const RENDER_MS = 150;
 
 test.describe('BL-036 地下の描画', () => {
-  test('TS-036-02 自動掘りで 0m → 100m まで掘る間、1 秒ごとに読んだ道具がいつもキャンバスの地下の範囲の中に見えている（カメラが道具の先を追う）', async ({
+  test('TS-036-02 0m → 100m まで、道具の先がいつもキャンバスの地下の範囲の中に見えている（カメラが道具の先を追う。浅い所 0〜29m も読む）', async ({
     page,
   }) => {
     const g = await bootGame(page, { seed: SEED_A });
     await g.pause();
-    // 100m まで約 20 秒で届く強さ（ドリル Lv 80: 威力 81×2^3×1.5＝972）。自動掘り（毎秒 2 打）で掘る。
-    // 1 秒ごとの読み取りのたびに描画のフレームを約 9 回描くので、読み取りの回数が CI（GPU なし・ソフトウェアの WebGL）の時間に効く
-    // （Lv 60〔100m まで 53 秒・54 回〕では PR #6 の CI で 45.6 秒かかった。上限 60 秒）
-    await g.grant({ coins: '1e9' });
-    expect((await g.dispatch({ type: 'buy', item: 'tool', qty: 1 })).ok).toBe(true);
-    for (let i = 0; i < 8; i++) expect((await g.dispatch({ type: 'buy', item: 'drill', qty: 10 })).ok).toBe(true);
-    expect((await g.dispatch({ type: 'setAutoDig', on: true })).ok).toBe(true);
     const canvas = (await page.locator('[data-testid="stage"] canvas').boundingBox())!;
     const layer = layerRects(Math.round(canvas.height));
     // 地下の範囲（ビューポートの CSS ピクセル）。layerRects はキャンバスの画素なので、CSS との比で直す
     const ug = { top: canvas.y + (layer.underground.y * canvas.height) / Math.round(canvas.height), bottom: canvas.y + canvas.height, left: canvas.x, right: canvas.x + canvas.width };
+    // 1 ブロック（1m）の画面の高さ: タイル × 表示の倍率 × キャンバスの CSS の拡大率
+    const cssScale = canvas.width / (await page.evaluate(() => (document.querySelector('[data-testid="stage"] canvas') as HTMLCanvasElement).width));
+    const blockPx = TILE * (await g.renderStats()).zoom * cssScale;
     const samples: string[] = [];
     const outside: string[] = [];
+    let atSurface = 0;
+
+    /**
+     * 判定（2026-09-29 のレビュー S-1 で見直し）
+     * - 道具の先（矩形の下端＝掘っている所）は、どの深さでも地下の範囲の中（横もキャンバスの中）。
+     * - 道具の全体が地下の範囲の中。ただし、カメラが地表で止まっている間（地面の線が地下の範囲の上端にある間）だけは、
+     *   道具の上（柄）が地上の範囲にはみ出してよい（地下のカメラは地表より上を映さない作り: arch §14。道具は 1 ブロックより背が高いので、
+     *   0m・1m では柄が地面の線より上に出る。レビューの実測 P1）。
+     *   「地表で止まっている」は、道具の先が「地面の線＝地下の範囲の上端」から深さ d ブロックぶん下（d〜d+2 ブロック）にあることで確かめる
+     *   （カメラが地表を離れて下に動いていれば、先はそれより上に来るので、柄のはみ出しを許さない）
+     */
+    const check = async (label: string, depth: number): Promise<void> => {
+      const r = await g.rect('drill');
+      if (!r) {
+        outside.push(`${label} ${depth}m: rect が null`);
+        return;
+      }
+      const tip = r.y + r.h;
+      const tipInside = tip >= ug.top && tip <= ug.bottom && r.x >= ug.left && r.x + r.w <= ug.right;
+      const fromGround = (tip - ug.top) / blockPx; // 地面の線が上端にあるとしたときの、先の深さ（ブロック）
+      const surface = r.y < ug.top && fromGround >= depth - 0.05 && fromGround <= depth + 2;
+      if (surface) atSurface++;
+      samples.push(`${label} ${depth}m y=${Math.round(r.y)}..${Math.round(tip)}${r.y < ug.top ? `（柄が地上へ。先は地面から ${fromGround.toFixed(2)} ブロック）` : ''}`);
+      if (!tipInside || (r.y < ug.top && !surface)) outside.push(`${label} ${depth}m: 道具 ${JSON.stringify(r)} 地下の範囲 ${JSON.stringify(ug)} 1 ブロック ${blockPx}px`);
+    };
+
+    // 1) 浅い所（カメラが地表に止まっている所から、道具を追い始める所まで）: grant({depth}) で深さを置いて読む（grant の深さは置き換え。
+    //    描画は深さとブロックの進み具合だけから道具とカメラの位置を決めるので、掘って来た場合と同じ位置になる）。
+    //    強いドリルで掘ると 1 秒で 0m → 30m に進み、この範囲を一度も読まない（レビュー S-1。カメラが 25m まで追わない変更で緑のままだった）
+    await page.clock.runFor(RENDER_MS);
+    await check('浅い所', 0);
+    for (const d of [1, 2, 3, 4, 6, 8, 12, 16, 20, 25, 29]) {
+      await g.grant({ depth: d });
+      await page.clock.runFor(RENDER_MS);
+      expect((await g.getState()).run.depth).toBe(d);
+      await check('浅い所', d);
+    }
+
+    // 2) 0m → 100m を自動掘りで掘りながら 1 秒ごとに読む。100m まで約 20 秒で届く強さ（ドリル Lv 80: 威力 81×2^3×1.5＝972。自動掘り 毎秒 2 打）。
+    //    1 秒ごとの読み取りのたびに描画のフレームを約 9 回描くので、読み取りの回数が CI（GPU なし・ソフトウェアの WebGL）の時間に効く
+    //    （Lv 60〔100m まで 53 秒・54 回〕では PR #6 の CI で 45.6 秒かかった。上限 60 秒）
+    await g.seed(SEED_A); // 新しいゲーム（0m）に戻す
+    await g.pause();
+    await g.grant({ coins: '1e9' });
+    expect((await g.dispatch({ type: 'buy', item: 'tool', qty: 1 })).ok).toBe(true);
+    for (let i = 0; i < 8; i++) expect((await g.dispatch({ type: 'buy', item: 'drill', qty: 10 })).ok).toBe(true);
+    expect((await g.dispatch({ type: 'setAutoDig', on: true })).ok).toBe(true);
     let depth = (await g.getState()).run.depth;
     expect(depth).toBe(0);
     let seconds = 0;
     await page.clock.runFor(RENDER_MS);
     for (;;) {
-      // 0 秒（0m）から、1 秒ごとに読む。
-      // 判定: 道具の先（矩形の下端＝掘っている所）がいつも地下の範囲の中で、横もキャンバスの中。
-      // 掘り始めた後（1m 以降）は道具の全体が地下の範囲の中。0m（掘る前）は、道具は地表に立っている作り
-      // （mine-scene の道具は原点 0.9 で両方のカメラに映り、先が地面の線にある）ので、先だけを見る（実行記録に解釈を記録）
-      const r = await g.rect('drill');
-      if (!r) outside.push(`${seconds}s ${depth}m: rect が null`);
-      else {
-        const tip = r.y + r.h;
-        samples.push(`${seconds}s ${depth}m y=${Math.round(r.y)}..${Math.round(tip)}`);
-        const tipInside = tip >= ug.top && tip <= ug.bottom && r.x >= ug.left && r.x + r.w <= ug.right;
-        const wholeInside = r.y >= ug.top && tipInside;
-        if (!(depth === 0 ? tipInside : wholeInside)) outside.push(`${seconds}s ${depth}m: 道具 ${JSON.stringify(r)} 地下の範囲 ${JSON.stringify(ug)}`);
-      }
+      await check(`${seconds}s`, depth);
       if (depth >= 100) break;
       expect(seconds, '120 秒以内に 100m に届く').toBeLessThan(120);
       await g.advance(1_000);
@@ -64,10 +95,13 @@ test.describe('BL-036 地下の描画', () => {
       await page.clock.runFor(RENDER_MS);
       depth = (await g.getState()).run.depth;
     }
-    test.info().annotations.push({ type: 'TS-036-02 の道具の位置（秒・深さ・上端〜下端）', description: samples.join(' / ') });
-    test.info().annotations.push({ type: '地下の範囲', description: JSON.stringify(ug) });
+    test.info().annotations.push({ type: 'TS-036-02 の道具の位置（深さ・上端〜下端）', description: samples.join(' / ') });
+    test.info().annotations.push({ type: '地下の範囲・1 ブロック', description: `${JSON.stringify(ug)} ${blockPx}px` });
     expect(outside).toEqual([]);
-    expect(samples.length).toBeGreaterThanOrEqual(10); // 途中を十分な回数読んだ（0m・帯 2〔30m〕・帯 3〔80m〕の境目を越える間）
+    expect(samples.length).toBeGreaterThanOrEqual(22); // 浅い所 12 点＋掘りながら 10 回以上（0m・帯 2〔30m〕・帯 3〔80m〕の境目を越える間）
+    // 柄のはみ出しを許したのは、カメラが地表で止まっている浅い所だけ（どの画面でも数ブロックまで）
+    expect(atSurface).toBeGreaterThanOrEqual(1);
+    expect(atSurface).toBeLessThanOrEqual(8);
   });
 
   test('TS-036-08・TS-071-07 描画が動いている状態で seed(42) → pause() → advance(60000, {tapsPerSec: 2}) の stateHash が 2 回とも同じで、Node の core の値と一致する', async ({
