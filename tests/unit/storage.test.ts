@@ -1,4 +1,4 @@
-// platform/storage.ts: localStorage が使えない環境でも例外を外に出さず、メモリに切り替える（BL-027。E2E の V1〜V3・TS-E9-01・04 の本体）
+// platform/storage.ts: 読めない環境（V1・V3）はメモリ、読めるが書けない環境（V2・V4）は localStorage のまま writeProbe: failed（BL-027・Q-21・Q-25・レビュー S-2。E2E の V1〜V4・TS-E9-01・04 の本体）
 import { afterEach, describe, expect, it } from 'vitest';
 import { localStore, memoryStore } from '../../src/platform/storage.ts';
 import { createWebPlatform } from '../../src/platform/web.ts';
@@ -84,21 +84,45 @@ describe('localStorage がない・壊れている', () => {
     expect(localStore(null).kind).toBe('memory');
   });
 
-  it('試し書きが QuotaExceededError（V2）・getItem なども例外（V3）→ メモリ', () => {
-    expect(localStore(fakeStorage({ set: quotaError() })).kind).toBe('memory');
+  it('getItem も例外（V3）→ メモリ（読めない）', () => {
     expect(localStore(fakeStorage({ set: securityError(), get: securityError(), remove: securityError() })).kind).toBe('memory');
+    expect(localStore(fakeStorage({ get: securityError() })).kind).toBe('memory');
+  });
+
+  it('試し書きが QuotaExceededError（V2）→ localStorage のまま（既存のセーブを読む）、writeProbe は failed（レビュー S-2）', () => {
+    const ls = fakeStorage({ set: quotaError() });
+    ls.map.set('onsen-driller:save:a', 'existing');
+    const s = localStore(ls);
+    expect(s.kind).toBe('local');
+    expect(s.writeProbe).toBe('failed');
+    expect(s.get('onsen-driller:save:a')).toBe('existing');
+    expect(s.set('onsen-driller:save:b', 'x')).toBe(false);
+  });
+
+  it('試し書きは通るが読み戻しが合わない（V4: 書き込みを黙って捨てる）→ localStorage のまま、writeProbe は failed（Q-25）', () => {
+    const v4 = { setItem: () => undefined, getItem: () => null, removeItem: () => undefined } as unknown as Storage;
+    const s = localStore(v4);
+    expect(s.kind).toBe('local');
+    expect(s.writeProbe).toBe('failed');
+  });
+
+  it('試し書きのキーを消すことだけが例外 → localStorage（writeProbe は ok）', () => {
+    const s = localStore(fakeStorage({ remove: securityError() }));
+    expect(s.kind).toBe('local');
+    expect(s.writeProbe).toBe('ok');
   });
 
   it('試し書きのキーは接頭辞付きで、後に残さない', () => {
     const ls = fakeStorage();
     const s = localStore(ls);
     expect(s.kind).toBe('local');
+    expect(s.writeProbe).toBe('ok');
     expect([...ls.map.keys()]).toEqual([]);
   });
 });
 
 describe('使える localStorage で、途中から例外になる（V5 など）', () => {
-  it('get の例外は null、set の例外は false、remove の例外は握りつぶす', () => {
+  it('get の例外はそのまま投げる（「ない」＝null と区別する。レビュー S-1）、set の例外は false、remove の例外は握りつぶす', () => {
     const ls = fakeStorage();
     const s = localStore(ls);
     expect(s.set('onsen-driller:save:a', 'v1')).toBe(true);
@@ -113,7 +137,7 @@ describe('使える localStorage で、途中から例外になる（V5 など�
     ls.removeItem = () => {
       throw securityError();
     };
-    expect(broken.get('onsen-driller:save:a')).toBeNull();
+    expect(() => broken.get('onsen-driller:save:a')).toThrow();
     expect(broken.set('onsen-driller:save:a', 'v2')).toBe(false);
     expect(() => broken.remove('onsen-driller:save:a')).not.toThrow();
   });
