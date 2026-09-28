@@ -1,0 +1,100 @@
+# 毎晩のジョブと e2e-full（BL-084 の草案。有効化は S2）
+# 状態: 草案。schedule はコメントアウトしてある（下の「S2 でそろえるもの」ができるまで、動かすと失敗して分数を使うため）。
+#   有効化の手順: 下の 3 つのスクリプト・プロジェクト名がそろったら schedule のコメントを外す（BL-084）
+# S2 でそろえるもの（名前は案。担当が決めたら、このファイルを合わせる）
+#   - npm run test:balance        … ボット 9 本・20 時間・8 時間放置、目標表 24 項目（技術リード BL-031・BL-033）。レポートを reports/balance/ に出す
+#   - npm run test:property:full  … fast-check の試行を多めに（技術リード。例 FC_NUM_RUNS=1000）
+#   - Playwright のプロジェクト名 webkit・firefox・mobile-safari・mobile-chrome と、それを選ぶ npm run test:e2e:nightly
+#     （実行・修復エンジニア。playwright.config.ts・package.json。BL-073 のブランチで定義済み）
+#   - npm run test:e2e:full        … nightly の E2E＋スクリーンショット比較・性能（実行・修復エンジニア。リリース前に手動）
+# 分数（infra.md §4-3）: 1 回 約 18 分【推定】。毎日だと月 約 540 分で枠 2,000 分の 7 割を超えるため、
+#   週 2 回（月・木の 03:00 JST）から始める。前回から main に変更がない日は 1 分で終える
+name: nightly
+
+on:
+  # schedule:
+  #   - cron: '0 18 * * 0,3' # 月・木の 03:00 JST（UTC の日・水 18:00）。毎日にするなら '0 18 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'nightly（毎晩と同じ内容）／ full（リリース前の e2e-full。スクリーンショット比較・性能を追加）'
+        type: choice
+        options: [nightly, full]
+        default: nightly
+
+concurrency:
+  # mode ごとに分け、実行中のものは取り消さない（リリース前に手動で動かした e2e-full を、schedule の実行が止めないように）
+  group: nightly-${{ inputs.mode || 'nightly' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - name: 前回から変更があるか（schedule のときだけ。手動実行は常に動かす）
+        id: changed
+        run: |
+          if [ "$EVENT" != "schedule" ] || [ -n "$(git log -1 --since='4 days ago' --format=%H)" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "main に 4 日間変更がないので省略する" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        env:
+          EVENT: ${{ github.event_name }}
+      - if: steps.changed.outputs.run == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - if: steps.changed.outputs.run == 'true'
+        run: npm ci
+      - name: test:balance（ボット 9 本・20 時間・8 時間放置）
+        if: steps.changed.outputs.run == 'true'
+        run: npm run test:balance
+      - name: test:property:full（fast-check の試行を多めに）
+        if: steps.changed.outputs.run == 'true'
+        run: npm run test:property:full
+      - name: build:e2e
+        if: steps.changed.outputs.run == 'true'
+        run: npm run build:e2e
+      - name: Playwright のブラウザ（Chromium・WebKit・Firefox）
+        if: steps.changed.outputs.run == 'true'
+        run: npx playwright install --with-deps chromium webkit firefox
+      - name: E1〜E11（WebKit・Firefox・モバイルエミュレーション）
+        if: steps.changed.outputs.run == 'true' && inputs.mode != 'full'
+        # test:e2e は --project=chromium を含む（BL-073）ので使わない。4 つのプロジェクトは test:e2e:nightly が選ぶ（実行・修復エンジニアの依頼）
+        run: npm run test:e2e:nightly
+        env:
+          PW_CHANNEL: chromium
+      - name: e2e-full（上に加えてスクリーンショット比較・性能）
+        if: steps.changed.outputs.run == 'true' && inputs.mode == 'full'
+        run: npm run test:e2e:full
+        env:
+          PW_CHANNEL: chromium
+      - name: バランスのレポートを残す
+        if: always() && steps.changed.outputs.run == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: balance-report
+          path: reports/balance/
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: 失敗したときの E2E の記録を残す
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-e2e-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore

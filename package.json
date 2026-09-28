@@ -24,6 +24,10 @@
     "build:all": "npm run build:web && npm run build:crazygames && npm run build:itch && npm run build:poki",
     "build:e2e": "vite build --mode e2e && vite build --mode e2e-crazygames && vite build --mode e2e-poki",
     "check:size": "node scripts/check-size.mjs",
+    "check:assets": "node scripts/check-assets.mjs",
+    "test:checks": "node --test scripts/check-selftest.mjs",
+    "package": "node scripts/package.mjs",
+    "package:verify": "node scripts/package-verify.mjs",
     "preview:web": "vite preview --outDir dist/web --port 4173 --strictPort",
     "test:e2e": "playwright test",
     "preview:lan": "vite preview --outDir dist/web --port 4173 --strictPort --host"
