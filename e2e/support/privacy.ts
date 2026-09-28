@@ -26,10 +26,16 @@ export class CommonCheckError extends Error {
   }
 }
 
-/** ページのスクリプトより先に入れる: 全画面の要求の回数を数える（TS-E1-12） */
-function fullscreenProbe(): void {
-  const w = window as unknown as { __fsCalls: number };
+/**
+ * ページのスクリプトより先に入れる仕掛け（e2e_E1_first-play.md「準備」の 2）
+ * - 全画面の要求の回数を window.__fsCalls に数える（TS-E1-12）
+ * - Space・矢印キーの keydown のイベントを window.__keys にためる（TS-E1-11）。defaultPrevented は
+ *   ゲームの処理が済んだ後に読む（イベントの物を持っておけば、配送が終わった後も値が残る）
+ */
+function pageProbe(): void {
+  const w = window as unknown as { __fsCalls: number; __keys: KeyboardEvent[] };
   w.__fsCalls = 0;
+  w.__keys = [];
   const wrap = (proto: object, name: string): void => {
     const orig = (proto as Record<string, unknown>)[name];
     if (typeof orig !== 'function') return;
@@ -45,6 +51,20 @@ function fullscreenProbe(): void {
   wrap(Element.prototype, 'requestFullscreen');
   wrap(Element.prototype, 'webkitRequestFullscreen');
   wrap(Element.prototype, 'webkitRequestFullScreen');
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.code === 'Space' || e.code.startsWith('Arrow')) w.__keys.push(e);
+    },
+    true,
+  );
+}
+
+/** pageProbe がためた keydown（コード・自動リピートか・preventDefault されたか） */
+export async function recordedKeydowns(page: Page): Promise<{ code: string; repeat: boolean; prevented: boolean }[]> {
+  return page.evaluate(() =>
+    (window as unknown as { __keys: KeyboardEvent[] }).__keys.map((e) => ({ code: e.code, repeat: e.repeat, prevented: e.defaultPrevented })),
+  );
 }
 
 export function isAllowedUrl(url: string, allowedOrigins: readonly string[]): boolean {
@@ -76,7 +96,7 @@ export class ContextMonitor {
   }
 
   async attach(): Promise<void> {
-    await this.context.addInitScript(fullscreenProbe);
+    await this.context.addInitScript(pageProbe);
     // 許可リスト外は中止しつつ記録する（許可するものは、ほかの route（S2 の SDK のモックなど）に回す）
     await this.context.route('**/*', async (route) => {
       const url = route.request().url();

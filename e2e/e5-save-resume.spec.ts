@@ -1,6 +1,7 @@
 // E2E E5 保存と再開（e2e_E5_save-resume.md）
-// PR: TS-E5-01・02・03・05・06・07・10・11（優先度「高」）。毎晩: TS-E5-04・08・09（中）。
-// 保留: TS-E5-13（S3）、TS-E5-14（S2）。TS-E5-12 は QA レビュー §3-1 で削除（TS-027-20・TS-COM-04 で足りる）。TS-E5-15 は手動（iPhone）。
+// PR: TS-E5-01・02・03・05・10・11（S1）。毎晩: TS-E5-04（BL-089）。
+// 保留: TS-E5-13（S3）、TS-E5-14（S2）。TS-E5-15 は手動（オーナーの iPhone）。
+// 欠番: TS-E5-06〜09（壊れ方の種類は integration の TS-027-05・07 に統合。E2E は TS-E5-05 が代表）、TS-E5-12（TS-027-20・TS-COM-04）。
 //
 // 壊れた枠の試験は、context.storageState() を書き換えて新しい context で開き直す（reopenWithStorage）。
 // 同じページの再読み込みでは pagehide の保存が壊した枠を上書きしてしまうため。
@@ -10,7 +11,6 @@ import { bootGame, centerOf, pageNow, reloadGame, setHidden, triggerAutosave } f
 import { later, needs } from './support/gaps.ts';
 import { hitsOf, type Hooks, type SerializedState } from './support/hooks.ts';
 import { newerOlder, readSlots, reopenWithStorage, SLOT_KEYS, writtenSlots, type SlotName, type Slots } from './support/storage.ts';
-import { fnv1a } from '../src/core/index.ts';
 import { SEED_A } from '../tests/helpers/seeds.ts';
 
 /** 準備: 状態を作る（シナリオの「準備」の 1〜3） */
@@ -149,61 +149,6 @@ test.describe('E5 保存と再開', () => {
       expect(harness.pageErrors).toEqual([]);
     });
 
-    test('TS-E5-06 新しいほうの枠の game を 1 文字書き換えると（checksum はそのまま）、もう一方から復元する', async ({ page, harness }) => {
-      needs('hook:seed', 'hook:advance.input', 'feature:twoSlotSave');
-      const { g } = await prepare(page, harness);
-      await threeSaves(page, harness, g);
-      const r = await reopenWithBrokenNewer(page, harness, (raw, ls, key) => {
-        const env = JSON.parse(raw) as { game: unknown };
-        const game = typeof env.game === 'string' ? env.game : JSON.stringify(env.game);
-        // "depth":N の数字を 1 文字変える（JSON としては正しいまま）
-        const tampered = game.replace(/"depth":(\d)/, (_m, d: string) => `"depth":${(Number(d) + 1) % 10}`);
-        expect(tampered).not.toBe(game);
-        ls.set(key, JSON.stringify({ ...env, game: typeof env.game === 'string' ? tampered : (JSON.parse(tampered) as unknown) }));
-      });
-      expect(await r.g.getState()).toEqual(r.slots[r.y].env!.game);
-    });
-
-    for (const [label, value] of [
-      ['"not json"', 'not json'],
-      ['空文字列', ''],
-    ] as const) {
-      test(`TS-E5-07 新しいほうの枠が ${label} なら、もう一方から復元する`, async ({ page, harness }) => {
-        needs('hook:seed', 'hook:advance.input', 'feature:twoSlotSave');
-        const { g } = await prepare(page, harness);
-        await threeSaves(page, harness, g);
-        const r = await reopenWithBrokenNewer(page, harness, (_raw, ls, key) => ls.set(key, value));
-        expect(await r.g.getState()).toEqual(r.slots[r.y].env!.game);
-      });
-    }
-
-    test('TS-E5-08 スキーマ違反（coins がオブジェクト、checksum は付け直し）でも落ちない（Q-10） @nightly', async ({ page, harness }) => {
-      needs('hook:seed', 'hook:advance.input', 'feature:twoSlotSave');
-      const { g } = await prepare(page, harness);
-      await threeSaves(page, harness, g);
-      const r = await reopenWithBrokenNewer(page, harness, (raw, ls, key) => {
-        const env = JSON.parse(raw) as { game: unknown; checksum: string };
-        const gameObj = (typeof env.game === 'string' ? JSON.parse(env.game) : env.game) as SerializedState;
-        (gameObj.run as Record<string, unknown>).coins = {};
-        const game = JSON.stringify(gameObj);
-        // checksum の正規化は Q-10。いまは封筒の game の文字列に対する FNV-1a（src/save/codec.ts）
-        ls.set(key, JSON.stringify({ ...env, game: typeof env.game === 'string' ? game : gameObj, checksum: fnv1a(game) }));
-      });
-      const s = await r.g.getState();
-      const restoredFromY = JSON.stringify(s) === JSON.stringify(r.slots[r.y].env!.game);
-      test.info().annotations.push({ type: 'Q-10 の振る舞い', description: restoredFromY ? 'もう一方の枠から復元' : 'X を補正して読んだ' });
-      expect(Number.isFinite(Number(s.run.coins)) && Number(s.run.coins) >= 0).toBe(true);
-      expect(harness.pageErrors).toEqual([]);
-    });
-
-    test('TS-E5-09 新しいほうの枠のキーが無ければ（Y だけ）、Y から復元する @nightly', async ({ page, harness }) => {
-      needs('hook:seed', 'hook:advance.input', 'feature:twoSlotSave');
-      const { g } = await prepare(page, harness);
-      await threeSaves(page, harness, g);
-      const r = await reopenWithBrokenNewer(page, harness, (_raw, ls, key) => ls.delete(key));
-      expect(await r.g.getState()).toEqual(r.slots[r.y].env!.game);
-    });
-
     test('TS-E5-10 壊れた枠から復元した後の保存は、壊れていた X に書かれ、Y は 1 バイトも変わらない', async ({ page, harness }) => {
       needs('hook:seed', 'hook:advance.input', 'feature:twoSlotSave');
       const { g } = await prepare(page, harness);
@@ -222,9 +167,11 @@ test.describe('E5 保存と再開', () => {
     needs('hook:seed', 'hook:advance.input', 'feature:twoSlotSave');
     const { g } = await prepare(page, harness);
     await threeSaves(page, harness, g);
+    const slots = await readSlots(page.context(), harness.origin);
+    const half = (raw: string | null): string => (raw ?? '').slice(0, Math.floor((raw ?? '').length / 2));
     const reopened = await reopenWithStorage(harness, page.context(), (ls) => {
-      ls.set(SLOT_KEYS.a, 'not json');
-      ls.set(SLOT_KEYS.b, '{"schema":1,"seq":');
+      ls.set(SLOT_KEYS.a, half(slots.a.raw));
+      ls.set(SLOT_KEYS.b, half(slots.b.raw));
     });
     const g2 = await bootGame(reopened.page, { startPaused: true });
     const s = await g2.getState();

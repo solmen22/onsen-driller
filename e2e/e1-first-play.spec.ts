@@ -1,5 +1,7 @@
 // E2E E1 初回起動 → 最初の強化（e2e_E1_first-play.md）
-// PR: TS-E1-01・02・05・06・08〜13・17（優先度「高」）。毎晩: TS-E1-07・15（中）。
+// PR: TS-E1-01・02・05・06・08〜13・17（S1）。毎晩: TS-E1-07・15（BL-089）。
+// シナリオの「実装のまとめ方」は 1 つの流れを勧めているが、ここでは ID ごとにテストを分けた（起動は 1 回 約 0.5 秒で、
+// 分けても PR は 1 分未満。いまのビルドに無いフック・機能による保留を ID ごとに付けられ、失敗の場所も分かる）。
 // 保留: TS-E1-03・04・TS-071-17（S2。CEO 決定 Q-01）、TS-E1-14（S3）、TS-E1-16（S2）。
 // いまのビルドに無いフック・機能を使うテストは needs() で保留になる（e2e/support/gaps.ts）。
 import type { Page } from '@playwright/test';
@@ -7,6 +9,7 @@ import { test, expect } from './support/fixtures.ts';
 import { BOOT_TIMEOUT_MS, bootGame, centerOf, T0, tapUnderground, triggerAutosave } from './support/boot.ts';
 import { later, needs } from './support/gaps.ts';
 import { coinsOf, hitsOf, type Hooks } from './support/hooks.ts';
+import { recordedKeydowns } from './support/privacy.ts';
 import { SEED_A, SEED_B } from '../tests/helpers/seeds.ts';
 
 const PICKAXE_COST = 3; // gdd §5-3・content/tools.ts（ツルハシ 3 コイン）
@@ -89,14 +92,13 @@ test.describe('E1 初回起動 → 最初の強化', () => {
       expect(names).not.toContain('gameplayStart');
     });
 
-    test('TS-E1-04 最初のクリックで 1 打、gameplayStart が loadingStop の後にちょうど 1 回（冪等）', async ({ page }) => {
+    test('TS-E1-04 最初のクリックで gameplayStart が loadingStop の後にちょうど 1 回（冪等）', async ({ page }) => {
+      // 最初のクリックで 1 打が入ることは TS-012-15（S1）で確かめる（QA レビュー §3-1 で前半を削った）
       later('S2:lifecycle');
       needs('hook:rect');
       const g = await bootGame(page);
       const c = centerOf((await g.rect('drill'))!);
-      const h0 = hitsOf(await g.getState());
       await page.mouse.click(c.x, c.y);
-      expect(hitsOf(await g.getState()) - h0).toBe(1);
       let names = (await g.calls()).map((x) => x.name);
       expect(names.filter((n) => n === 'gameplayStart')).toHaveLength(1);
       expect(names.indexOf('gameplayStart')).toBeGreaterThan(names.indexOf('loadingStop'));
@@ -121,16 +123,16 @@ test.describe('E1 初回起動 → 最初の強化', () => {
     });
   });
 
-  test('TS-E1-05 ツルハシを買う前は自動掘りが使えない（押しても 10 秒で打撃が増えない）', async ({ page }) => {
+  test('TS-E1-05 ツルハシを買う前は自動掘りが表示されていて押せない（押しても 10 秒で打撃が増えない）', async ({ page }) => {
     needs('feature:autoDigLock');
     const g = await bootGame(page);
     await g.pause();
     const t = page.getByTestId('toggle-auto-dig');
-    // 隠れているか押せない（Q-03。Q-17 の表では「表示して押せない（locked）」）
-    if (await t.isVisible()) {
-      await expect(t).toHaveAttribute('data-state', 'locked');
-      await t.click({ force: true });
-    }
+    // PM の Q-17 回答: 表示して押せない（data-state="locked"・disabled）。「最初の強化」の定義は Q-03
+    await expect(t).toBeVisible();
+    await expect(t).toHaveAttribute('data-state', 'locked');
+    await expect(t).toBeDisabled();
+    await t.click({ force: true }); // 押しても何も起きない
     const h0 = hitsOf(await g.getState());
     await g.advance(10_000);
     expect(hitsOf(await g.getState()) - h0).toBe(0);
@@ -186,7 +188,11 @@ test.describe('E1 初回起動 → 最初の強化', () => {
     await g.pause();
     await buyPickaxeByTaps(g);
     await page.clock.runFor(250);
-    await page.getByTestId('toggle-auto-dig').click();
+    const toggle = page.getByTestId('toggle-auto-dig');
+    await toggle.click();
+    await page.clock.runFor(250);
+    await expect(toggle).toHaveAttribute('data-state', 'on');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
     expect((await g.getState()).run.autoDig.on).toBe(true);
     const h0 = hitsOf(await g.getState());
     await g.advance(10_000);
@@ -211,32 +217,35 @@ test.describe('E1 初回起動 → 最初の強化', () => {
     expect(hitsOf(await g.getState())).toBe(h1);
   });
 
-  test('TS-E1-11 Space の押しっぱなし 2 秒で約 8 打、Space の keydown はすべて preventDefault', async ({ page }) => {
+  test('TS-E1-11 Space の押しっぱなし 2 秒で約 8 打（自動リピートは数えない）、Space・矢印キーはすべて preventDefault', async ({ page }) => {
     needs('hook:seed');
     const g = await bootGame(page, { seed: SEED_A });
     await g.resume();
-    // ゲームの keydown の処理の後に defaultPrevented を記録する（window に後から登録した聞き手は後で呼ばれる）
-    await page.evaluate(() => {
-      const w = window as unknown as { __space: boolean[] };
-      w.__space = [];
-      window.addEventListener('keydown', (e) => {
-        if (e.code === 'Space') w.__space.push(e.defaultPrevented);
-      });
-    });
+    // 長押し: 押している間の自動リピート（repeat: true）の keydown を 10 回送る
     const h0 = hitsOf(await g.getState());
     await page.keyboard.down('Space');
     for (let i = 0; i < 10; i++) {
       await page.clock.runFor(200);
-      await page.keyboard.down('Space'); // 押している間の自動リピート（repeat: true）
+      await page.keyboard.down('Space');
     }
     await page.keyboard.up('Space');
     const h1 = hitsOf(await g.getState());
     test.info().annotations.push({ type: 'Space 2 秒の打撃', description: String(h1 - h0) });
+    // 自動リピートをタップとして数えると 10 打多くなる
     expect(h1 - h0).toBeGreaterThanOrEqual(7);
     expect(h1 - h0).toBeLessThanOrEqual(9);
-    const prevented = await page.evaluate(() => (window as unknown as { __space: boolean[] }).__space);
-    expect(prevented.length).toBe(11);
-    expect(prevented.every(Boolean)).toBe(true);
+    // 短い押し 1 回（1 打かは Q-04(d)。回答まで記録のみ）
+    await page.clock.runFor(1_000);
+    const h2 = hitsOf(await g.getState());
+    await page.keyboard.press('Space');
+    await page.clock.runFor(500);
+    test.info().annotations.push({ type: 'Space の短い押しの打撃（Q-04(d)。記録のみ）', description: String(hitsOf(await g.getState()) - h2) });
+    for (const k of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) await page.keyboard.press(k);
+    // ページ側で記録した keydown（準備の 2）。ゲームの処理の後の defaultPrevented を見る
+    const keys = await recordedKeydowns(page);
+    expect(keys.filter((k) => k.code === 'Space')).toHaveLength(12); // 長押し 1＋自動リピート 10＋短い押し 1
+    expect(keys.filter((k) => k.code.startsWith('Arrow'))).toHaveLength(4);
+    expect(keys.filter((k) => !k.prevented)).toEqual([]);
   });
 
   test('TS-E1-12 全画面を要求しない・独自の全画面ボタンがない（CrazyGames の規約）', async ({ page }) => {

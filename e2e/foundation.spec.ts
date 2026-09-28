@@ -1,4 +1,4 @@
-// E2E の基盤そのものの確認（BL-073_e2e-foundation.md の TS-073-04〜06）と、
+// E2E の基盤そのものの確認（BL-073_e2e-foundation.md の TS-073-04〜06。05・06 は BL-089 の扱いだが、基盤の自己テストとして PR で流す）と、
 // KNOWN_GAPS（いまのビルドに無いもの）とビルドの突き合わせ（保留にしたテストが、実装が入っても保留のまま残らないように）
 import { test, expect } from './support/fixtures.ts';
 import { bootGame, HooksMissingError, pageNow, T0, triggerAutosave } from './support/boot.ts';

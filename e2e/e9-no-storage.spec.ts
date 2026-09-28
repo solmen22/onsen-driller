@@ -1,6 +1,6 @@
 // E2E E9 保存できない環境（e2e_E9_no-storage.md）
 // PR: TS-E9-01〜04（V1）、TS-E9-07（V2 で 01〜04）、TS-E9-08（V3 で 01〜04）、TS-E9-10（V5）、TS-E9-13（キーが 0 個）。
-// 毎晩: TS-E9-05・06・09（中）。保留: TS-E9-11（S3）、TS-E9-12（S2）。
+// 毎晩: TS-E9-05・06・09（BL-089）。保留: TS-E9-11（S3）、TS-E9-12（S2）。
 // 保存できない状態は context.addInitScript でページのスクリプトより先に入れる（e2e/support/storage.ts の V1〜V5）。
 // 文言は S1 では data-testid（save-warning）で存在だけを見る。文言の一致は S2（BL-052）から。
 import type { Page } from '@playwright/test';
