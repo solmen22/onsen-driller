@@ -89,7 +89,17 @@ jobs:
       - name: Playwright の Chromium
         run: npx playwright install --with-deps chromium
       - name: test:e2e
-        run: npm run test:e2e
+        # BL-073（E2E の基盤）が入るまで、e2e/ は PoC の道具（perf・screens・sdk-live・smoke）で、test:e2e（playwright test）は全部を動かす。
+        # perf は CPU 4 倍遅延で 60 秒ずつ計測し、GPU のないランナーでは性能の条件で落ちやすく分数も使うので、そのあいだはスモーク
+        # （起動・タップで掘れる・コンソールのエラーなし・外部への通信なし）だけにする。sdk-live（実物の SDK を読む）は PW_DIST がないと skip。
+        # BL-073 の後（package.json に test:e2e:nightly がある）は test:e2e（--project=chromium。PoC の道具は設定で除外）。そうなったらこの分岐は消してよい
+        run: |
+          if node -e "process.exit(require('./package.json').scripts['test:e2e:nightly'] ? 0 : 1)"; then
+            npm run test:e2e
+          else
+            echo "::notice::PoC の e2e（BL-073 の前）なので e2e/smoke.spec.ts だけを実行する"
+            npx playwright test e2e/smoke.spec.ts
+          fi
       - name: 失敗したときの記録を残す
         if: failure()
         uses: actions/upload-artifact@v7
