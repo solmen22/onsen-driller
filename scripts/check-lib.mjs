@@ -22,22 +22,32 @@ export const SDK = { crazygames: 'sdk.crazygames.com', poki: 'game-cdn.poki.com'
 export const HOOK = '__game';
 
 /**
+ * 偽の広告（dev のアダプタ src/platform/dev.ts。VITE_TARGET=dev か VITE_FAKE_ADS=true のビルドにだけ入る）の目印
+ * （コードレビュー S1-core の S-8: .env.local の VITE_FAKE_ADS=true が本番のビルドに入る経路）。
+ * どちらも圧縮の後も残る文字列リテラル: 画面に出す文言 `FAKE AD (${label})` と、data-testid の `fake-ad`。
+ * 本番は 1 つでもあれば失敗。偽の広告が入るはずの e2e は、2 つともないと失敗する（dev.ts の文字列を変えたときに、
+ * 目印が古いまま本番の検査だけが素通りになる「偽の緑」を防ぐ。変えたらここも直す）
+ */
+export const FAKE_AD = ['FAKE AD', 'fake-ad'];
+
+/**
  * ターゲットごとの想定（QA test-strategy §4-5 の表）。値は「あるべきか」。
+ * fakeAds: 偽の広告（FAKE_AD）。QA の表では e2e＝web＋フック＋偽の広告、e2e-crazygames＝crazygames＋フック（SDK はモック）
  * production: 本番に出すビルド（ソースマップ禁止・package の対象）
  */
 export const TARGETS = {
-  web: { cg: false, poki: false, hooks: false, headers: true, production: true },
-  crazygames: { cg: true, poki: false, hooks: false, headers: false, production: true },
-  itch: { cg: false, poki: false, hooks: false, headers: false, production: true },
-  poki: { cg: false, poki: true, hooks: false, headers: false, production: true },
-  // e2e 系: いまの出力名は e2e（テスト設計者の文書では e2e-web）。どちらでも同じ扱い
-  e2e: { cg: false, poki: false, hooks: true, headers: false, production: false },
-  'e2e-web': { cg: false, poki: false, hooks: true, headers: false, production: false },
-  'e2e-crazygames': { cg: true, poki: false, hooks: true, headers: false, production: false },
-  'e2e-poki': { cg: false, poki: true, hooks: true, headers: false, production: false },
+  web: { cg: false, poki: false, hooks: false, fakeAds: false, headers: true, production: true },
+  crazygames: { cg: true, poki: false, hooks: false, fakeAds: false, headers: false, production: true },
+  itch: { cg: false, poki: false, hooks: false, fakeAds: false, headers: false, production: true },
+  poki: { cg: false, poki: true, hooks: false, fakeAds: false, headers: false, production: true },
+  // e2e 系: 出力名は PoC では e2e、BL-007 から e2e-web（テスト設計者の文書と同じ）。どちらでも同じ扱い
+  e2e: { cg: false, poki: false, hooks: true, fakeAds: true, headers: false, production: false },
+  'e2e-web': { cg: false, poki: false, hooks: true, fakeAds: true, headers: false, production: false },
+  'e2e-crazygames': { cg: true, poki: false, hooks: true, fakeAds: false, headers: false, production: false },
+  'e2e-poki': { cg: false, poki: true, hooks: true, fakeAds: false, headers: false, production: false },
 };
 /** 想定表にないターゲットは、何も入ってはいけない本番扱いで検査する（新しいターゲットの混入を見逃さない） */
-export const UNKNOWN_TARGET = { cg: false, poki: false, hooks: false, headers: false, production: true };
+export const UNKNOWN_TARGET = { cg: false, poki: false, hooks: false, fakeAds: false, headers: false, production: true };
 export const PRODUCTION_TARGETS = Object.keys(TARGETS).filter((t) => TARGETS[t].production);
 
 /** 配信時に圧縮される（gzip 換算で数える）拡張子。画像・音声・フォント（woff2 など）はそのままの大きさで数える */

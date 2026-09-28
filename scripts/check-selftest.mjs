@@ -8,7 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, describe, test } from 'node:test';
-import { BUDGET, MB, transferSize } from './check-lib.mjs';
+import { BUDGET, FAKE_AD, MB, transferSize } from './check-lib.mjs';
 import { readZip } from './package-zip.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -36,12 +36,19 @@ const html = (target, extra = '') => {
   return `<!doctype html><html><head>${sdk}<script type="module" src="./assets/index-abcd1234.js"></script>${extra}</head><body></body></html>`;
 };
 
+/** 偽の広告（src/platform/dev.ts）を vite build で圧縮した後の形（2026-09-28 に feat/S1-core の dist/e2e-web で実測した並びを短くしたもの） */
+const FAKE_AD_JS = 'let n=document.createElement(`div`);n.textContent=`FAKE AD (${e})`,n.dataset.testid=`fake-ad`;';
+/** 偽の広告が入るはずのターゲット（QA test-strategy §4-5: e2e＝web＋フック＋偽の広告。出力名は e2e（PoC）か e2e-web） */
+const FAKE_AD_TARGETS = new Set(['e2e', 'e2e-web']);
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /** 想定どおりの最小の出力（違反なし）を作る */
 function makeTarget(distRoot, target, { index = true, headers = target === 'web' } = {}) {
   const dir = join(distRoot, target);
   mkdirSync(join(dir, 'assets'), { recursive: true });
   if (index) write(join(dir, 'index.html'), html(target));
   write(join(dir, 'assets', 'index-abcd1234.js'), target.startsWith('e2e') ? 'window.__game={};console.log(1);' : 'console.log(1);');
+  if (FAKE_AD_TARGETS.has(target)) write(join(dir, 'assets', 'dev-abcd1234.js'), FAKE_AD_JS);
   if (headers) copyFileSync(HEADERS, join(dir, '_headers'));
   return dir;
 }
@@ -288,6 +295,48 @@ describe('check:size', () => {
     assertFail(size(d, 'poki'), /\[mix\.hooks\].*vendor-abcd1234\.js/);
   });
 
+  // ---- コードレビュー S1-core の S-8: .env.local の VITE_FAKE_ADS=true で、偽の広告が本番のビルドに入る ----
+  test('S-8 偽の広告の目印（FAKE AD・fake-ad）が 1 つでも、本番 4 種・e2e-crazygames・e2e-poki・想定表にないターゲットに入ると失敗する', () => {
+    const cases = [
+      ['assets/dev-abcd1234.js', FAKE_AD_JS, 'FAKE AD・fake-ad'], // vite build の実際の形（2 つとも）
+      ['assets/dev-abcd1234.js', 'n.textContent=`FAKE AD (${e})`;', 'FAKE AD'], // 画面の文言だけ
+      ['assets/dev-abcd1234.js', 'n.dataset.testid="fake-ad";', 'fake-ad'], // data-testid だけ
+      ['index.html', null, 'fake-ad'], // .js 以外（全ファイルのバイト列で検査する）
+    ];
+    for (const t of ['web', 'crazygames', 'itch', 'poki', 'e2e-crazygames', 'e2e-poki', 'newportal']) {
+      for (const [name, data, marks] of cases) {
+        const d = newDist();
+        write(join(makeTarget(d, t), name), data ?? html(t, '<div data-testid="fake-ad"></div>'));
+        assertFail(size(d, t), new RegExp(`\\[mix\\.fakeads\\] 偽の広告が混入: ${escRe(`${name}（${marks}）`)}`));
+      }
+    }
+  });
+
+  test('S-8 偽の広告が入るはずの e2e・e2e-web は、目印が 1 つでも欠けると失敗する（dev.ts の文言が変わって目印が古くなる偽の緑を防ぐ）', () => {
+    for (const t of FAKE_AD_TARGETS) {
+      const ok = newDist();
+      makeTarget(ok, t);
+      const r = size(ok, t);
+      assertPass(r);
+      assert.match(r.out, new RegExp(`\\| ${t} \\|(?: [^|]+ \\|){6} あり \\|`), '表の fake ad の列が「あり」');
+      for (const [data, missing] of [
+        ['n.dataset.testid=`fake-ad`;', 'FAKE AD'],
+        ['n.textContent=`FAKE AD (${e})`;', 'fake-ad'],
+        ['console.log(2);', 'FAKE AD'],
+      ]) {
+        const d = newDist();
+        write(join(makeTarget(d, t), 'assets', 'dev-abcd1234.js'), data); // 基準の偽の広告を置き換える
+        assertFail(size(d, t), new RegExp(`\\[mix\\.fakeads\\] 偽の広告の目印「${missing}」があるはずのビルドにない`));
+      }
+    }
+  });
+
+  test('S-8 目印は 2 つとも偽の広告の本体（src/platform/dev.ts）にある', () => {
+    assert.deepEqual(FAKE_AD, ['FAKE AD', 'fake-ad']);
+    const src = readFileSync(join(root, 'src', 'platform', 'dev.ts'), 'utf8');
+    for (const m of FAKE_AD) assert.ok(src.includes(m), `src/platform/dev.ts に「${m}」がない（文言を変えたら scripts/check-lib.mjs の FAKE_AD も直す）`);
+  });
+
   test('想定表にないターゲットは、SDK を「なし」として検査する', () => {
     const d = newDist();
     write(join(makeTarget(d, 'newportal'), 'assets', 'x-abcd1234.js'), `load("${CG}")`);
@@ -496,6 +545,36 @@ describe('package', () => {
   });
 });
 
+describe('pick-e2e-dist（CI の e2e ジョブが配信する web 版のビルド）', () => {
+  const pick = (dist) => run('pick-e2e-dist.mjs', ['--dist', dist]);
+  const make = (dist, ...dirs) => {
+    for (const d of dirs) write(join(dist, d, 'index.html'), '<!doctype html>');
+    return dist;
+  };
+
+  test('dist/e2e-web（BL-007 から）があればそれ、なければ dist/e2e（PoC）。両方あれば e2e-web', () => {
+    for (const [dirs, want] of [
+      [['e2e-web', 'e2e-crazygames'], 'e2e-web'], // S1-core の build:e2e
+      [['e2e', 'e2e-crazygames', 'e2e-poki'], 'e2e'], // PoC（main）の build:e2e
+      [['e2e', 'e2e-web'], 'e2e-web'],
+    ]) {
+      const d = make(newDist(), ...dirs);
+      const r = pick(d);
+      assertPass(r);
+      assert.equal(r.out.trim(), `${d}/${want}`);
+    }
+  });
+
+  test('index.html のない dist/e2e-web は選ばない。どちらにも index.html がなければ失敗', () => {
+    const d1 = make(newDist(), 'e2e');
+    mkdirSync(join(d1, 'e2e-web', 'assets'), { recursive: true });
+    assert.equal(pick(d1).out.trim(), `${d1}/e2e`);
+    const d2 = make(newDist(), 'e2e-crazygames');
+    mkdirSync(join(d2, 'e2e-web'), { recursive: true });
+    assertFail(pick(d2), /pick-e2e-dist: .*e2e-web\/index\.html にも .*e2e\/index\.html にもない/);
+  });
+});
+
 describe('ci.yml', () => {
   const ci = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8').replaceAll('\r\n', '\n');
   /** jobs: の下の 1 つのジョブの本文 */
@@ -539,6 +618,29 @@ describe('ci.yml', () => {
     const e = job('e2e');
     assert.match(e, /run: npx playwright install --with-deps chromium/);
     assert.match(e, /PW_CHANNEL: chromium/);
+  });
+
+  // ---- e2e の web 版の出力先（PoC は dist/e2e、BL-007 から dist/e2e-web）。CEO 依頼 2026-09-28 ----
+  test('verify は e2e 系のビルド（dist/e2e・e2e-web・e2e-crazygames・e2e-poki）を dist-e2e として e2e ジョブに渡す', () => {
+    const st = job('verify').split(/\n(?= {6}- )/).find((s) => s.includes('name: dist-e2e'));
+    assert.ok(st, 'verify に dist-e2e の upload-artifact がない');
+    for (const d of ['e2e', 'e2e-web', 'e2e-crazygames', 'e2e-poki']) assert.match(st, new RegExp(`^ +dist/${d}/$`, 'm'), `dist-e2e に dist/${d}/ がない`);
+    assert.match(st, /if-no-files-found: error/);
+    const e = job('e2e');
+    assert.match(e, /name: dist-e2e\n {10}path: dist\/\n/, 'e2e ジョブは dist-e2e を dist/ に受け取る');
+  });
+
+  test('e2e ジョブは pick-e2e-dist.mjs で web 版を選び、PoC の分岐だけ PW_DIST で渡す（BL-073 の後の serve.mjs には渡さない）', () => {
+    const e = job('e2e');
+    assert.doesNotMatch(e, /^ +PW_DIST:/m, 'PW_DIST をジョブ・step の env に置かない（BL-073 の後の PW_MODE を上書きする）');
+    const st = e.split(/\n(?= {6}- )/).find((s) => s.includes('name: test:e2e'));
+    assert.ok(st, 'e2e ジョブに test:e2e の step がない');
+    const pickAt = st.search(/^ +web="\$\(node scripts\/pick-e2e-dist\.mjs\)"$/m); // 単独の代入（失敗すれば bash -e で止まる）
+    assert.ok(pickAt >= 0, 'web 版を pick-e2e-dist.mjs で選んでいない');
+    const branch = st.search(/^ +if node -e .*test:e2e:nightly/m);
+    assert.ok(branch >= 0 && pickAt < branch, 'BL-073 の前後どちらでも、先に web 版を選ぶ（ないならここで失敗）');
+    assert.match(st, /^ +npm run test:e2e$/m, 'BL-073 の後は PW_DIST なしで test:e2e');
+    assert.match(st, /^ +PW_DIST="\$web" npx playwright test e2e\/smoke\.spec\.ts$/m, 'PoC の分岐は選んだ場所を PW_DIST で渡す');
   });
 
   // ---- コードレビュー PR #1 の Must: CI から本番（Pages の本番ブランチ main）に出さない ----

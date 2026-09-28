@@ -2,6 +2,8 @@
 # - verify: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets
 #   同じジョブの連続した step なので、前が失敗したら後ろは動かない（TS-008-23）
 # - e2e: verify が緑のときだけ（needs）。PR と手動実行で動く。main への push では PR で実施済みなので省く
+#   verify の e2e 系のビルドを受け取って配信する。web 版の出力先は PoC（main）が dist/e2e、BL-007（S1-core）から dist/e2e-web で、
+#   scripts/pick-e2e-dist.mjs が index.html のあるほう（e2e-web を優先）を選ぶ
 # - deploy-preview / deploy-staging: Actions の Variables の CF_PAGES_PROJECT が空のあいだはスキップされる（BL-080 で登録済み）
 #   このワークフローは本番ブランチ（main）には決して出さない。本番は release.yml（手動・G3 の後。BL-085）だけ
 #   - PR は main をベースにしたものだけ（head が main の PR は同じリポジトリでは作れない）
@@ -81,7 +83,13 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: dist-e2e
-          path: dist/e2e* # e2e（PoC）・e2e-web（BL-007）・e2e-crazygames・e2e-poki。dist/ からの相対パスで保存される
+          # web 版は PoC（main）が dist/e2e、BL-007（S1-core）から dist/e2e-web。e2e-poki は PoC だけが作る。
+          # ないものは飛ばされる（全部ないときだけ if-no-files-found で失敗）。どれも dist/ からの相対パスで保存される（パスの共通の親が dist/）
+          path: |
+            dist/e2e/
+            dist/e2e-web/
+            dist/e2e-crazygames/
+            dist/e2e-poki/
           retention-days: 1
           if-no-files-found: error
 
@@ -113,12 +121,18 @@ jobs:
         # perf は CPU 4 倍遅延で 60 秒ずつ計測し、GPU のないランナーでは性能の条件で落ちやすく分数も使うので、そのあいだはスモーク
         # （起動・タップで掘れる・コンソールのエラーなし・外部への通信なし）だけにする。sdk-live（実物の SDK を読む）は PW_DIST がないと skip。
         # BL-073 の後（package.json に test:e2e:nightly がある）は test:e2e（--project=chromium。PoC の道具は設定で除外）。そうなったらこの分岐は消してよい
+        # 配信するビルド: web 版を pick-e2e-dist.mjs で選ぶ（dist/e2e-web があればそれ、なければ dist/e2e。どちらもなければここで失敗）。
+        #   PoC の playwright.config.ts は PW_DIST（既定 dist/e2e）を配信するので、PoC の分岐では選んだ場所を PW_DIST で渡す。
+        #   BL-073 の後は e2e/support/serve.mjs が mode（PW_MODE。既定 e2e）の outDir を配信するので PW_DIST は渡さない
+        #   （PW_DIST は mode より優先されるので、渡すと S2 の PW_MODE=e2e-crazygames を上書きしてしまう）
         run: |
+          web="$(node scripts/pick-e2e-dist.mjs)"
+          echo "::notice::e2e の web 版のビルド: $web"
           if node -e "process.exit(require('./package.json').scripts['test:e2e:nightly'] ? 0 : 1)"; then
             npm run test:e2e
           else
             echo "::notice::PoC の e2e（BL-073 の前）なので e2e/smoke.spec.ts だけを実行する"
-            npx playwright test e2e/smoke.spec.ts
+            PW_DIST="$web" npx playwright test e2e/smoke.spec.ts
           fi
       - name: 失敗したときの記録を残す
         if: failure()
