@@ -61,5 +61,6 @@
   "ore.gold": "Gold ore",
   "ore.rockCrystal": "Rock crystal",
   "ore.ruby": "Ruby",
-  "ore.lavaStone": "Lava stone"
+  "ore.lavaStone": "Lava stone",
+  "save.warning": "Can't save. Export your data to keep a backup."
 }

@@ -1,7 +1,10 @@
 // テスト用フック window.__game（arch §8-4 の PoC 版）。VITE_TEST_HOOKS=true のビルドにだけ入る
 import { stateHash, type Action, type GameState } from '../core/index.ts';
 import type { Platform } from '../platform/types.ts';
+import type { SaveSlots } from '../save/slots.ts';
 import type { View } from '../view/game.ts';
+import type { Autosave } from './autosave.ts';
+import type { AppClock } from './clock.ts';
 import type { Loop } from './loop.ts';
 import type { PerfMonitor } from './perf.ts';
 import type { GameStore } from './store.ts';
@@ -13,6 +16,11 @@ export interface HookDeps {
   platform: Platform;
   view: View;
   contextEvents: string[];
+  /** 壁時計の差し替え（setClock。core-api.md §5） */
+  clock?: AppClock;
+  /** 保存の契機と 2 枠（BL-027） */
+  autosave?: Autosave;
+  slots?: SaveSlots;
 }
 
 export function install(d: HookDeps): void {

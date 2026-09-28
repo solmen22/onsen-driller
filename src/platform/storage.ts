@@ -24,7 +24,8 @@ export function memoryStore(): KeyValueStore & { readonly kind: 'memory' } {
 const globalLocalStorage = (): Storage | null | undefined => globalThis.localStorage;
 
 /**
- * localStorage が使えなければ（シークレット・埋め込みの制限など）メモリに切り替える。
+ * localStorage が使えなければ（シークレット・埋め込みの制限・容量ゼロ・読み戻しが合わないなど）メモリに切り替える。
+ * メモリになったら、保存の状態は起動直後から unavailable（save-warning を出す。Q-11・Q-21）。
  * `ls` を省くとグローバルの localStorage を使う。**参照も try の中で行う**（既定の引数で参照すると、
  * 参照が SecurityError を投げたときに try の外で例外になり、起動が止まる。E2E の V1・TS-E9-01・04）。
  * 引数に関数を渡すと、その呼び出しも try の中で行う（テストで参照の例外を再現するため）。
@@ -34,9 +35,12 @@ export function localStore(ls?: Storage | null | (() => Storage | null | undefin
   try {
     const found = ls === undefined ? globalLocalStorage() : typeof ls === 'function' ? ls() : ls;
     if (!found) return memoryStore();
+    // 試し書き → 読み戻し → 消す。読み戻しが合わない（書き込みを黙って捨てる環境）もメモリ扱いにする（Q-21）
     const probe = `${STORAGE_PREFIX}__probe`;
     found.setItem(probe, '1');
+    const back = found.getItem(probe);
     found.removeItem(probe);
+    if (back !== '1') return memoryStore();
     store = found;
   } catch {
     return memoryStore();

@@ -5,7 +5,7 @@ import { TOOLS } from '../content/tools.ts';
 import type { SpringId } from '../content/springs.ts';
 import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
 import { formatNum } from './format.ts';
-import { useGame, useUi } from './hooks/use-game.ts';
+import { useGame, useSaveStatus, useUi } from './hooks/use-game.ts';
 
 type Tab = 'dig' | 'onsen' | 'upgrades' | 'prestige' | 'menu';
 const TABS: { id: Tab; key: TextKey; icon: string }[] = [
@@ -167,17 +167,31 @@ function MenuTab({ lang, onLang }: { lang: Lang; onLang: (l: Lang) => void }) {
   );
 }
 
+/** 「保存できません」の仮の表示（S1。S2 からはトースト〔BL-046〕の中に同じ名前で置く。Q-11・Q-17） */
+function SaveWarning() {
+  const status = useSaveStatus();
+  if (status === 'ok') return null;
+  return (
+    <div class="save-warning" data-testid="save-warning" data-state={status} role="status">
+      {t('save.warning')}
+    </div>
+  );
+}
+
 export function App() {
+  const { onLangChange } = useUi();
   const [tab, setTab] = useState<Tab>('dig');
   const [qty, setQty] = useState<Qty>(1);
   const [lang, setLangState] = useState<Lang>(getLang());
   const onLang = (l: Lang): void => {
     setLang(l);
     setLangState(l);
+    onLangChange?.(l);
   };
   return (
     <>
       <Hud lang={lang} />
+      <SaveWarning />
       <section class="panel" data-testid="panel">
         <nav class="tabs" role="tablist">
           {TABS.map((x) => (

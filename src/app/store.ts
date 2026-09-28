@@ -35,6 +35,8 @@ export class GameStore {
   /** ループがステップを進めた回数と、最後に進めたフレームの単調時計（描画の補間用） */
   stepSerial = 0;
   lastStepAt = 0;
+  /** 保存の状態（app/autosave が更新する。UI の save-warning。ok 以外の間は表示する） */
+  saveStatus: 'ok' | 'failing' | 'unavailable' = 'ok';
   private readonly subs = new Set<() => void>();
   private viewQueue: ViewEvent[] = [];
   private readonly recent: GameEvent[] = [];
@@ -115,6 +117,13 @@ export class GameStore {
   private pushView(e: ViewEvent): void {
     this.viewQueue.push(e);
     if (this.viewQueue.length > VIEW_QUEUE_MAX) this.viewQueue.splice(0, this.viewQueue.length - VIEW_QUEUE_MAX);
+  }
+
+  /** 保存の状態を変えて通知する（変わらなければ何もしない） */
+  setSaveStatus(st: 'ok' | 'failing' | 'unavailable'): void {
+    if (this.saveStatus === st) return;
+    this.saveStatus = st;
+    this.notify();
   }
 
   /** 描画が毎フレーム呼ぶ。たまったイベントを受け取って空にする */

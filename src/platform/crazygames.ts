@@ -125,6 +125,7 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
       if (s.data) {
         const d = s.data;
         storage = {
+          kind: 'sdk',
           get: (k) => {
             try {
               return d.getItem(k);

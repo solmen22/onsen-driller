@@ -61,5 +61,6 @@
   "ore.gold": "金鉱",
   "ore.rockCrystal": "水晶",
   "ore.ruby": "ルビー",
-  "ore.lavaStone": "溶岩石"
+  "ore.lavaStone": "溶岩石",
+  "save.warning": "保存できません。書き出しで控えを取ってください"
 }

@@ -8,6 +8,8 @@ export interface KeyValueStore {
   get(k: string): string | null;
   set(k: string, v: string): boolean;
   remove(k: string): void;
+  /** 保存先の種類（memory なら起動時から保存できない＝unavailable。sdk は CrazyGames の data モジュール〔S2〕） */
+  readonly kind?: 'local' | 'memory' | 'sdk';
 }
 
 export interface PlatformCall {

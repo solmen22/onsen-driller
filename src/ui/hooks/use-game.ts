@@ -3,12 +3,15 @@ import { createContext } from 'preact';
 import { useContext, useEffect, useRef, useState } from 'preact/hooks';
 import type { GameState } from '../../core/index.ts';
 import type { GameStore } from '../../app/store.ts';
+import type { Lang } from '../../i18n/index.ts';
 import type { Platform } from '../../platform/types.ts';
 
 export interface UiContext {
   store: GameStore;
   platform: Platform;
   version: string;
+  /** 言語を選んだ（app が設定に保存する） */
+  onLangChange?: (l: Lang) => void;
 }
 
 export const Ctx = createContext<UiContext | null>(null);
@@ -43,5 +46,13 @@ export function useGame<T>(selector: (s: GameState) => T, equals: (a: T, b: T) =
       }),
     [store],
   );
+  return value;
+}
+
+/** 保存の状態（'ok' | 'failing' | 'unavailable'）。store の通知で読み直す（BL-027 の save-warning） */
+export function useSaveStatus(): GameStore['saveStatus'] {
+  const { store } = useUi();
+  const [value, setValue] = useState(store.saveStatus);
+  useEffect(() => store.subscribe(() => setValue(store.saveStatus)), [store]);
   return value;
 }

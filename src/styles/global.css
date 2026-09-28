@@ -123,6 +123,22 @@ body {
   animation: blink 1.2s steps(2) infinite;
 }
 
+/* 「保存できません」の仮の表示（S1。BL-027。S2 からトースト） */
+.save-warning {
+  grid-area: stage;
+  align-self: end;
+  justify-self: center;
+  z-index: 6;
+  pointer-events: none;
+  margin: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #fff0a8;
+  background: #1b1420dd;
+  border: 2px solid #d9483b;
+  border-radius: 4px;
+}
+
 @keyframes blink {
   50% {
     opacity: 0.5;
