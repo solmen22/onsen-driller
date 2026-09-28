@@ -1,10 +1,14 @@
 // セーブの封筒と読み込みの検証（arch §11・Q-10。BL-026）
 // 封筒: { schema, seq, savedAt, appVersion, checksum, game }。game はオブジェクト（文字列に包まない）。
 // checksum ＝ canonicalJson(game)（キーを辞書順に並べた空白なしの JSON）の FNV-1a（小文字の 16 進 8 桁）。
-// 読み込みの順番: 大きさ → 入れ子の深さ → JSON（危険なキーを捨てる）→ 封筒の形 → checksum → 新しい版 → game の検証・補正。
+// 読み込みの順番: 大きさ → 入れ子の深さ → JSON（危険なキーを捨てる）→ **新しい版** → 封筒の形 → checksum → game の検証・補正。
+// 新しい版（schema > SAVE_SCHEMA_VERSION）は封筒の形・checksum より**先**に見分ける。将来の版が封筒のキーや checksum の計算を
+// 変えても「壊れた枠」と誤って上書きしないため（レビュー M-1。arch §11 の約束: 封筒は JSON のオブジェクトで、先頭のキーは整数の schema）。
+// 大きすぎる・深すぎる・JSON として読めない（途中で切れた）文字列も、先頭が "schema":N（N が今の版より大きい）なら newer にする。
 // どの段階でも例外を呼び出し側に投げず、{ ok:false, reason } で返す
 import LZString from 'lz-string';
 import { checksumOf, MAX_JSON_DEPTH, toSaveGame, type GameState, type SaveGame } from '../core/index.ts';
+import { decompressUriBounded } from './lz-bounded.ts';
 import { parseGame, SAVE_SCHEMA_VERSION } from './schema.ts';
 
 export interface SaveEnvelope {
@@ -85,19 +89,32 @@ function schemaOf(x: unknown): number | null {
   return Number.isSafeInteger(n) && n >= 1 ? n : null;
 }
 
+/** 新しい版か（schema が読めて、今の版より大きい） */
+const isNewer = (schema: unknown): boolean => {
+  const n = schemaOf(schema);
+  return n !== null && n > SAVE_SCHEMA_VERSION;
+};
+
+/** 生の文字列の先頭の "schema":N（封筒の先頭のキー。JSON として読めない・大きすぎる枠を見分けるだけに使う） */
+const RAW_SCHEMA = /^\s*\{\s*"schema"\s*:\s*"?(\d{1,9})"?\s*(?:[,}]|$)/;
+const rawIsNewer = (raw: string): boolean => isNewer(RAW_SCHEMA.exec(raw.slice(0, 64))?.[1]);
+
 /** 封筒の JSON（信頼しない文字列）を読む。例外を投げない */
 export function decodeSave(raw: unknown): DecodeResult {
   if (typeof raw !== 'string' || raw.length === 0) return { ok: false, reason: 'notJson' };
-  if (raw.length > MAX_SAVE_CHARS) return { ok: false, reason: 'tooLarge' };
-  if (jsonNestingDepth(raw, MAX_JSON_DEPTH + 1) > MAX_JSON_DEPTH) return { ok: false, reason: 'shape' };
+  if (raw.length > MAX_SAVE_CHARS) return { ok: false, reason: rawIsNewer(raw) ? 'newer' : 'tooLarge' };
+  if (jsonNestingDepth(raw, MAX_JSON_DEPTH + 1) > MAX_JSON_DEPTH) return { ok: false, reason: rawIsNewer(raw) ? 'newer' : 'shape' };
   const parsed = safeJsonParse(raw);
-  if (parsed === undefined) return { ok: false, reason: 'notJson' };
+  if (parsed === undefined) return { ok: false, reason: rawIsNewer(raw) ? 'newer' : 'notJson' };
   return decodeEnvelope(parsed);
 }
 
-/** 読んだ JSON の値から封筒を検証する（checksum → 新しい版 → game） */
+/** 読んだ JSON の値から封筒を検証する（新しい版 → 形 → checksum → game） */
 export function decodeEnvelope(parsed: unknown): DecodeResult {
-  if (!isRecord(parsed) || ENVELOPE_KEYS.some((k) => !(k in parsed))) return { ok: false, reason: 'shape' };
+  if (!isRecord(parsed)) return { ok: false, reason: 'shape' };
+  // 新しい版は、ほかの検査をせずに newer（形・checksum が今の版と違っても上書きしない。M-1）
+  if (isNewer(parsed.schema)) return { ok: false, reason: 'newer' };
+  if (ENVELOPE_KEYS.some((k) => !(k in parsed))) return { ok: false, reason: 'shape' };
   const schema = schemaOf(parsed.schema);
   const seq = parsed.seq;
   if (schema === null || typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0) return { ok: false, reason: 'shape' };
@@ -109,7 +126,6 @@ export function decodeEnvelope(parsed: unknown): DecodeResult {
     return { ok: false, reason: 'shape' }; // JSON にできない値・深すぎる入れ子
   }
   if (sum !== parsed.checksum.toLowerCase()) return { ok: false, reason: 'checksum' };
-  if (schema > SAVE_SCHEMA_VERSION) return { ok: false, reason: 'newer' };
   const g = parseGame(parsed.game);
   if (!g.ok) return { ok: false, reason: 'invalidGame' };
   const savedAt = typeof parsed.savedAt === 'number' && Number.isFinite(parsed.savedAt) && parsed.savedAt >= 0 ? parsed.savedAt : 0;
@@ -138,30 +154,70 @@ export function parseGameForHook(input: unknown): GameState {
   return g.state;
 }
 
-// ---- 書き出し・読み込み（S3 の BL-029 で画面に出す。形式は arch §11） ----
+// ---- 書き出し・読み込み（S3 の BL-029 で画面に出す。形式は arch §11・Q-24） ----
+// 書き出し文字列: `ODR1:` ＋ lz-string の compressToEncodedURIComponent(JSON.stringify(game)) ＋ `.` ＋ checksum（小文字の 16 進 8 桁）
+// 読み込みはユーザーの入力なので、どんな入力でも例外を投げず { ok:false, reason } で拒否する（レビュー S-6）。
+// 検査の順番: 型・長さ → 接頭辞（ODR2: 以上は newer）→ 形 → 展開（上限つき）→ 入れ子 → JSON → 新しい版（checksum より先）→ checksum → game
 
-const EXPORT_PREFIX = 'ODR1:';
+/** 書き出し文字列の形式の版（接頭辞 ODR<版>:） */
+const EXPORT_FORMAT_VERSION = 1;
+const EXPORT_PREFIX = `ODR${EXPORT_FORMAT_VERSION}:`;
+/** 読み込む書き出し文字列の長さの上限（前後の空白を除いた長さ。ちょうどは通る。Q-24） */
+export const MAX_IMPORT_CHARS = 300_000;
+
+/** 書き出し文字列を拒否する理由（Q-24）。format は書き出し文字列の形でないもの */
+export type ImportFail = 'format' | 'tooLarge' | 'notJson' | 'shape' | 'newer' | 'checksum' | 'invalidGame';
+export type ImportResult = { ok: true; state: GameState; corrected: string[] } | { ok: false; reason: ImportFail };
 
 export function exportString(s: GameState): string {
   const env = makeEnvelope(s, 0, 0, '');
   return `${EXPORT_PREFIX}${LZString.compressToEncodedURIComponent(JSON.stringify(env.game))}.${env.checksum}`;
 }
 
-/** 書き出し文字列を読む（接頭辞・checksum・スキーマ）。読めなければ null（今のセーブを上書きしない） */
-export function importString(str: string): GameState | null {
-  if (typeof str !== 'string' || str.length > MAX_SAVE_CHARS) return null;
-  const m = /^ODR1:([A-Za-z0-9+\-$]+)\.([0-9a-f]{8})$/.exec(str.trim());
-  if (!m?.[1] || !m[2]) return null;
-  const json = LZString.decompressFromEncodedURIComponent(m[1]);
-  if (!json || json.length > MAX_SAVE_CHARS || jsonNestingDepth(json, MAX_JSON_DEPTH + 1) > MAX_JSON_DEPTH) return null;
+const importFail = (reason: ImportFail): ImportResult => ({ ok: false, reason });
+const EXPORT_HEAD = /^ODR(\d{1,9}):/;
+const EXPORT_BODY = /^ODR1:([A-Za-z0-9+\-$]+)\.([0-9a-f]{8})$/;
+
+/**
+ * 書き出し文字列を読む（純粋な関数。ストレージに触らない）。失敗しても今のセーブを上書きする材料にしない。
+ * 例外を投げない（型の違う引数・想定外の例外も { ok:false, reason } にする）
+ */
+export function importString(input: unknown): ImportResult {
+  try {
+    return importUnchecked(input);
+  } catch {
+    return importFail('notJson');
+  }
+}
+
+function importUnchecked(input: unknown): ImportResult {
+  if (typeof input !== 'string') return importFail('format');
+  if (input.length > MAX_IMPORT_CHARS * 2) return importFail('tooLarge'); // 前後の空白を除く前に、極端に長いものを弾く
+  const str = input.trim();
+  if (str.length > MAX_IMPORT_CHARS) return importFail('tooLarge');
+  const head = EXPORT_HEAD.exec(str);
+  if (!head?.[1]) return importFail('format');
+  if (Number(head[1]) > EXPORT_FORMAT_VERSION) return importFail('newer'); // 新しい版の書き出しの形式（ODR2: など）
+  const m = EXPORT_BODY.exec(str);
+  if (!m?.[1] || !m[2]) return importFail('format');
+  // 展開しながら長さを数え、セーブの上限（100 万文字）を超えたら止める（膨らむ入力で固まらない）
+  const d = decompressUriBounded(m[1], MAX_SAVE_CHARS);
+  if (!d.ok) return importFail(d.reason === 'tooLarge' ? 'tooLarge' : 'notJson');
+  const json = d.text;
+  if (json.length === 0) return importFail('notJson');
+  if (jsonNestingDepth(json, MAX_JSON_DEPTH + 1) > MAX_JSON_DEPTH) return importFail('shape');
   const game = safeJsonParse(json);
+  if (game === undefined) return importFail('notJson');
+  // 新しい版は checksum より先に見る（知らない ID を捨てた状態で読んで、今のセーブを上書きする材料にしない。Q-24）
+  if (isRecord(game) && isNewer(game.schema)) return importFail('newer');
   let sum: string;
   try {
     sum = checksumOf(game);
   } catch {
-    return null;
+    return importFail('shape');
   }
-  if (sum !== m[2]) return null;
+  if (sum !== m[2]) return importFail('checksum');
   const g = parseGame(game);
-  return g.ok ? g.state : null;
+  if (!g.ok) return importFail('invalidGame');
+  return { ok: true, state: g.state, corrected: g.corrected };
 }

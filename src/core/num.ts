@@ -62,9 +62,11 @@ export function toStr(n: Num): string {
 
 const isZero = (n: Num): boolean => n.mantissa === 0;
 
-export const add = (a: Num, b: NumSource): Num => sanitize(a.add(b));
-export const sub = (a: Num, b: NumSource): Num => sanitize(a.sub(b));
-export const mul = (a: Num, b: NumSource): Num => sanitize(a.mul(b));
+// 第 2 引数も num() で健全な値にしてから計算する（文字列で例外、NaN で結果が 0 になるのを防ぐ。Q-13・レビュー S-10）。
+// num() は NaN・負・不正な文字列を 0、Infinity を上限にするので、足し算・引き算に NaN が混ざっても元の値が残る
+export const add = (a: Num, b: NumSource): Num => sanitize(a.add(num(b)));
+export const sub = (a: Num, b: NumSource): Num => sanitize(a.sub(num(b)));
+export const mul = (a: Num, b: NumSource): Num => sanitize(a.mul(num(b)));
 export function div(a: Num, b: NumSource): Num {
   const d = num(b);
   return isZero(d) ? ZERO : sanitize(a.div(d));

@@ -24,6 +24,12 @@ import type { GameState } from './state.ts';
 /** 端数の比較の許容（0.1 × 10 などの浮動小数の誤差で 1 打を落とさないため） */
 const HIT_EPS = 1e-9;
 
+/** 回数の加算（安全な整数で止める。保存・読み込みで値が変わらないように。レビュー S-4） */
+const addCount = (a: number, b: number): number => Math.min(Number.MAX_SAFE_INTEGER, a + b);
+
+/** 端数を f から n 打を引いた残り（0 以上 1 未満）にする。f が有限でなければ 0（NaN を状態に入れない。レビュー S-4） */
+const carryOf = (f: number, n: number): number => (Number.isFinite(f) ? Math.max(0, f - n) : 0);
+
 export function refreshGuests(s: GameState, out: GameEvent[]): void {
   const next = computeGuests(s);
   for (const g of next) {
@@ -71,8 +77,8 @@ function breakBlock(s: GameState, m: Modifiers, out: GameEvent[]): BreakResult {
   const v = blockValue(s, d, ore !== null, m);
   r.coins = add(r.coins, v);
   s.stats.totalCoins = add(s.stats.totalCoins, v);
-  s.stats.blocks++;
-  if (ore !== null) s.collection.ores[ore] = (s.collection.ores[ore] ?? 0) + 1;
+  s.stats.blocks = addCount(s.stats.blocks, 1);
+  if (ore !== null) s.collection.ores[ore] = addCount(s.collection.ores[ore] ?? 0, 1);
   out.push({ type: 'BlockBroken', depth: d, ore, coins: toStr(v) });
   r.depth = d + 1;
   r.blockDmg = ZERO;
@@ -100,7 +106,7 @@ function breakBlock(s: GameState, m: Modifiers, out: GameEvent[]): BreakResult {
 /** hits 回の打撃を与える（壊したブロックの余りのダメージは次のブロックへ繰り越す。Q-02）。新しい帯に入ったら残りは捨てる（Q-06） */
 export function applyHits(s: GameState, hits: number, out: GameEvent[]): void {
   if (!(hits > 0)) return;
-  s.stats.hits += hits;
+  s.stats.hits = addCount(s.stats.hits, hits);
   let m = modifiers(s);
   let dmg = mul(drillPower(s, m), hits);
   for (let broken = 0; broken < PARAMS.maxBlocksPerStep; broken++) {
@@ -135,15 +141,15 @@ function dig(s: GameState, digMs: number, m: Modifiers, out: GameEvent[]): void 
   const rate = manualRate(s);
   if (rate > 0) {
     const f = r.digCarry + rate * sec;
-    const n = Math.floor(f + HIT_EPS);
-    r.digCarry = Math.max(0, f - n);
+    const n = Number.isFinite(f) ? Math.floor(f + HIT_EPS) : 0;
+    r.digCarry = carryOf(f, n);
     hits += admitManualHits(s, n, s.clock.playedMs); // 上限を超えた分は捨てる
   }
   const auto = autoDiggerHitsPerSec(s, m);
   if (auto > 0) {
     const f = r.diggerCarry + auto * sec;
-    const n = Math.floor(f + HIT_EPS);
-    r.diggerCarry = Math.max(0, f - n);
+    const n = Number.isFinite(f) ? Math.floor(f + HIT_EPS) : 0;
+    r.diggerCarry = carryOf(f, n);
     hits += n;
   }
   applyHits(s, hits, out);
@@ -151,10 +157,21 @@ function dig(s: GameState, digMs: number, m: Modifiers, out: GameEvent[]): void 
 
 /**
  * 論理を dtMs だけ進める。時刻は読まない（arch §8-2）。
- * 幕間の間はドリルの打撃がすべて止まり（端数もたまらない）、入湯料は止まらない。ステップの途中で幕間が終われば、残りの時間は掘る（Q-06）
+ * 幕間の間はドリルの打撃がすべて止まり（端数もたまらない）、入湯料は止まらない。ステップの途中で幕間が終われば、残りの時間は掘る（Q-06）。
+ * dtMs が PARAMS.maxStepMs（1 秒）を超えたら、1 秒ずつに分けて進める（刻み幅によらないのは 1 秒刻みまで。arch §8-3・レビュー S-9）
  */
 export function step(s: GameState, dtMs: number, out: GameEvent[] = []): GameEvent[] {
   if (!(dtMs > 0) || !Number.isFinite(dtMs)) return out;
+  let left = dtMs;
+  while (left > 0) {
+    const dt = Math.min(PARAMS.maxStepMs, left);
+    stepOnce(s, dt, out);
+    left -= dt;
+  }
+  return out;
+}
+
+function stepOnce(s: GameState, dtMs: number, out: GameEvent[]): void {
   s.clock.playedMs += dtMs;
   const r = s.run;
   let digMs = dtMs;
@@ -174,7 +191,6 @@ export function step(s: GameState, dtMs: number, out: GameEvent[] = []): GameEve
     s.run.coins = add(s.run.coins, g);
     s.stats.totalCoins = add(s.stats.totalCoins, g);
   }
-  return out;
 }
 
 /** advance の入力（テスト用フック・リプレイ・E2E。Q-16） */
@@ -212,11 +228,13 @@ const validTapsPerSec = (v: unknown): number => (typeof v === 'number' && Number
 
 /**
  * ms だけ stepMs 刻みで進める（オフラインの早送り・シミュレーター・テスト用フック）。起きたイベントを起きた順に返す。
+ * stepMs は PARAMS.maxStepMs（1 秒）で頭打ちにする（10 秒刻みを渡しても 1 秒刻みと同じ結果。レビュー S-9）。
  * ms が 0 以下・NaN・Infinity なら何もしない（空の配列）
  */
 export function advance(s: GameState, ms: number, stepOrOpts: number | AdvanceOptions = {}, outArg?: GameEvent[]): GameEvent[] {
   const opts: AdvanceOptions = typeof stepOrOpts === 'number' ? { stepMs: stepOrOpts, out: outArg } : stepOrOpts;
-  const stepMs = opts.stepMs ?? PARAMS.stepMs;
+  // 刻みは 1 秒まで（10 秒刻みなどを渡されても 1 秒ずつ進める。タップの入れ方も同じ刻みにそろえる。レビュー S-9）
+  const stepMs = Math.min(PARAMS.maxStepMs, opts.stepMs ?? PARAMS.stepMs);
   const out = opts.out ?? [];
   if (!(ms > 0) || !Number.isFinite(ms) || !(stepMs > 0) || !Number.isFinite(stepMs)) return out;
   const carry = opts.carry;
@@ -252,7 +270,7 @@ export function tapHits(s: GameState, n: number, out: GameEvent[]): number {
   if (s.run.interludeMs > 0) return 0;
   const k = admitManualHits(s, n, s.clock.playedMs);
   if (k > 0) {
-    s.stats.taps += k;
+    s.stats.taps = addCount(s.stats.taps, k);
     applyHits(s, k, out);
   }
   return k;

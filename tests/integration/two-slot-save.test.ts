@@ -192,6 +192,51 @@ describe('新しい版のセーブ（schema 2）→ 読み取り専用（その�
   });
 });
 
+describe('TS-027-22 ロールバック: v1 から見て壊れている新しい版の枠も上書きしない（読み取り専用。レビュー M-1）', () => {
+  /** schema 2 の封筒（中身は v1 の game）を change で崩したもの */
+  const future = (change: (e: Record<string, unknown>) => void = () => undefined): string => {
+    const e = JSON.parse(encodeSave(stateAt(99), 5, now, APP)) as Record<string, unknown>;
+    e.schema = 2;
+    change(e);
+    return JSON.stringify(e);
+  };
+  const noSeq = (e: Record<string, unknown>): void => {
+    delete e.seq;
+  };
+  const badSum = (e: Record<string, unknown>): void => {
+    e.checksum = 'ffffffff';
+  };
+  const cases: [string, (store: FakeStore) => void, 'a' | null][] = [
+    ['① b: checksum が違う', (st) => (put(st, 'a', stateAt(40), 4), st.map.set(SAVE_KEYS.b, future(badSum))), 'a'],
+    ['② b: seq がない', (st) => (put(st, 'a', stateAt(40), 4), st.map.set(SAVE_KEYS.b, future(noSeq))), 'a'],
+    ['③ b: game が文字列', (st) => (put(st, 'a', stateAt(40), 4), st.map.set(SAVE_KEYS.b, future((e) => (e.game = '{"run":{}}')))), 'a'],
+    ['④ b: 知らないキーの追加', (st) => (put(st, 'a', stateAt(40), 4), st.map.set(SAVE_KEYS.b, future((e) => (e.checksumV2 = 'x')))), 'a'],
+    ['⑤ b: 正しい v2（checksum も合う）', (st) => (put(st, 'a', stateAt(40), 4), st.map.set(SAVE_KEYS.b, future())), 'a'],
+    ['⑥ b だけ（a は空）', (st) => st.map.set(SAVE_KEYS.b, future(badSum)), null],
+    ['⑦ a が途中で切れた文字列・b が ②', (st) => (st.map.set(SAVE_KEYS.a, '{"schema":1,"seq":4,"sa'), st.map.set(SAVE_KEYS.b, future(noSeq))), null],
+    ['⑧ a・b とも ①', (st) => (st.map.set(SAVE_KEYS.a, future(badSum)), st.map.set(SAVE_KEYS.b, future(badSum))), null],
+  ];
+  for (const [name, setup, from] of cases) {
+    it(name, () => {
+      const store = new FakeStore();
+      setup(store);
+      const before = new Map(store.map);
+      const slots = slotsFor(store);
+      const r = slots.load();
+      expect(r.readOnly).toBe(true);
+      expect(r.slots.b).toBe('newer');
+      expect(r.brokenReset).toBe(false);
+      expect(r.from).toBe(from);
+      if (from === 'a') expect(r.state?.run.depth).toBe(40);
+      driveSaves(slots);
+      expect(store.sets()).toEqual([]); // save:a・save:b・save:broken のどれにも書かない
+      expect(store.map).toEqual(before);
+      const again = slotsFor(store).load(); // 次の起動でも同じ
+      expect(again).toMatchObject({ readOnly: true, from, slots: { b: 'newer' } });
+    });
+  }
+});
+
 describe('TS-027-09・20 キーはすべて onsen-driller: で始まり、他のゲームのキーを触らない', () => {
   it('起動・保存・設定の保存・読み込み', () => {
     const store = new FakeStore();
@@ -212,12 +257,27 @@ describe('TS-027-09・20 キーはすべて onsen-driller: で始まり、他の
 });
 
 describe('TS-027-10・11 get・set・remove の例外が保存の外に漏れない。QuotaExceededError は failing で続ける', () => {
-  it('get が例外 → 読めない枠（新しいゲーム）、set が例外 → false・failing、以後の保存でも例外なし', () => {
+  it('get が例外 → 読めない枠（空とは扱わない。レビュー S-1）: a・b に一度も set せず、状態は unavailable', () => {
     const store = new FakeStore();
+    put(store, 'a', stateAt(40), 4);
+    put(store, 'b', stateAt(50), 5);
+    const before = new Map(store.map);
     store.getThrows = true;
     const slots = slotsFor(store);
-    expect(() => slots.load()).not.toThrow();
-    store.getThrows = false;
+    let r: ReturnType<SaveSlots['load']> | undefined;
+    expect(() => (r = slots.load())).not.toThrow();
+    expect(r).toMatchObject({ state: null, slots: { a: 'unreadable', b: 'unreadable' }, brokenReset: false });
+    expect(slots.status).toBe('unavailable');
+    store.getThrows = false; // 途中で読めるようになっても、そのセッションは書かない（読み直さない。Q-23）
+    for (let i = 0; i < 3; i++) expect(slots.save(stateAt(1))).toBe(false);
+    expect(store.sets()).toEqual([]);
+    expect(store.map).toEqual(before);
+    expect(slotsFor(store).load()).toMatchObject({ from: 'b', slots: { a: 'ok', b: 'ok' } }); // 次の起動で元の進行に戻る
+  });
+  it('set が例外 → false・failing、以後の保存でも例外なし。直れば ok', () => {
+    const store = new FakeStore();
+    const slots = slotsFor(store);
+    slots.load();
     store.setThrows = true;
     const s = stateAt(5);
     const before = stateHash(s);
@@ -249,11 +309,155 @@ describe('TS-027-12・Q-21 起動時からストレージがない → unavailab
     expect(slots.load().state).toBeNull();
     expect(slots.save(stateAt(1))).toBe(false);
   });
-  it('V3（getItem・setItem・removeItem がすべて例外）・V4（setItem は黙って捨て、getItem は常に null）もメモリ扱い', () => {
+  it('V3（getItem・setItem・removeItem がすべて例外）はメモリ扱い', () => {
     const v3 = { setItem: insecure, getItem: insecure, removeItem: insecure } as unknown as Storage;
-    const v4 = { setItem: () => undefined, getItem: () => null, removeItem: () => undefined } as unknown as Storage;
     expect(localStore(v3).kind).toBe('memory');
-    expect(localStore(v4).kind).toBe('memory');
+  });
+  it('V4（setItem は黙って捨て、getItem は常に null）は読めるので localStorage のまま、起動時から failing（Q-25）', () => {
+    const v4 = { setItem: () => undefined, getItem: () => null, removeItem: () => undefined } as unknown as Storage;
+    const storage = localStore(v4);
+    expect(storage.kind).toBe('local');
+    const slots = slotsFor(storage, storage.kind === 'memory');
+    expect(slots.load().state).toBeNull();
+    expect(slots.status).toBe('failing');
+    expect(slots.save(stateAt(1))).toBe(false); // 読み戻しが合わない
+    expect(slots.status).toBe('failing');
+  });
+});
+
+/** キーごとに例外を差し込める偽の Storage（localStore → SaveSlots を通して確かめる。TS-027-23〜25） */
+class FakeWebStorage {
+  readonly map = new Map<string, string>();
+  readonly setCalls: string[] = [];
+  /** true を返すキーの getItem は例外 */
+  failGet: (k: string) => boolean = () => false;
+  /** true を返すキーの setItem は QuotaExceededError */
+  failSet: (k: string) => boolean = () => false;
+  getItem(k: string): string | null {
+    if (this.failGet(k)) throw new DOMException('read failed', 'UnknownError');
+    return this.map.get(k) ?? null;
+  }
+  setItem(k: string, v: string): void {
+    this.setCalls.push(k);
+    if (this.failSet(k)) throw new DOMException('quota', 'QuotaExceededError');
+    this.map.set(k, v);
+  }
+  removeItem(k: string): void {
+    this.map.delete(k);
+  }
+  asStorage(): Storage {
+    return this as unknown as Storage;
+  }
+  /** セーブのキーへの setItem（試し書きは除く） */
+  saveSets(): string[] {
+    return this.setCalls.filter((k) => k.startsWith('onsen-driller:save'));
+  }
+}
+const isSlotKey = (k: string): boolean => k === SAVE_KEYS.a || k === SAVE_KEYS.b;
+const boot = (ls: FakeWebStorage): { slots: SaveSlots; r: ReturnType<SaveSlots['load']> } => {
+  const storage = localStore(ls.asStorage());
+  const slots = slotsFor(storage, storage.kind === 'memory');
+  return { slots, r: slots.load() };
+};
+const putRaw = (ls: FakeWebStorage, slot: 'a' | 'b', s: GameState, seq: number): void => {
+  ls.map.set(SAVE_KEYS[slot], encodeSave(s, seq, now, APP));
+};
+/** 保存の契機を一通り起こす（save を 3 回 ＋ 15 秒・hidden・pagehide） */
+function driveSaves(slots: SaveSlots): void {
+  for (let i = 0; i < 3; i++) expect(slots.save(stateAt(70 + i))).toBe(false);
+  vi.useFakeTimers();
+  const win = new EventTarget();
+  const doc = Object.assign(new EventTarget(), { hidden: true, visibilityState: 'hidden' });
+  const auto = startAutosave({ slots, getState: () => stateAt(80), win, doc });
+  vi.advanceTimersByTime(15_000);
+  doc.dispatchEvent(new Event('visibilitychange'));
+  win.dispatchEvent(new Event('pagehide'));
+  auto.dispose();
+  vi.useRealTimers();
+}
+
+describe('TS-027-23 両方の枠が読めない（試し書きの後、枠の getItem だけが例外）→ どこにも書かず、次の起動で元の進行に戻る（S-1・Q-23）', () => {
+  it('a（seq 4）・b（seq 5）', () => {
+    const ls = new FakeWebStorage();
+    putRaw(ls, 'a', stateAt(40), 4);
+    putRaw(ls, 'b', stateAt(50), 5);
+    const before = new Map(ls.map);
+    ls.failGet = isSlotKey;
+    const { slots, r } = boot(ls);
+    expect(r).toMatchObject({ state: null, from: null, readOnly: false, brokenReset: false, slots: { a: 'unreadable', b: 'unreadable' } });
+    expect(slots.status).toBe('unavailable');
+    driveSaves(slots);
+    expect(ls.saveSets()).toEqual([]);
+    expect(ls.map).toEqual(before);
+    expect(ls.map.has(BROKEN_KEY)).toBe(false);
+    ls.failGet = () => false;
+    const next = boot(ls);
+    expect(next.r.from).toBe('b');
+    expect(next.r.state?.run.depth).toBe(50);
+  });
+});
+
+describe('TS-027-24 片方だけ読めない → 読めない枠にも有効な枠にも書かない（S-1・Q-23）', () => {
+  const cases: [string, (ls: FakeWebStorage) => void, { from: 'b' | null; depth?: number; nextDepth: number }][] = [
+    ['(i) a（seq 6）が読めない・b（seq 5）有効', (ls) => (putRaw(ls, 'a', stateAt(60), 6), putRaw(ls, 'b', stateAt(50), 5)), { from: 'b', depth: 50, nextDepth: 60 }],
+    ['(ii) a（seq 4）が読めない・b（seq 5）有効', (ls) => (putRaw(ls, 'a', stateAt(40), 4), putRaw(ls, 'b', stateAt(50), 5)), { from: 'b', depth: 50, nextDepth: 50 }],
+    ['(iii) a が読めない・b は空', (ls) => putRaw(ls, 'a', stateAt(40), 4), { from: null, nextDepth: 40 }],
+    ['(iv) a が読めない・b は途中で切れている', (ls) => (putRaw(ls, 'a', stateAt(40), 4), ls.map.set(SAVE_KEYS.b, '{"schema":1,"seq":5,"sav')), { from: null, nextDepth: 40 }],
+  ];
+  for (const [name, setup, want] of cases) {
+    it(name, () => {
+      const ls = new FakeWebStorage();
+      setup(ls);
+      const before = new Map(ls.map);
+      ls.failGet = (k) => k === SAVE_KEYS.a;
+      const { slots, r } = boot(ls);
+      expect(r.from).toBe(want.from);
+      if (want.depth !== undefined) expect(r.state?.run.depth).toBe(want.depth);
+      expect(r.slots.a).toBe('unreadable');
+      expect(r.brokenReset).toBe(false);
+      expect(slots.status).toBe('unavailable');
+      driveSaves(slots);
+      expect(ls.saveSets()).toEqual([]);
+      expect(ls.map).toEqual(before);
+      ls.failGet = () => false;
+      expect(boot(ls).r.state?.run.depth).toBe(want.nextDepth); // 次の起動: seq の大きい有効な枠から
+    });
+  }
+});
+
+describe('TS-027-25 試し書きだけが失敗する（容量いっぱい。S-2）→ 既存のセーブを読み、起動時から failing、空いたら ok', () => {
+  it('a（seq 4）・b（seq 5）', () => {
+    const ls = new FakeWebStorage();
+    putRaw(ls, 'a', stateAt(40), 4);
+    putRaw(ls, 'b', stateAt(50), 5);
+    const before = new Map(ls.map);
+    let quotaFull = true;
+    ls.failSet = () => quotaFull;
+    const { slots, r } = boot(ls);
+    expect(r.from).toBe('b');
+    expect(r.state?.run.depth).toBe(50);
+    expect(slots.status).toBe('failing'); // 最初の保存の前から
+    expect(slots.save(stateAt(51))).toBe(false);
+    expect(slots.save(stateAt(52))).toBe(false);
+    expect(ls.map).toEqual(before);
+    quotaFull = false;
+    expect(slots.save(stateAt(53))).toBe(true);
+    expect(slots.status).toBe('ok');
+    expect((JSON.parse(ls.map.get(SAVE_KEYS.a) ?? '{}') as { seq: number }).seq).toBe(6);
+    expect(boot(ls).r.state?.run.depth).toBe(53);
+  });
+});
+
+describe('レビュー N-3: load() の前の save() は書かない（既存のセーブを上書きしない）', () => {
+  it('a に有効なセーブがあっても、読む前の保存は false で set を呼ばない', () => {
+    const store = new FakeStore();
+    put(store, 'a', stateAt(30), 3);
+    const slots = slotsFor(store);
+    expect(slots.save(createInitialState(1))).toBe(false);
+    expect(store.sets()).toEqual([]);
+    slots.load();
+    expect(slots.save(stateAt(31))).toBe(true);
+    expect(store.sets()).toEqual([SAVE_KEYS.b]);
   });
 });
 

@@ -2,6 +2,11 @@
 export const PARAMS = {
   /** 論理の固定ステップ（ms）。arch §7 */
   stepMs: 100,
+  /**
+   * 1 回のステップの上限（ms）。これより長い step・advance の刻みは、この長さずつに分けて進める。
+   * 手動の打撃の上限（移動窓）と帯の境目の扱いが刻み幅によらないのは 1 秒刻みまでのため（arch §8-3。レビュー S-9）
+   */
+  maxStepMs: 1000,
   block: {
     h0: 4,
     gh: 1.066,
@@ -13,7 +18,13 @@ export const PARAMS = {
     oreFreeDepth: 5,
   },
   drill: { c0: 5, r: 1.16, milestoneEvery: 25 },
-  autoDigger: { c0: 40, r: 1.18, hitsPerLv: 0.2 },
+  /**
+   * 自動掘削機。maxHitsPerSec は打数/秒の上限（Lv が極端に大きいと 2^floor(Lv/25) が Infinity になり、
+   * 端数が NaN になって保存できなくなるのを防ぐ。通常のプレイでは届かない値。レビュー S-4）
+   */
+  autoDigger: { c0: 40, r: 1.18, hitsPerLv: 0.2, maxHitsPerSec: 1e12 },
+  /** レベル（ドリル・自動掘削機・湯船・ポンプ）の上限。読み込みで補正し、購入もここで止まる（maxed。通常のプレイでは届かない。レビュー S-4） */
+  levelMax: 1_000_000,
   input: {
     /** 手動の打撃（タップ・長押し・自動掘りの基本）の上限。任意の 1 秒（移動窓）で数える（Q-04） */
     manualMaxPerSec: 8,

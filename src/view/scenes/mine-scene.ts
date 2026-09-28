@@ -124,6 +124,8 @@ export class MineScene extends Phaser.Scene {
     this.decos = new TilePool(pooled(1));
     this.shaftMarks = new TilePool(pooled(2));
     this.crack = this.add.image(0, 0, 'atlas', 'crack-1').setOrigin(0, 0).setDepth(3).setVisible(false);
+    // 帯の名前のカード: 地下の層（groundLayer）の中に入れて地下のカメラだけに映す。深さ 10 は層の中での順番（タイル・ひび・泡より上）で、
+    // 層の外の道具（6）・破片（7）・数字のポップ（9）より下に描かれる（カードは道具より下の画面の中ほどに出すので重ならない。レビュー N-6）
     this.card = this.add
       .text(0, 0, '', { ...POP_STYLE, fontSize: '10px', color: '#ffffff' })
       .setOrigin(0.5)
@@ -185,18 +187,28 @@ export class MineScene extends Phaser.Scene {
     this.surfaceCam.ignore(this.groundLayer);
     this.cameras.main.ignore(this.surfaceLayer);
 
-    this.game.events.on(Phaser.Core.Events.POST_RENDER, () => {
+    const onPostRender = (): void => {
       if (this.renderedInputPending) {
         this.renderedInputPending = false;
         this.bridge.onInputRendered(performance.now());
       }
-    });
+    };
+    const onLost = (): void => this.bridge.onContext('lost');
+    const onRestored = (): void => this.bridge.onContext('restored');
+    const onResize = (): void => this.relayout(true);
+    this.game.events.on(Phaser.Core.Events.POST_RENDER, onPostRender);
     const r = this.game.renderer;
-    if (r instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
-      r.on(Phaser.Renderer.Events.LOSE_WEBGL, () => this.bridge.onContext('lost'));
-      r.on(Phaser.Renderer.Events.RESTORE_WEBGL, () => this.bridge.onContext('restored'));
-    }
-    this.scale.on(Phaser.Scale.Events.RESIZE, () => this.relayout(true));
+    const gl = r instanceof Phaser.Renderer.WebGL.WebGLRenderer ? r : null;
+    gl?.on(Phaser.Renderer.Events.LOSE_WEBGL, onLost);
+    gl?.on(Phaser.Renderer.Events.RESTORE_WEBGL, onRestored);
+    this.scale.on(Phaser.Scale.Events.RESIZE, onResize);
+    // シーンの外（game・レンダラー・scale）に付けたリスナーは、シーンの終了で外す（作り直したときに重ならないように。レビュー N-10）
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.game.events.off(Phaser.Core.Events.POST_RENDER, onPostRender);
+      gl?.off(Phaser.Renderer.Events.LOSE_WEBGL, onLost);
+      gl?.off(Phaser.Renderer.Events.RESTORE_WEBGL, onRestored);
+      this.scale.off(Phaser.Scale.Events.RESIZE, onResize);
+    });
     this.relayout(true);
     const s = this.bridge.state();
     this.posFrom = this.posTo = this.posShown = s.run.depth + blockProgress(s);

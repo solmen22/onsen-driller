@@ -51,7 +51,13 @@ const mathRules = {
       selector: "Identifier[name='Math']:not(MemberExpression > Identifier.object):not(MemberExpression > Identifier.property):not(Property > Identifier.key)",
       message: `${DET} Math を値として扱わない（別名・分割代入の抜け道の禁止）`,
     },
+    // 文字列からコードを作る抜け道（(() => 0).constructor('return Date.now()')() など。レビュー N-2）
+    { selector: "CallExpression[callee.property.name='constructor'], NewExpression[callee.property.name='constructor']", message: `${DET} constructor 経由で関数を作らない（抜け道の禁止）` },
+    { selector: "CallExpression[callee.property.value='constructor'], NewExpression[callee.property.value='constructor']", message: `${DET} constructor 経由で関数を作らない（抜け道の禁止）` },
   ],
+  // eval・new Function（型情報の規則 no-implied-eval に頼らずに止める。レビュー N-2）
+  'no-eval': 'error',
+  'no-new-func': 'error',
 };
 
 const restrictedImports = (patterns) => ({
@@ -60,51 +66,64 @@ const restrictedImports = (patterns) => ({
 });
 const LAYER = '層をまたぐ import（arch §5）';
 const libs = (names, why) => ({ group: names.flatMap((n) => [n, `${n}/*`]), message: why });
+/**
+ * 層のディレクトリ全体（中のファイルと、index.ts を省いたディレクトリそのものの import。'../core'・'../core/' など）。
+ * gitignore の書式なので、'**\/core' は中のファイルもすべて当てる（親のディレクトリが当たると子も当たる）。
+ * 一部のファイルだけ許す層（view → core）には使わない（下の bareDir を使う）。レビュー S-7
+ */
+const dirs = (names, prefix = '**/') => names.flatMap((n) => [`${prefix}${n}`, `${prefix}${n}/**`]);
+/** ディレクトリそのものの import だけ（'../../core'・'../../core/'。中のファイルは当てない） */
+const bareDir = (name) => `(^|/)${name}/?$`;
 
 /** core: content（型と値）と break_infinity.js だけ */
 const coreImports = [
   libs(['phaser', 'preact', 'valibot', 'lz-string', 'zzfx'], `${LAYER}: core は描画・UI・保存のライブラリに依存しない`),
   { group: ['node:*'], message: `${LAYER}: core は Node の API に依存しない` },
-  { group: ['**/save/**', '**/platform/**', '**/app/**', '**/view/**', '**/ui/**', '**/audio/**', '**/i18n/**', '**/tools/**'], message: `${LAYER}: core から外側の層を import しない` },
+  { group: dirs(['save', 'platform', 'app', 'view', 'ui', 'audio', 'i18n', 'tools']), message: `${LAYER}: core から外側の層を import しない` },
 ];
 /** content: core の型だけ（Q-14） */
 const contentImports = [
   ...coreImports.slice(0, 2),
-  { group: ['**/save/**', '**/platform/**', '**/app/**', '**/view/**', '**/ui/**', '**/audio/**', '**/i18n/**', '**/tools/**'], message: `${LAYER}: content から外側の層を import しない` },
-  { group: ['**/core/**'], allowTypeImports: true, message: `${LAYER}: content は core の型だけを import する（import type。Q-14）` },
+  { group: dirs(['save', 'platform', 'app', 'view', 'ui', 'audio', 'i18n', 'tools']), message: `${LAYER}: content から外側の層を import しない` },
+  { group: dirs(['core']), allowTypeImports: true, message: `${LAYER}: content は core の型だけを import する（import type。Q-14）` },
 ];
 /** save: core・content・valibot・lz-string と platform の型 */
 const saveImports = [
   libs(['phaser', 'preact', 'zzfx'], `${LAYER}: save は描画・UI に依存しない`),
-  { group: ['**/app/**', '**/view/**', '**/ui/**', '**/audio/**', '**/i18n/**'], message: `${LAYER}: save から app・view・ui を import しない` },
-  { group: ['**/platform/**'], allowTypeImports: true, message: `${LAYER}: save は platform の型だけを使う（ストレージは引数で受け取る）` },
+  { group: dirs(['app', 'view', 'ui', 'audio', 'i18n']), message: `${LAYER}: save から app・view・ui を import しない` },
+  { group: dirs(['platform']), allowTypeImports: true, message: `${LAYER}: save は platform の型だけを使う（ストレージは引数で受け取る）` },
 ];
 /** tools/sim: core・content だけ */
 const simImports = [
   libs(['phaser', 'preact', 'valibot', 'lz-string', 'zzfx'], `${LAYER}: シミュレーターは描画・UI・保存に依存しない`),
-  { group: ['**/src/save/**', '**/src/platform/**', '**/src/app/**', '**/src/view/**', '**/src/ui/**', '**/src/audio/**', '**/src/i18n/**'], message: `${LAYER}: tools/sim は core と content だけを import する` },
+  { group: dirs(['save', 'platform', 'app', 'view', 'ui', 'audio', 'i18n'], '**/src/'), message: `${LAYER}: tools/sim は core と content だけを import する` },
 ];
 /** view: core の selectors・events・num・rng と型、Phaser、i18n（Q-14） */
 const viewImports = [
   libs(['preact'], `${LAYER}: view は Preact に依存しない`),
-  { group: ['**/ui/**', '**/save/**', '**/platform/**', '**/audio/**'], message: `${LAYER}: view から ui・save・platform・audio を import しない` },
+  { group: dirs(['ui', 'save', 'platform', 'audio']), message: `${LAYER}: view から ui・save・platform・audio を import しない` },
   {
     group: ['**/core/*', '!**/core/selectors.ts', '!**/core/events.ts', '!**/core/num.ts', '!**/core/rng.ts'],
     allowTypeImports: true,
     message: `${LAYER}: view は core の selectors・events・num・rng と型だけを import する（状態を書き換えない。Q-14）`,
   },
-  { group: ['**/app/**'], allowTypeImports: true, message: `${LAYER}: view は app の型だけを使う` },
+  {
+    regex: bareDir('core'),
+    allowTypeImports: true,
+    message: `${LAYER}: view は core の index（'../core' のようなディレクトリの import）から値を import しない（Q-14。レビュー S-7）`,
+  },
+  { group: dirs(['app']), allowTypeImports: true, message: `${LAYER}: view は app の型だけを使う` },
 ];
 /** ui: core（selectors・actions の型）・Preact・i18n */
 const uiImports = [
   libs(['phaser'], `${LAYER}: ui は Phaser に依存しない`),
-  { group: ['**/view/**', '**/save/**'], message: `${LAYER}: ui から view・save を import しない（保存は app を通す）` },
+  { group: dirs(['view', 'save']), message: `${LAYER}: ui から view・save を import しない（保存は app を通す）` },
 ];
 /** platform: ブラウザの API と SDK。core は型だけ */
 const platformImports = [
   libs(['phaser', 'preact'], `${LAYER}: platform は描画・UI に依存しない`),
-  { group: ['**/view/**', '**/ui/**', '**/app/**', '**/save/**'], message: `${LAYER}: platform から view・ui・app・save を import しない` },
-  { group: ['**/core/**'], allowTypeImports: true, message: `${LAYER}: platform は core の型だけを使う` },
+  { group: dirs(['view', 'ui', 'app', 'save']), message: `${LAYER}: platform から view・ui・app・save を import しない` },
+  { group: dirs(['core']), allowTypeImports: true, message: `${LAYER}: platform は core の型だけを使う` },
 ];
 
 export default defineConfig(

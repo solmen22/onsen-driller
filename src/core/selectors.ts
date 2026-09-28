@@ -94,6 +94,7 @@ function toolQuote(s: Readonly<GameState>, qty: Qty): BuyQuote {
  * - 道具: qty によらず 1 段だけ。最後の段なら maxed、解放の深さに届かなければ locked
  * - 'max': 今のコインで買える数。1 個も買えなければ n: 0・cost: 0・insufficient（nextCost に次の 1 個のコスト）
  * - ×1・×10 で足りなければ insufficient（n・cost はその数の合計）
+ * - レベルが上限（PARAMS.levelMax）なら maxed。上限の手前では、×10・最大は上限までの数（レビュー S-4）
  */
 export function buyQuote(s: Readonly<GameState>, item: ItemId, qty: Qty): BuyQuote {
   if (item === 'tool') return toolQuote(s, qty);
@@ -103,12 +104,16 @@ export function buyQuote(s: Readonly<GameState>, item: ItemId, qty: Qty): BuyQuo
     return { item, qty, state: 'locked', n: 0, cost: ZERO, nextCost: ZERO, level: 0, unlockDepth: SPRING_BY_ID[id]?.depth };
   }
   const coins = s.run.coins;
+  // レベルの上限（PARAMS.levelMax）に達したら maxed。×10・最大は上限までの数に減らす（レビュー S-4）
+  const room = Math.max(0, PARAMS.levelMax - se.owned);
+  if (room <= 0) return { item, qty, state: 'maxed', n: 0, cost: ZERO, nextCost: ZERO, level: se.owned };
   const nextCost = sumGeometric(1, se.c0, se.r, se.owned);
   if (qty !== 'max') {
-    const cost = sumGeometric(qty, se.c0, se.r, se.owned);
-    return { item, qty, state: gt(cost, coins) ? 'insufficient' : 'affordable', n: qty, cost, nextCost, level: se.owned };
+    const k = Math.min(qty, room);
+    const cost = sumGeometric(k, se.c0, se.r, se.owned);
+    return { item, qty, state: gt(cost, coins) ? 'insufficient' : 'affordable', n: k, cost, nextCost, level: se.owned };
   }
-  let n = affordGeometric(coins, se.c0, se.r, se.owned);
+  let n = Math.min(room, affordGeometric(coins, se.c0, se.r, se.owned));
   let cost = sumGeometric(n, se.c0, se.r, se.owned);
   // 丸めで「買えるように見えて買えない」を防ぐ: 所持金を超えたら 1 つずつ減らす
   while (n > 0 && gt(cost, coins)) {
@@ -116,7 +121,7 @@ export function buyQuote(s: Readonly<GameState>, item: ItemId, qty: Qty): BuyQuo
     cost = sumGeometric(n, se.c0, se.r, se.owned);
   }
   // 逆に少なく見積もっていたら足す（affordGeometricSeries の誤差。上限に張り付いた値で回り続けないよう 2 回まで）
-  for (let i = 0; i < 2 && n < Number.MAX_SAFE_INTEGER; i++) {
+  for (let i = 0; i < 2 && n < room; i++) {
     const more = sumGeometric(n + 1, se.c0, se.r, se.owned);
     if (gt(more, coins) || !gt(more, cost)) break;
     n++;

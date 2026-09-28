@@ -5,11 +5,22 @@ export type RewardPlacement = 'R1' | 'R2' | 'R3';
 export type BreakPlacement = 'M1' | 'M2';
 
 export interface KeyValueStore {
+  /**
+   * 値を読む。キーがなければ null。**読めない（ストレージの例外）ときは例外を投げる**（「ない」と区別する。
+   * 読めない枠を空とみなして新しいゲームで上書きしないため。レビュー S-1・Q-23）
+   */
   get(k: string): string | null;
+  /** 書く。失敗（容量不足など）は例外にせず false */
   set(k: string, v: string): boolean;
+  /** 消す。失敗は無視する */
   remove(k: string): void;
   /** 保存先の種類（memory なら起動時から保存できない＝unavailable。sdk は CrazyGames の data モジュール〔S2〕） */
   readonly kind?: 'local' | 'memory' | 'sdk';
+  /**
+   * 起動時の試し書きの結果（local だけ）。failed は「読めるが書けない」（容量いっぱい・書き込みを黙って捨てる）で、
+   * 既存のセーブは読み、保存の状態は起動時から failing（15 秒ごとに再試行。レビュー S-2・Q-21・Q-25）
+   */
+  readonly writeProbe?: 'ok' | 'failed';
 }
 
 export interface PlatformCall {

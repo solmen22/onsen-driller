@@ -142,11 +142,13 @@ export function drillPower(s: GameState, m: Modifiers = modifiers(s)): Num {
   return mul(mul(mul(milestone(lv, PARAMS.drill.milestoneEvery), 1 + lv), toolMult(s.run.drill.tool) * m.drillPower), yunohanaMult(s));
 }
 
-/** 自動掘削機の打数/秒: 0.2 × Lv × 2^floor(Lv/25) × 倍率 */
+/** 自動掘削機の打数/秒: 0.2 × Lv × 2^floor(Lv/25) × 倍率（上限 maxHitsPerSec。Infinity・NaN にしない。レビュー S-4） */
 export function autoDiggerHitsPerSec(s: GameState, m: Modifiers = modifiers(s)): number {
   const lv = s.run.autoDig.level;
-  if (lv <= 0) return 0;
-  return PARAMS.autoDigger.hitsPerLv * lv * 2 ** Math.floor(lv / PARAMS.drill.milestoneEvery) * m.autoDig;
+  if (!(lv > 0)) return 0;
+  const raw = PARAMS.autoDigger.hitsPerLv * lv * 2 ** Math.floor(lv / PARAMS.drill.milestoneEvery) * m.autoDig;
+  if (!(raw > 0)) return 0; // NaN・負
+  return Math.min(PARAMS.autoDigger.maxHitsPerSec, raw); // Infinity も上限に
 }
 
 function pumpMilestoneMult(level: number): number {

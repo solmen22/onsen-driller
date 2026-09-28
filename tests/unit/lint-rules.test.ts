@@ -112,6 +112,73 @@ describe('TS-006-11・13 view・content の値の import（Q-14）', () => {
   });
 });
 
+describe('レビュー S-7: ディレクトリの import（index.ts を省いた形）でも層の規則に当たる', () => {
+  const RULE = '@typescript-eslint/no-restricted-imports';
+  const blocked: [string, string][] = [
+    // view → core の index（状態を書き換える dispatch など）
+    ['src/view/scenes/__fixture__.ts', "import { dispatch } from '../../core';\nexport const a = dispatch;"],
+    ['src/view/__fixture__.ts', "import { dispatch } from '../core/';\nexport const a = dispatch;"],
+    ['src/view/__fixture__.ts', "import { dispatch } from '../core/index';\nexport const a = dispatch;"],
+    // view → platform・save・ui
+    ['src/view/__fixture__.ts', "import { loadPlatform } from '../platform';\nexport const a = loadPlatform;"],
+    ['src/view/__fixture__.ts', "import { x } from '../save';\nexport const a = x;"],
+    ['src/view/__fixture__.ts', "import { x } from '../ui';\nexport const a = x;"],
+    // content・platform → core の値
+    ['src/content/__fixture__.ts', "import { num } from '../core';\nexport const a = num;"],
+    ['src/platform/__fixture__.ts', "import { num } from '../core';\nexport const a = num;"],
+    ['src/platform/__fixture__.ts', "import { x } from '../save';\nexport const a = x;"],
+    // save → platform の値・app
+    ['src/save/__fixture__.ts', "import { loadPlatform } from '../platform';\nexport const a = loadPlatform;"],
+    ['src/save/__fixture__.ts', "import { x } from '../app';\nexport const a = x;"],
+    // core → 外側の層
+    ['src/core/__fixture__.ts', "import { x } from '../save';\nexport const a = x;"],
+    ['src/core/__fixture__.ts', "import { x } from '../platform/';\nexport const a = x;"],
+    ['src/core/__fixture__.ts', "import { x } from '../view';\nexport const a = x;"],
+    // ui → view・save、tools/sim → save・platform
+    ['src/ui/__fixture__.ts', "import { x } from '../view';\nexport const a = x;"],
+    ['src/ui/__fixture__.ts', "import { x } from '../save';\nexport const a = x;"],
+    ['tools/sim/__fixture__.ts', "import { x } from '../../src/save';\nexport const a = x;"],
+    ['tools/sim/__fixture__.ts', "import { x } from '../../src/platform';\nexport const a = x;"],
+    // 遠回りのパス（途中で core を通る）
+    ['src/content/__fixture__.ts', "import { num } from '../core/../core/num.ts';\nexport const a = num;"],
+  ];
+  for (const [p, code] of blocked)
+    it(`${p}: ${code.split('\n')[0]}`, async () => {
+      expect(await ruleIds(p, code)).toContain(RULE);
+    });
+
+  it('型だけの import と、view に許された core のファイルは今までどおり通る', async () => {
+    const ok: [string, string][] = [
+      ['src/view/__fixture__.ts', "import type { GameState } from '../core';\nexport type A = GameState;"],
+      ['src/view/__fixture__.ts', "import { buyQuote } from '../core/selectors.ts';\nexport const a = buyQuote;"],
+      ['src/view/__fixture__.ts', "import { num } from '../core/num.ts';\nexport const a = num;"],
+      ['src/content/__fixture__.ts', "import type { GameState } from '../core';\nexport type A = GameState;"],
+      ['src/platform/__fixture__.ts', "import type { GameState } from '../core';\nexport type A = GameState;"],
+      ['src/save/__fixture__.ts', "import type { KeyValueStore } from '../platform';\nexport type A = KeyValueStore;"],
+      ['src/save/__fixture__.ts', "import { createInitialState } from '../core';\nexport const a = createInitialState;"],
+      ['src/core/__fixture__.ts', "import { PARAMS } from '../content/params.ts';\nexport const a = PARAMS;"],
+      ['src/core/__fixture__.ts', "import { TOOLS } from '../content/tools.ts';\nexport const a = TOOLS;"],
+    ];
+    for (const [p, code] of ok) expect(await ruleIds(p, code), `${p}: ${code}`).toEqual([]);
+  });
+});
+
+describe('レビュー N-2: eval・new Function・constructor 経由の関数の生成（core・content・save・tools/sim）', () => {
+  const codes = [
+    "export const a = eval('Date.now()');",
+    "export const a = new Function('return Date.now()')();",
+    "export const a = Function('return Date.now()')();",
+    "export const a = (() => 0).constructor('return Date.now()')();",
+    "export const a = new (() => 0).constructor('return 1')();",
+    "export const a = (() => 0)['constructor']('return Date.now()')();",
+  ];
+  for (const dir of DET_LAYERS)
+    for (const code of codes)
+      it(`${dir}: ${code}`, async () => {
+        expect((await ruleIds(`${dir}/__fixture__.ts`, code)).length).toBeGreaterThan(0);
+      });
+});
+
 describe('TS-006-08 view の演出だけの乱数は通る', () => {
   it('src/view/fx/particles.ts の Math.random', async () => {
     expect(await ruleIds('src/view/fx/particles.ts', 'export const a = Math.floor(Math.random() * 3);')).toEqual([]);
