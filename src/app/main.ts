@@ -10,6 +10,7 @@ import { Ctx } from '../ui/hooks/use-game.ts';
 import { playBreak, playHit, setMuted, unlockAudio } from '../audio/sfx.ts';
 import { startAutosave } from './autosave.ts';
 import { createAppClock } from './clock.ts';
+import type { View } from '../view/game.ts';
 import type { DevParams } from './dev-params.ts';
 import { captureErrors, createErrorLog } from './errors.ts';
 import { setupInput } from './input.ts';
@@ -82,37 +83,9 @@ async function boot(): Promise<void> {
   perf?.start();
   const loop = startLoop(store, clock);
 
-  const onLangChange = (l: Lang): void => {
-    settings.lang = l;
-    saveSettings(storage, settings);
-  };
-  render(h(Ctx.Provider, { value: { store, platform, version: APP_VERSION, onLangChange } }, h(App, {})), uiRoot);
-
-  const contextEvents: string[] = [];
-  const { createView } = await import('../view/game.ts');
-  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const view = await createView(stage, {
-    state: () => store.state,
-    drain: () => store.drainView(),
-    onInputRendered: (now) => perf?.markRendered(now),
-    hasPendingInput: () => perf?.hasPendingInput() ?? false,
-    stressParticles: params.particles,
-    reduceMotion,
-    onContext: (ev) => contextEvents.push(ev),
-    layout: () => root.dataset.layout,
-  });
-
-  // 音: 描画とは別に、打撃とブロックの破壊で鳴らす（イベント列は描画が消費するので、ストアの購読で数を見る）
-  let lastHits = store.state.stats.hits;
-  let lastBlocks = store.state.stats.blocks;
-  store.subscribe(() => {
-    const s = store.state.stats;
-    if (s.hits > lastHits) playHit(performance.now());
-    if (s.blocks > lastBlocks) playBreak();
-    lastHits = s.hits;
-    lastBlocks = s.blocks;
-  });
-
+  // 入力・保存の契機は、描画の起動より前に結線する（描画のチャンクの読み込みや Phaser の起動に失敗しても、
+  // 遊べて進行を保存し続ける。レビュー S-3）。hidden・pagehide では、入力（長押しの終わり）→ 保存 → ループの停止の順に動く
+  // （リスナーを付けた順。長押しの終わりで端数が変わった後の状態を保存する。以前の順番と同じ）
   const input = setupInput({ stage, win: window, doc: document }, store, {
     onFirstInput: () => {
       unlockAudio();
@@ -148,18 +121,57 @@ async function boot(): Promise<void> {
     }
   });
 
+  const onLangChange = (l: Lang): void => {
+    settings.lang = l;
+    saveSettings(storage, settings);
+  };
+  render(h(Ctx.Provider, { value: { store, platform, version: APP_VERSION, onLangChange } }, h(App, {})), uiRoot);
+
+  const contextEvents: string[] = [];
+  // 描画（Phaser）の起動。チャンクの読み込みや起動の失敗は記録に残し（errors()・S3 の「エラー情報をコピー」）、
+  // HUD・入力・保存は続ける（レビュー S-3）
+  let view: View | null = null;
+  try {
+    const { createView } = await import('../view/game.ts');
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    view = await createView(stage, {
+      state: () => store.state,
+      drain: () => store.drainView(),
+      onInputRendered: (now) => perf?.markRendered(now),
+      hasPendingInput: () => perf?.hasPendingInput() ?? false,
+      stressParticles: params.particles,
+      reduceMotion,
+      onContext: (ev) => contextEvents.push(ev),
+      layout: () => root.dataset.layout,
+    });
+  } catch (e) {
+    errorLog.push(e);
+  }
+
+  // 音: 描画とは別に、打撃とブロックの破壊で鳴らす（イベント列は描画が消費するので、ストアの購読で数を見る）
+  let lastHits = store.state.stats.hits;
+  let lastBlocks = store.state.stats.blocks;
+  store.subscribe(() => {
+    const s = store.state.stats;
+    if (s.hits > lastHits) playHit(performance.now());
+    if (s.blocks > lastBlocks) playBreak();
+    lastHits = s.hits;
+    lastBlocks = s.blocks;
+  });
+
   platform.loadingStop();
   root.dataset.ready = 'true';
 
-  if (DEV_BUILD && perf && params.fps) {
+  if (DEV_BUILD && perf && params.fps && view) {
+    const v = view;
     perf.mountOverlay(
       () =>
-        `${view.rendererName().slice(0, 40)}\ndpr ${devicePixelRatio} ${innerWidth}x${innerHeight} ${root.dataset.layout}\nparticles ${view.aliveParticles()} depth ${store.state.run.depth}m`,
+        `${v.rendererName().slice(0, 40)}\ndpr ${devicePixelRatio} ${innerWidth}x${innerHeight} ${root.dataset.layout}\nparticles ${v.aliveParticles()} depth ${store.state.run.depth}m`,
     );
   }
   if (import.meta.env.VITE_TEST_HOOKS === 'true') {
     const m = await import('./test-hooks.ts');
-    m.install({ store, loop, perf, platform, view, contextEvents, clock, autosave, slots, errors: errorLog });
+    if (view) m.install({ store, loop, perf, platform, view, contextEvents, clock, autosave, slots, errors: errorLog });
   }
 }
 
