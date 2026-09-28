@@ -328,24 +328,26 @@ body {
   gap: 8px;
 }
 
-.qty {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
-}
-
 .qty-btn {
   min-height: 44px;
   font: inherit;
-  font-size: 15px;
   color: var(--text);
   background: var(--panel-2);
-  border: 2px solid var(--line);
+  border: 2px solid var(--gold);
   border-radius: 4px;
+  padding: 0 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.qty-btn[aria-pressed='true'] {
-  border-color: var(--gold);
+.qty-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.qty-value {
+  font-size: 16px;
   color: var(--gold);
 }
 
@@ -369,9 +371,13 @@ body {
   text-align: left;
 }
 
-.row.ok {
+.row.buy-affordable {
   background: var(--ok);
   border-color: #6fbf85;
+}
+
+.row:disabled {
+  opacity: 0.75;
 }
 
 .row:active {
@@ -391,6 +397,58 @@ body {
   font-size: 13px;
   color: var(--gold);
   text-align: right;
+}
+
+/* 購入ボタン（BL-043）: 左に名前・レベル・効果、右に数・コスト・目安（または解放の条件・完了） */
+.buy-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.buy-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+}
+
+.buy-level {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.buy-effect {
+  font-size: 12px;
+  color: #bfe3cb;
+}
+
+.buy-side {
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  text-align: right;
+}
+
+.buy-eta,
+.buy-lock,
+.buy-done {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.buy-affordable .buy-level,
+.buy-affordable .buy-effect {
+  color: #e6f4ea;
+}
+
+.tool-preview {
+  flex: 0 0 auto;
+  display: inline-block;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
 }
 
 .note {

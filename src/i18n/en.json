@@ -71,5 +71,17 @@
   "hud.boostSoon": "Soon",
   "hud.vein": "Lucky vein!",
   "hud.autoDigLocked": "Unlocks with the pickaxe",
-  "panel.soon": "Coming soon"
+  "panel.soon": "Coming soon",
+  "effect.power": "Power ×{x}",
+  "effect.hits": "+{n} hits/s",
+  "effect.sep": ", ",
+  "effect.autoDig": "auto dig",
+  "buy.toolNext": "Evolve to {tool}",
+  "buy.unlockAt": "Unlocks at {n}m",
+  "buy.qty": "Buy amount",
+  "eta.sec": "{n}s to go",
+  "eta.min": "{n} min to go",
+  "eta.hour": "{n} h to go",
+  "eta.over": "{n}+ h to go",
+  "eta.coins": "{n} coins short"
 }

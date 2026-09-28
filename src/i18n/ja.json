@@ -71,5 +71,17 @@
   "hud.boostSoon": "準備中",
   "hud.vein": "ラッキー鉱脈！",
   "hud.autoDigLocked": "ツルハシで使えるようになります",
-  "panel.soon": "準備中です"
+  "panel.soon": "準備中です",
+  "effect.power": "威力 ×{x}",
+  "effect.hits": "＋{n} 打/秒",
+  "effect.sep": "・",
+  "effect.autoDig": "自動掘り",
+  "buy.toolNext": "{tool}に進化",
+  "buy.unlockAt": "{n}m で解放",
+  "buy.qty": "購入数",
+  "eta.sec": "あと {n} 秒",
+  "eta.min": "あと {n} 分",
+  "eta.hour": "あと {n} 時間",
+  "eta.over": "あと {n} 時間以上",
+  "eta.coins": "あと {n} コイン"
 }

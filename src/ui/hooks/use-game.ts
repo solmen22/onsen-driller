@@ -30,22 +30,32 @@ const shallowEqual = (a: unknown, b: unknown): boolean => {
   return ka.every((k) => Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
 };
 
+/**
+ * 状態から selector で選んだ値を返し、store の通知（5Hz か dispatch の直後）でその値が変わったときだけ描き直す（BL-043）。
+ * - 描画のたびに今の selector で読み直す（props が変わった〔×1 → ×10 など〕ときに、次の通知まで古い値を出さないため）。
+ *   等しい（equals）ときは前の値をそのまま返す（子の描き直しを増やさない）
+ * - 通知では selector を評価し、値が変わったときだけ描き直しを頼む。描画から購読までの間の変化も購読の直後に拾う
+ */
 export function useGame<T>(selector: (s: GameState) => T, equals: (a: T, b: T) => boolean = shallowEqual): T {
   const { store } = useUi();
-  const [value, setValue] = useState(() => selector(store.state));
-  const ref = useRef({ selector, value });
-  ref.current.selector = selector;
-  useEffect(
-    () =>
-      store.subscribe(() => {
-        const next = ref.current.selector(store.state);
-        if (!equals(ref.current.value, next)) {
-          ref.current.value = next;
-          setValue(next);
-        }
-      }),
-    [store],
-  );
+  const [, bump] = useState(0);
+  const ref = useRef<{ selector: (s: GameState) => T; equals: (a: T, b: T) => boolean; value: T } | null>(null);
+  const next = selector(store.state);
+  const value = ref.current !== null && ref.current.equals(ref.current.value, next) ? ref.current.value : next;
+  ref.current = { selector, equals, value };
+  useEffect(() => {
+    const check = (): void => {
+      const r = ref.current;
+      if (!r) return;
+      const n = r.selector(store.state);
+      if (r.equals(r.value, n)) return;
+      r.value = n;
+      bump((x) => x + 1);
+    };
+    const off = store.subscribe(check);
+    check();
+    return off;
+  }, [store]);
   return value;
 }
 
