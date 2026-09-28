@@ -80,8 +80,27 @@ export const yunohanaMult = (s: GameState): Num => add(ONE, mul(s.meta.yunohana.
 /** ブロックの HP: h₀ × g_h^d × 地形・効果の倍率 */
 export const blockHp = (s: GameState, depth: number, m: Modifiers = modifiers(s)): Num => mul(pow(B.gh, depth), B.h0 * m.hardness);
 
-/** 鉱石の配置は「周回のシード × 深さ」のハッシュ（打つ順番・刻み幅・オフラインで変わらない） */
-export const isOre = (s: GameState, depth: number): boolean => hash01(s.run.seed, depth) < B.oreChance;
+/**
+ * 鉱石の配置は「周回のシード × 深さ」のハッシュ（打つ順番・刻み幅・オフラインで変わらない）。
+ * 深さ 0〜4m（最初の 5 ブロック）は鉱石にしない（最初の強化までの時間をシードによらず一定にする。Q-02）
+ */
+export const isOre = (s: GameState, depth: number): boolean => depth >= B.oreFreeDepth && hash01(s.run.seed, depth) < B.oreChance;
+
+/** 地温（表示用。℃ の整数）: content/params.ts の折れ線（深さ m → ℃）。間は直線、最後の点より深いところは 1m あたり tempSlopeAfter（gdd §5-1） */
+export function temperatureAt(depth: number): number {
+  const c = PARAMS.tempCurve;
+  const first = c[0];
+  const last = c[c.length - 1];
+  if (!first || !last) return 0;
+  const d = Number.isFinite(depth) && depth > 0 ? depth : 0;
+  if (d <= first[0]) return Math.round(first[1]);
+  for (let i = 1; i < c.length; i++) {
+    const a = c[i - 1];
+    const b = c[i];
+    if (a && b && d <= b[0]) return Math.round(a[1] + ((b[1] - a[1]) * (d - a[0])) / (b[0] - a[0]));
+  }
+  return Math.round(last[1] + (d - last[0]) * PARAMS.tempSlopeAfter);
+}
 
 /** ブロックの価値: v₀ × g_v^d（鉱石は ×8 × 泉質の倍率）× 掘削コインの倍率 */
 export function blockValue(s: GameState, depth: number, ore: boolean, m: Modifiers = modifiers(s)): Num {

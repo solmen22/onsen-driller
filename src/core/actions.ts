@@ -5,8 +5,9 @@ import type { GameEvent } from './events.ts';
 import { nextTool, slotsForBathLevel, yunohanaGain } from './formulas.ts';
 import { add, affordGeometric, gt, lt, sub, sumGeometric, type Num } from './num.ts';
 import { sfc32Next } from './rng.ts';
+import { applyManualRateChange, autoDigUnlocked, manualRate, setHold } from './input.ts';
 import { createRun, type GameState } from './state.ts';
-import { applyHits, refreshGuests } from './step.ts';
+import { refreshGuests, tapHits } from './step.ts';
 
 export type LevelItem = 'drill' | 'autoDigger' | 'bath' | `pump:${SpringId}`;
 export type ItemId = LevelItem | 'tool';
@@ -105,19 +106,24 @@ export function dispatch(s: GameState, input: unknown): ActionResult {
     case 'tap': {
       const c = a.count === undefined ? 1 : a.count;
       if (typeof c !== 'number' || !Number.isFinite(c) || c < 1) return fail('invalid');
+      // 任意の 1 秒で手動の打撃は 8 まで（Q-04(a)）。超えた分は数えない。1 打も入らなければ rateLimited で状態は変わらない
       const n = Math.min(Math.floor(c), PARAMS.input.manualMaxPerSec);
-      s.stats.taps += n;
-      applyHits(s, n, events);
+      if (tapHits(s, n, events) === 0) return fail('rateLimited');
       return { ok: true, events };
     }
     case 'hold':
       if (typeof a.on !== 'boolean') return fail('invalid');
-      s.input.hold = a.on;
+      setHold(s, a.on);
       return { ok: true, events };
-    case 'setAutoDig':
+    case 'setAutoDig': {
       if (typeof a.on !== 'boolean') return fail('invalid');
+      // 最初の強化（道具 1 段目）の前はオンにできない。オフはいつでもよい（Q-03）
+      if (a.on && !autoDigUnlocked(s)) return fail('locked');
+      const before = manualRate(s);
       r.autoDig.on = a.on;
+      applyManualRateChange(s, before);
       return { ok: true, events };
+    }
     case 'buy': {
       if (!isItemId(a.item) || !isQty(a.qty)) return fail('invalid');
       if (a.item === 'tool') {
@@ -160,6 +166,7 @@ export function dispatch(s: GameState, input: unknown): ActionResult {
       s.meta.yunohana.lifetime = add(s.meta.yunohana.lifetime, gain);
       s.meta.prestiges += 1;
       s.run = createRun(sfc32Next(s.rng.run), s.run.terrain);
+      applyManualRateChange(s, 0); // 長押し中のまま転生したら、新しい周回の端数も 0.5 から
       events.push({ type: 'PrestigeDone', gained: gain.toString() });
       return { ok: true, events };
     }

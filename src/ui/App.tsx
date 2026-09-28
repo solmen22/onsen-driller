@@ -1,6 +1,6 @@
 // UI（Preact・DOM）: HUD・タブ・購入の一覧（PoC は「掘る」「湯宿」「設定」だけ中身がある）
 import { useState } from 'preact/hooks';
-import { bathIncomePerSec, nextTool, num, quote, type GameState, type LevelItem, type Qty } from '../core/index.ts';
+import { bathIncomePerSec, nextTool, num, quote, temperatureOf, type GameState, type LevelItem, type Qty } from '../core/index.ts';
 import { TOOLS } from '../content/tools.ts';
 import type { SpringId } from '../content/springs.ts';
 import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
@@ -22,6 +22,7 @@ function Hud({ lang }: { lang: Lang }) {
     perSec: formatNum(bathIncomePerSec(s), lang),
     depth: s.run.depth,
     maxDepth: s.run.maxDepth,
+    temp: temperatureOf(s),
     hits: s.stats.hits,
   }));
   return (
@@ -31,7 +32,8 @@ function Hud({ lang }: { lang: Lang }) {
           <span class="coin-icon" aria-hidden="true" /> {v.coins}
         </div>
         <div class="hud-sub">
-          +{v.perSec} {t('hud.perSec')} · {t('hud.depth')} {v.depth}m
+          +{v.perSec} {t('hud.perSec')} · {t('hud.depth')} <span data-testid="hud-depth">{v.depth}m</span>{' '}
+          <span data-testid="hud-temp">{v.temp}℃</span>
         </div>
       </div>
       {v.hits === 0 && <div class="hint">{t('hud.tapHint')}</div>}

@@ -46,8 +46,11 @@ describe('actions', () => {
 
   it('タップで掘れて、30m で源泉が見つかり枠につながる', () => {
     const s = createInitialState(1);
-    dispatch(s, { type: 'setAutoDig', on: true });
-    const ev = advance(s, 60_000, 100);
+    // 最初の強化（ツルハシ）までは自動掘りを使えないので、毎秒 2 回のタップで掘る
+    const ev = advance(s, 15_000, { input: { tapsPerSec: 2 } });
+    expect(dispatch(s, { type: 'buy', item: 'tool', qty: 1 }).ok).toBe(true);
+    expect(dispatch(s, { type: 'setAutoDig', on: true }).ok).toBe(true);
+    advance(s, 45_000, 100, ev);
     expect(s.run.depth).toBeGreaterThan(0);
     for (let i = 0; i < 2000 && s.run.maxDepth < 30; i++) {
       dispatch(s, { type: 'buy', item: 'drill', qty: 'max' });

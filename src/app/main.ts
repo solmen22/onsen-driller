@@ -99,9 +99,12 @@ async function boot(): Promise<void> {
     lastBlocks = s.blocks;
   });
 
-  const input = setupInput(stage, store, perf, () => {
-    unlockAudio();
-    platform.gameplayStart(); // Poki の要件: 最初の入力で gameplayStart
+  const input = setupInput({ stage, win: window, doc: document }, store, {
+    onFirstInput: () => {
+      unlockAudio();
+      platform.gameplayStart(); // Poki の要件: 最初の入力で gameplayStart
+    },
+    onPress: (ts) => perf?.markInput(ts),
   });
 
   // 広告の再生中はループ・入力・音を止める

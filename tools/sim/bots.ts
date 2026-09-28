@@ -1,5 +1,6 @@
 // バランス用のボット（gdd §8-2 の PoC 版。アクティブ・標準・放置の 3 種）
 import {
+  autoDigUnlocked,
   blockHp,
   blockValue,
   dispatch,
@@ -21,14 +22,16 @@ export interface BotDef {
   id: string;
   hold: boolean;
   autoDig: boolean;
+  /** 自動掘りが使えるようになるまで（最初の強化の前。Q-03）の毎秒のタップ数（標準の入力は毎秒 2 打。Q-02） */
+  tapsUntilAuto: number;
   /** 買い物の間隔（プレイ時間の秒） */
   buyEverySec: number;
 }
 
 export const BOTS: Readonly<Record<'active' | 'standard' | 'idle', BotDef>> = {
-  active: { id: 'active', hold: true, autoDig: true, buyEverySec: 2 },
-  standard: { id: 'standard', hold: false, autoDig: true, buyEverySec: 5 },
-  idle: { id: 'idle', hold: false, autoDig: true, buyEverySec: 60 },
+  active: { id: 'active', hold: true, autoDig: true, tapsUntilAuto: 0, buyEverySec: 2 },
+  standard: { id: 'standard', hold: false, autoDig: true, tapsUntilAuto: 2, buyEverySec: 5 },
+  idle: { id: 'idle', hold: false, autoDig: true, tapsUntilAuto: 2, buyEverySec: 60 },
 };
 
 export interface BotMemory {
@@ -106,7 +109,7 @@ function arrangeSlots(s: GameState): void {
 export function botAct(s: GameState, bot: BotDef, mem: BotMemory): void {
   const r = s.run;
   if (s.input.hold !== bot.hold) dispatch(s, { type: 'hold', on: bot.hold });
-  if (r.autoDig.on !== bot.autoDig) dispatch(s, { type: 'setAutoDig', on: bot.autoDig });
+  if (r.autoDig.on !== bot.autoDig && (!bot.autoDig || autoDigUnlocked(s))) dispatch(s, { type: 'setAutoDig', on: bot.autoDig });
 
   if (r.maxDepth !== mem.lastMaxDepth) {
     mem.lastMaxDepth = r.maxDepth;

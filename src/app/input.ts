@@ -1,49 +1,160 @@
-// 入力（arch §7）: ステージの DOM のポインタとキーボードを受けてアクションにする。Phaser の入力系は使わない
-import type { GameStore } from './store.ts';
-import type { PerfMonitor } from './perf.ts';
+// 入力（arch §7。Q-04・Q-05。BL-012）: ステージの DOM のポインタとキーボードを受けてアクションにする。Phaser の入力系は使わない
+// - 押した瞬間に 1 打（タップ）。300ms 押し続けると長押し（毎秒 4 打）。Space も同じ（自動リピートの keydown は使わない）
+// - 長押しは pointerup・pointercancel・pointerleave・lostpointercapture、ウィンドウの blur、visibilitychange（hidden）、
+//   pagehide、Space の keyup、入力の無効化（広告の再生中）で終わる。長押しのタイマーも取り消す
+// - 押し始めたポインタ以外（2 本目の指など。isPrimary=false）は打撃にしない
+// - Space と矢印キーは、編集できる要素（input・textarea・select・contenteditable）が対象のとき以外は必ず preventDefault する。
+//   フォーカスのあるボタンも Space では押さない（キーボードでボタンを押すのは Enter）
+// ブラウザがなくても確かめられるように、EventTarget と タイマーを引数で受け取る（tests/integration/input.test.ts）
+import { PARAMS } from '../content/params.ts';
 
-const HOLD_DELAY_MS = 300;
+export interface InputSink {
+  dispatch(a: { type: 'tap'; count: number } | { type: 'hold'; on: boolean }): unknown;
+}
 
-export function setupInput(stage: HTMLElement, store: GameStore, perf: PerfMonitor | null, onFirstInput: () => void): { setEnabled(on: boolean): void } {
+export interface InputTimers {
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(id: unknown): void;
+}
+
+export interface InputEnv {
+  /** ステージ（キャンバスの親要素）。ここのポインタで掘る（地上を含むキャンバス全体。Q-04(f)） */
+  stage: EventTarget;
+  /** キーボード・blur・pagehide を受ける（window） */
+  win: EventTarget;
+  /** visibilitychange を受ける（document）。hidden か visibilityState で非表示を判定する */
+  doc: EventTarget & { readonly hidden?: boolean; readonly visibilityState?: string };
+  timers?: InputTimers;
+}
+
+export interface InputOptions {
+  /** 最初の入力（ステージでも UI のパネルでも。Poki の gameplayStart。S2 の lifecycle へ） */
+  onFirstInput?: () => void;
+  /** 打撃にした押下の時刻（性能の計測用。event.timeStamp） */
+  onPress?: (timeStamp: number) => void;
+  holdDelayMs?: number;
+}
+
+export interface InputController {
+  /** 入力を止める（広告の再生中など）。止めると長押しも終わる */
+  setEnabled(on: boolean): void;
+  readonly holding: boolean;
+  dispose(): void;
+}
+
+const defaultTimers: InputTimers = {
+  setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
+  clearTimeout: (id) => globalThis.clearTimeout(id as ReturnType<typeof globalThis.setTimeout>),
+};
+
+interface KeyLike {
+  code?: string;
+  repeat?: boolean;
+  target?: unknown;
+  timeStamp?: number;
+  preventDefault(): void;
+}
+interface PointerLike {
+  isPrimary?: boolean;
+  timeStamp?: number;
+  preventDefault(): void;
+}
+
+/** 編集できる要素か（そこでは Space・矢印を扱わない。Q-05） */
+export function isEditableTarget(t: unknown): boolean {
+  if (typeof t !== 'object' || t === null) return false;
+  const el = t as { tagName?: unknown; isContentEditable?: unknown };
+  if (el.isContentEditable === true) return true;
+  const tag = typeof el.tagName === 'string' ? el.tagName.toUpperCase() : '';
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
+const isHidden = (doc: InputEnv['doc']): boolean => doc.hidden === true || doc.visibilityState === 'hidden';
+
+export function setupInput(env: InputEnv, sink: InputSink, opts: InputOptions = {}): InputController {
+  const timers = env.timers ?? defaultTimers;
+  const holdDelayMs = opts.holdDelayMs ?? PARAMS.input.holdDelayMs;
   let enabled = true;
   let first = true;
-  let holdTimer = 0;
+  let holdTimer: unknown = null;
+  let holding = false;
+  let keyDown = false;
+  const offs: (() => void)[] = [];
+  const on = <E>(t: EventTarget, type: string, fn: (e: E) => void, capture = false): void => {
+    const h = (e: Event): void => fn(e as unknown as E);
+    t.addEventListener(type, h, capture);
+    offs.push(() => t.removeEventListener(type, h, capture));
+  };
+
   const firstInput = (): void => {
     if (!first) return;
     first = false;
-    onFirstInput();
+    opts.onFirstInput?.();
   };
-  const stopHold = (): void => {
-    clearTimeout(holdTimer);
-    if (store.state.input.hold) store.dispatch({ type: 'hold', on: false });
+  const endHold = (): void => {
+    if (holdTimer !== null) {
+      timers.clearTimeout(holdTimer);
+      holdTimer = null;
+    }
+    keyDown = false;
+    if (holding) {
+      holding = false;
+      sink.dispatch({ type: 'hold', on: false });
+    }
   };
-  stage.addEventListener('pointerdown', (e) => {
-    if (!enabled || !e.isPrimary) return;
+  const press = (timeStamp: number | undefined): void => {
+    firstInput();
+    if (timeStamp !== undefined) opts.onPress?.(timeStamp);
+    sink.dispatch({ type: 'tap', count: 1 });
+    if (holding) return; // すでに長押し中（別の手段で押した）
+    if (holdTimer !== null) timers.clearTimeout(holdTimer);
+    holdTimer = timers.setTimeout(() => {
+      holdTimer = null;
+      if (!enabled) return;
+      holding = true;
+      sink.dispatch({ type: 'hold', on: true });
+    }, holdDelayMs);
+  };
+
+  on<PointerLike>(env.stage, 'pointerdown', (e) => {
+    if (!enabled || e.isPrimary === false) return;
     e.preventDefault();
-    firstInput();
-    perf?.markInput(e.timeStamp);
-    store.dispatch({ type: 'tap', count: 1 });
-    clearTimeout(holdTimer);
-    holdTimer = window.setTimeout(() => store.dispatch({ type: 'hold', on: true }), HOLD_DELAY_MS);
+    press(e.timeStamp);
   });
-  for (const ev of ['pointerup', 'pointercancel', 'pointerleave'] as const) stage.addEventListener(ev, stopHold);
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault(); // ポータルの枠をスクロールさせない
-    if (!enabled || e.code !== 'Space' || e.repeat) return;
-    firstInput();
-    perf?.markInput(e.timeStamp);
-    store.dispatch({ type: 'tap', count: 1 });
-    store.dispatch({ type: 'hold', on: true });
+  for (const type of ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture']) on(env.stage, type, endHold);
+
+  on<KeyLike>(env.win, 'keydown', (e) => {
+    if (isEditableTarget(e.target)) return;
+    const code = e.code ?? '';
+    if (code === 'Space' || code.startsWith('Arrow')) e.preventDefault(); // ポータルの枠をスクロールさせない
+    if (code !== 'Space' || !enabled || e.repeat === true || keyDown) return;
+    keyDown = true;
+    press(e.timeStamp);
   });
-  window.addEventListener('keyup', (e) => {
-    if (e.code === 'Space') stopHold();
+  on<KeyLike>(env.win, 'keyup', (e) => {
+    if (e.code !== 'Space') return;
+    if (!isEditableTarget(e.target)) e.preventDefault(); // フォーカスのあるボタンを Space で押さない
+    endHold();
+  });
+  on(env.win, 'blur', endHold);
+  on(env.win, 'pagehide', endHold);
+  on(env.doc, 'visibilitychange', () => {
+    if (isHidden(env.doc)) endHold();
   });
   // UI のパネルを押したときも「最初の入力」とみなす
-  window.addEventListener('pointerdown', firstInput, { capture: true });
+  on(env.win, 'pointerdown', firstInput, true);
+
   return {
-    setEnabled(on) {
-      enabled = on;
-      if (!on) stopHold();
+    setEnabled(v) {
+      enabled = v;
+      if (!v) endHold();
+    },
+    get holding() {
+      return holding;
+    },
+    dispose() {
+      endHold();
+      for (const off of offs.splice(0)) off();
     },
   };
 }

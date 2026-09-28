@@ -17,8 +17,12 @@ export const PARAMS = {
   input: {
     /** 手動の打撃（タップ・長押し・自動掘りの基本）の上限。任意の 1 秒（移動窓）で数える（Q-04） */
     manualMaxPerSec: 8,
+    /** 上限を数える移動窓の長さ（ロジックの時間 ms。半開区間 (t−窓, t]） */
+    manualWindowMs: 1000,
     holdPerSec: 4,
     autoDigPerSec: 2,
+    /** 手動の毎秒の打数が 0 から正になったときの端数（最初の 1 打は間隔の半分の後） */
+    startCarry: 0.5,
     /** 押し続けてから長押しになるまで（app/input.ts） */
     holdDelayMs: 300,
   },
