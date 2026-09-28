@@ -257,6 +257,53 @@ describe('TS-026-12・13 拒否（game・run・meta・schema）', () => {
   });
 });
 
+describe('レビュー M-1: 新しい版（schema 2）は封筒の形・checksum より先に newer と判定する', () => {
+  /** schema 2 の封筒（今の版の書き方で作ってから schema だけ変える） */
+  const newerEnv = (): Env => {
+    const e = envOf(stateWith({ coins: 50, depth: 20 }), 9);
+    e.schema = 2;
+    return e;
+  };
+  it('checksum が違う・seq がない・キーを足した／消した・game が文字列・seq が文字列 → どれも newer', () => {
+    const variants: [string, (e: Env & Record<string, unknown>) => void][] = [
+      ['checksum が違う', (e) => (e.checksum = 'ffffffff')],
+      ['checksum の計算が変わった（別の形式）', (e) => (e.checksum = 'sha256:abcdef')],
+      ['seq がない', (e) => delete e.seq],
+      ['seq が文字列', (e) => (e.seq = '9')],
+      ['封筒のキーを足した', (e) => (e.compression = 'none')],
+      ['savedAt・appVersion・checksum・game がない', (e) => ['savedAt', 'appVersion', 'checksum', 'game'].forEach((k) => delete e[k])],
+      ['game が文字列（二重に包む形式）', (e) => ((e as { game: unknown }).game = '{"run":{}}')],
+      ['schema が文字列の "2"', (e) => (e.schema = '2')],
+    ];
+    for (const [name, change] of variants) {
+      const e = newerEnv() as Env & Record<string, unknown>;
+      change(e);
+      expect(decodeSave(JSON.stringify(e)), name).toEqual({ ok: false, reason: 'newer' });
+    }
+    expect(decodeSave('{"schema":2}')).toEqual({ ok: false, reason: 'newer' });
+    expect(decodeSave('{"schema":3,"envelope":{"v":1}}')).toEqual({ ok: false, reason: 'newer' });
+  });
+  it('JSON として読めない（途中で切れた）・大きすぎる・深すぎる文字列でも、先頭が "schema":2 なら newer', () => {
+    const raw = JSON.stringify(newerEnv());
+    expect(decodeSave(raw.slice(0, raw.length / 2))).toEqual({ ok: false, reason: 'newer' });
+    expect(decodeSave('{"schema":2')).toEqual({ ok: false, reason: 'newer' });
+    expect(decodeSave(`{"schema":2,"pad":"${'x'.repeat(1_100_000)}"}`)).toEqual({ ok: false, reason: 'newer' });
+    expect(decodeSave(`{"schema":2,"deep":${'['.repeat(100)}${']'.repeat(100)}}`)).toEqual({ ok: false, reason: 'newer' });
+  });
+  it('今の版（schema 1）の壊れた封筒は今までどおり（newer にしない）', () => {
+    const raw = encodeSave(stateWith({ coins: 50 }), 1, 1, APP);
+    expect(decodeSave(raw.slice(0, raw.length / 2))).toEqual({ ok: false, reason: 'notJson' });
+    expect(decodeSave(raw.replace(/"checksum":"[0-9a-f]{8}"/, '"checksum":"00000000"'))).toEqual({ ok: false, reason: 'checksum' });
+    const e = envOf(createInitialState(1)) as Env & { seq?: unknown };
+    delete e.seq;
+    expect(decodeSave(JSON.stringify(e))).toEqual({ ok: false, reason: 'shape' });
+    // 先頭のキーが schema でない・schema が 1 の途中切れは notJson のまま
+    expect(decodeSave('{"seq":1,"schema":2')).toEqual({ ok: false, reason: 'notJson' });
+    expect(decodeSave('{"schema":1,"seq":')).toEqual({ ok: false, reason: 'notJson' });
+    expect(decodeSave(`{"schema":1,"pad":"${'x'.repeat(1_100_000)}"}`)).toEqual({ ok: false, reason: 'tooLarge' });
+  });
+});
+
 describe('TS-026-14 巨大・深すぎる入力で落ちず、すぐ拒否する', () => {
   it('5MB の文字列 → tooLarge、深さ 10,000 の入れ子 → shape、どちらも 1 秒以内', () => {
     const t0 = performance.now();

@@ -108,8 +108,9 @@ export class SaveSlots {
     }
     found.sort((x, y) => y.seq - x.seq || y.savedAt - x.savedAt || (x.slot === 'a' ? -1 : 1));
     const best = found[0];
-    const brokenBoth = !best && (['a', 'b'] as const).some((s) => report[s] !== 'empty' && report[s] !== 'newer');
-    if (brokenBoth && !this.readOnlyValue && this.statusValue !== 'unavailable') {
+    // 読み取り専用（新しい版がある）ときは「壊れていたので新しく始めた」ではない（退避もしない。レビュー N-4）
+    const brokenBoth = !best && !this.readOnlyValue && (['a', 'b'] as const).some((s) => report[s] !== 'empty' && report[s] !== 'newer');
+    if (brokenBoth && this.statusValue !== 'unavailable') {
       // 上書きする前に、壊れていた生の文字列のうち seq の大きそうなほう（読めなければ a）を 1 つだけ退避する
       const pick: SlotId = looseSeq(raws.b) > looseSeq(raws.a) || raws.a === null ? 'b' : 'a';
       const raw = raws[pick];

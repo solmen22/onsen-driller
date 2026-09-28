@@ -1,7 +1,10 @@
 // セーブの封筒と読み込みの検証（arch §11・Q-10。BL-026）
 // 封筒: { schema, seq, savedAt, appVersion, checksum, game }。game はオブジェクト（文字列に包まない）。
 // checksum ＝ canonicalJson(game)（キーを辞書順に並べた空白なしの JSON）の FNV-1a（小文字の 16 進 8 桁）。
-// 読み込みの順番: 大きさ → 入れ子の深さ → JSON（危険なキーを捨てる）→ 封筒の形 → checksum → 新しい版 → game の検証・補正。
+// 読み込みの順番: 大きさ → 入れ子の深さ → JSON（危険なキーを捨てる）→ **新しい版** → 封筒の形 → checksum → game の検証・補正。
+// 新しい版（schema > SAVE_SCHEMA_VERSION）は封筒の形・checksum より**先**に見分ける。将来の版が封筒のキーや checksum の計算を
+// 変えても「壊れた枠」と誤って上書きしないため（レビュー M-1。arch §11 の約束: 封筒は JSON のオブジェクトで、先頭のキーは整数の schema）。
+// 大きすぎる・深すぎる・JSON として読めない（途中で切れた）文字列も、先頭が "schema":N（N が今の版より大きい）なら newer にする。
 // どの段階でも例外を呼び出し側に投げず、{ ok:false, reason } で返す
 import LZString from 'lz-string';
 import { checksumOf, MAX_JSON_DEPTH, toSaveGame, type GameState, type SaveGame } from '../core/index.ts';
@@ -85,19 +88,32 @@ function schemaOf(x: unknown): number | null {
   return Number.isSafeInteger(n) && n >= 1 ? n : null;
 }
 
+/** 新しい版か（schema が読めて、今の版より大きい） */
+const isNewer = (schema: unknown): boolean => {
+  const n = schemaOf(schema);
+  return n !== null && n > SAVE_SCHEMA_VERSION;
+};
+
+/** 生の文字列の先頭の "schema":N（封筒の先頭のキー。JSON として読めない・大きすぎる枠を見分けるだけに使う） */
+const RAW_SCHEMA = /^\s*\{\s*"schema"\s*:\s*"?(\d{1,9})"?\s*(?:[,}]|$)/;
+const rawIsNewer = (raw: string): boolean => isNewer(RAW_SCHEMA.exec(raw.slice(0, 64))?.[1]);
+
 /** 封筒の JSON（信頼しない文字列）を読む。例外を投げない */
 export function decodeSave(raw: unknown): DecodeResult {
   if (typeof raw !== 'string' || raw.length === 0) return { ok: false, reason: 'notJson' };
-  if (raw.length > MAX_SAVE_CHARS) return { ok: false, reason: 'tooLarge' };
-  if (jsonNestingDepth(raw, MAX_JSON_DEPTH + 1) > MAX_JSON_DEPTH) return { ok: false, reason: 'shape' };
+  if (raw.length > MAX_SAVE_CHARS) return { ok: false, reason: rawIsNewer(raw) ? 'newer' : 'tooLarge' };
+  if (jsonNestingDepth(raw, MAX_JSON_DEPTH + 1) > MAX_JSON_DEPTH) return { ok: false, reason: rawIsNewer(raw) ? 'newer' : 'shape' };
   const parsed = safeJsonParse(raw);
-  if (parsed === undefined) return { ok: false, reason: 'notJson' };
+  if (parsed === undefined) return { ok: false, reason: rawIsNewer(raw) ? 'newer' : 'notJson' };
   return decodeEnvelope(parsed);
 }
 
-/** 読んだ JSON の値から封筒を検証する（checksum → 新しい版 → game） */
+/** 読んだ JSON の値から封筒を検証する（新しい版 → 形 → checksum → game） */
 export function decodeEnvelope(parsed: unknown): DecodeResult {
-  if (!isRecord(parsed) || ENVELOPE_KEYS.some((k) => !(k in parsed))) return { ok: false, reason: 'shape' };
+  if (!isRecord(parsed)) return { ok: false, reason: 'shape' };
+  // 新しい版は、ほかの検査をせずに newer（形・checksum が今の版と違っても上書きしない。M-1）
+  if (isNewer(parsed.schema)) return { ok: false, reason: 'newer' };
+  if (ENVELOPE_KEYS.some((k) => !(k in parsed))) return { ok: false, reason: 'shape' };
   const schema = schemaOf(parsed.schema);
   const seq = parsed.seq;
   if (schema === null || typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0) return { ok: false, reason: 'shape' };
@@ -109,7 +125,6 @@ export function decodeEnvelope(parsed: unknown): DecodeResult {
     return { ok: false, reason: 'shape' }; // JSON にできない値・深すぎる入れ子
   }
   if (sum !== parsed.checksum.toLowerCase()) return { ok: false, reason: 'checksum' };
-  if (schema > SAVE_SCHEMA_VERSION) return { ok: false, reason: 'newer' };
   const g = parseGame(parsed.game);
   if (!g.ok) return { ok: false, reason: 'invalidGame' };
   const savedAt = typeof parsed.savedAt === 'number' && Number.isFinite(parsed.savedAt) && parsed.savedAt >= 0 ? parsed.savedAt : 0;

@@ -192,6 +192,41 @@ describe('新しい版のセーブ（schema 2）→ 読み取り専用（その�
   });
 });
 
+describe('レビュー M-1: 形・checksum の違う新しい版の枠も上書きしない（読み取り専用）', () => {
+  /** schema 2 で、封筒の形と checksum が今の版と違う枠 */
+  const futureRaw = (): string => {
+    const e = JSON.parse(encodeSave(stateAt(99), 9, now, APP)) as Record<string, unknown>;
+    e.schema = 2;
+    e.checksum = 'sha256:0123';
+    delete e.seq;
+    e.generation = 9;
+    return JSON.stringify(e);
+  };
+  it('b が新しい版（形・checksum 違い）、a が有効 → a を読み、読み取り専用。自動保存を何回しても set を呼ばない', () => {
+    const store = new FakeStore();
+    put(store, 'a', stateAt(10), 1);
+    const future = futureRaw();
+    store.map.set(SAVE_KEYS.b, future);
+    const slots = slotsFor(store);
+    const r = slots.load();
+    expect(r).toMatchObject({ readOnly: true, from: 'a', brokenReset: false, slots: { a: 'ok', b: 'newer' } });
+    for (let i = 0; i < 5; i++) expect(slots.save(stateAt(11 + i))).toBe(false);
+    expect(store.sets()).toEqual([]);
+    expect(store.map.get(SAVE_KEYS.b)).toBe(future);
+  });
+  it('a が新しい版（途中で切れている）・b が壊れている → 新しいゲームだが読み取り専用、退避もしない（brokenReset は false。N-4）', () => {
+    const store = new FakeStore();
+    store.map.set(SAVE_KEYS.a, futureRaw().slice(0, 40));
+    store.map.set(SAVE_KEYS.b, 'garbage');
+    const slots = slotsFor(store);
+    const r = slots.load();
+    expect(r).toMatchObject({ state: null, readOnly: true, brokenReset: false, slots: { a: 'newer', b: 'notJson' } });
+    expect(slots.save(createInitialState(1))).toBe(false);
+    expect(store.sets()).toEqual([]);
+    expect(store.map.has(BROKEN_KEY)).toBe(false);
+  });
+});
+
 describe('TS-027-09・20 キーはすべて onsen-driller: で始まり、他のゲームのキーを触らない', () => {
   it('起動・保存・設定の保存・読み込み', () => {
     const store = new FakeStore();
