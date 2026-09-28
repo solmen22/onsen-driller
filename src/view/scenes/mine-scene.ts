@@ -3,7 +3,8 @@
 import Phaser from 'phaser';
 import atlasPng from '../../generated/atlas.png?url';
 import atlasJson from '../../generated/atlas.json';
-import { bandOfDepth, type GameState } from '../../core/index.ts';
+import { bandOfDepth } from '../../core/selectors.ts';
+import type { GameState } from '../../core/state.ts';
 import type { ViewEvent } from '../../app/store.ts';
 
 const T = 16; // タイルの大きさ（アートの画素）

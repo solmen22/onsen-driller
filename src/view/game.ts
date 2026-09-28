@@ -1,6 +1,6 @@
 // Phaser.Game を 1 つ作る（arch §14）。Phaser の入力・音は使わない
 import Phaser from 'phaser';
-import { MineScene, type ViewBridge } from './scenes/MineScene.ts';
+import { MineScene, type ViewBridge } from './scenes/mine-scene.ts';
 
 export interface View {
   readonly game: Phaser.Game;

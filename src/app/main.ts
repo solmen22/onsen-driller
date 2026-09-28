@@ -7,13 +7,13 @@ import { STORAGE_PREFIX } from '../platform/types.ts';
 import { decodeSave, encodeSave } from '../save/codec.ts';
 import { detectLang, setLang } from '../i18n/index.ts';
 import { App } from '../ui/App.tsx';
-import { Ctx } from '../ui/hooks/useGame.ts';
+import { Ctx } from '../ui/hooks/use-game.ts';
 import { playBreak, playHit, setMuted, unlockAudio } from '../audio/sfx.ts';
 import { systemClock } from './clock.ts';
 import { setupInput } from './input.ts';
 import { startLoop } from './loop.ts';
 import { PerfMonitor } from './perf.ts';
-import { readPocParams } from './pocParams.ts';
+import { readPocParams } from './dev-params.ts';
 import { GameStore } from './store.ts';
 import '../styles/global.css';
 
@@ -132,7 +132,7 @@ async function boot(): Promise<void> {
     );
   }
   if (import.meta.env.VITE_TEST_HOOKS === 'true') {
-    const m = await import('./testHooks.ts');
+    const m = await import('./test-hooks.ts');
     m.install({ store, loop, perf, platform, view, contextEvents });
   }
 }

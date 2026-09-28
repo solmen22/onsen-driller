@@ -5,7 +5,7 @@ import { TOOLS } from '../content/tools.ts';
 import type { SpringId } from '../content/springs.ts';
 import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
 import { formatNum } from './format.ts';
-import { useGame, useUi } from './hooks/useGame.ts';
+import { useGame, useUi } from './hooks/use-game.ts';
 
 type Tab = 'dig' | 'onsen' | 'upgrades' | 'prestige' | 'menu';
 const TABS: { id: Tab; key: TextKey; icon: string }[] = [
