@@ -62,5 +62,14 @@
   "ore.rockCrystal": "水晶",
   "ore.ruby": "ルビー",
   "ore.lavaStone": "溶岩石",
-  "save.warning": "保存できません。書き出しで控えを取ってください"
+  "save.warning": "保存できません。書き出しで控えを取ってください",
+  "hud.income": "+{n}/秒",
+  "hud.maxDepth": "最深 {n}m",
+  "hud.tickets": "温泉チケット",
+  "hud.settings": "設定",
+  "hud.boost": "ブースト",
+  "hud.boostSoon": "準備中",
+  "hud.vein": "ラッキー鉱脈！",
+  "hud.autoDigLocked": "ツルハシで使えるようになります",
+  "panel.soon": "準備中です"
 }

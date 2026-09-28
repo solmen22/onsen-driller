@@ -1,4 +1,4 @@
-/* PoC のスタイル（arch §15）: キャンバスの上に DOM の UI を重ねる。横 ≥ 1.1 で横レイアウト */
+/* スタイル（arch §15・gdd §11-1。BL-042）: 縦・横は #app の data-layout（ui/layout.ts）。HUD はキャンバスの上の帯、ボタンはキャンバスの下端 */
 @font-face {
   font-family: 'DotGothic16';
   src: url('../generated/fonts/dotgothic16-subset.woff2') format('woff2');
@@ -46,16 +46,23 @@ body {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
+/* 横（横 ÷ 縦 ≥ 1.1。ui/layout.ts）: 左の列＝HUD の帯＋キャンバス（約 58%）、右の列＝タブと一覧（約 42%） */
 #app[data-layout='landscape'] {
-  grid-template-columns: 58fr 42fr;
-  grid-template-rows: 100%;
-  grid-template-areas: 'stage panel';
+  grid-template-columns: var(--stage-share, 58%) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    'hud panel'
+    'stage panel';
 }
 
+/* 縦: 上から HUD の帯 → キャンバス → 一覧 → タブバー（一覧とタブバーで約 44%） */
 #app[data-layout='portrait'] {
   grid-template-columns: 100%;
-  grid-template-rows: minmax(0, 1fr) 44%;
-  grid-template-areas: 'stage' 'panel';
+  grid-template-rows: auto minmax(0, 1fr) var(--panel-share, 44%);
+  grid-template-areas:
+    'hud'
+    'stage'
+    'panel';
 }
 
 #stage {
@@ -76,28 +83,38 @@ body {
   display: contents;
 }
 
+/* HUD の帯（BL-042）: キャンバスに重ねない（地上のタヌキ・湯船を隠さない） */
 .hud {
-  grid-area: stage;
-  align-self: start;
-  justify-self: start;
-  z-index: 5;
-  pointer-events: none;
-  padding: 6px;
-  display: grid;
-  gap: 4px;
+  grid-area: hud;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 4px 6px 4px 8px;
+  background: var(--ink);
+  border-bottom: 2px solid var(--line);
 }
 
-.hud-box {
-  background: #1b1420cc;
-  border: 2px solid var(--line);
-  border-radius: 4px;
-  padding: 4px 8px;
+.hud-stats {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 0;
+}
+
+.hud-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 10px;
 }
 
 .hud-coins {
-  font-size: 20px;
+  font-size: 18px;
+  line-height: 22px;
   color: var(--gold);
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
 }
@@ -110,12 +127,132 @@ body {
   box-shadow: inset -2px -2px 0 #9c6b2e;
 }
 
+.hud-income,
 .hud-sub {
   font-size: 13px;
+  line-height: 18px;
   color: var(--muted);
 }
 
+.hud-income {
+  color: var(--text);
+}
+
+.hud-max {
+  color: var(--muted);
+}
+
+.hud-side {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hud-tickets {
+  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 2px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-2);
+}
+
+.ticket-icon {
+  width: 16px;
+  height: 11px;
+  background: #e8a0b4;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 2px #b85a78;
+}
+
+.hud-settings,
+.chip-vein {
+  min-width: 44px;
+  min-height: 44px;
+  font: inherit;
+  font-size: 20px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 2px solid var(--line);
+  border-radius: 4px;
+  padding: 0 8px;
+}
+
+.chip-vein {
+  font-size: 13px;
+  color: var(--gold);
+}
+
+/* 「保存できません」の仮の表示（S1。BL-027・Q-11 の 5。S2 からトースト）: HUD の帯の最後の行 */
+.save-warning {
+  flex: 1 0 100%;
+  margin: 2px 0 0;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #fff0a8;
+  background: #3a1a1f;
+  border: 2px solid #d9483b;
+  border-radius: 4px;
+}
+
+/* キャンバスの下端のボタン（自動掘り・ブースト）と最初の案内。押下はボタンだけが受け、ほかはキャンバスに通す */
+.stage-actions {
+  grid-area: stage;
+  align-self: end;
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px;
+  pointer-events: none;
+}
+
+.act {
+  pointer-events: auto;
+  min-width: 44px;
+  min-height: 44px;
+  font: inherit;
+  color: var(--text);
+  background: #2a1f2bee;
+  border: 2px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 10px;
+  display: grid;
+  place-items: center;
+  line-height: 1.2;
+}
+
+.act-label {
+  font-size: 13px;
+}
+
+.act-state {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.act-auto[data-state='on'] {
+  border-color: var(--water);
+  background: #1f4f5aee;
+}
+
+.act-auto[data-state='on'] .act-state {
+  color: var(--text);
+}
+
+.act:disabled {
+  opacity: 0.6;
+}
+
 .hint {
+  flex: 1 1 auto;
+  align-self: center;
+  margin: 0;
   font-size: 13px;
   background: #1b1420cc;
   padding: 2px 6px;
@@ -123,25 +260,15 @@ body {
   animation: blink 1.2s steps(2) infinite;
 }
 
-/* 「保存できません」の仮の表示（S1。BL-027。S2 からトースト） */
-.save-warning {
-  grid-area: stage;
-  align-self: end;
-  justify-self: center;
-  z-index: 6;
-  pointer-events: none;
-  margin: 6px;
-  padding: 4px 8px;
-  font-size: 12px;
-  color: #fff0a8;
-  background: #1b1420dd;
-  border: 2px solid #d9483b;
-  border-radius: 4px;
-}
-
 @keyframes blink {
   50% {
     opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hint {
+    animation: none;
   }
 }
 
@@ -264,24 +391,6 @@ body {
   font-size: 13px;
   color: var(--gold);
   text-align: right;
-}
-
-.row.toggle[aria-pressed='true'] {
-  border-color: var(--water);
-}
-
-.slots {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  font-size: 13px;
-  align-items: center;
-}
-
-.slot {
-  background: var(--water);
-  padding: 4px 8px;
-  border-radius: 4px;
 }
 
 .note {

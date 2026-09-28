@@ -62,5 +62,14 @@
   "ore.rockCrystal": "Rock crystal",
   "ore.ruby": "Ruby",
   "ore.lavaStone": "Lava stone",
-  "save.warning": "Can't save. Export your data to keep a backup."
+  "save.warning": "Can't save. Export your data to keep a backup.",
+  "hud.income": "+{n}/s",
+  "hud.maxDepth": "best {n}m",
+  "hud.tickets": "Onsen tickets",
+  "hud.settings": "Settings",
+  "hud.boost": "Boost",
+  "hud.boostSoon": "Soon",
+  "hud.vein": "Lucky vein!",
+  "hud.autoDigLocked": "Unlocks with the pickaxe",
+  "panel.soon": "Coming soon"
 }

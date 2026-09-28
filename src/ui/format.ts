@@ -23,3 +23,13 @@ export function formatNum(n: Num, lang: Lang): string {
   }
   return `${(v / 10 ** e).toFixed(2)}e${e}`;
 }
+
+/**
+ * 毎秒の量（HUD の毎秒の収入・自動掘削機の打数）: 100 未満は小数 2 桁まで（切り捨て、末尾の 0 は落とす）、それ以上は formatNum。
+ * 序盤の収入は 1 未満なので、formatNum（整数に切り捨て）だと「+0」に見えてしまう（S1 の仮。BL-011 で 3 種の表記に合わせる）
+ */
+export function formatRate(n: Num, lang: Lang): string {
+  const v = n.toNumber();
+  if (Number.isFinite(v) && v < 100) return String(Math.floor(Math.max(0, v) * 100) / 100);
+  return formatNum(n, lang);
+}

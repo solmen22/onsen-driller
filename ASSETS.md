@@ -20,5 +20,5 @@
 | bath-tub（48×24） | `atlas.png` | コードで描画 | 同上 | 自作 | — | 同上 | 2026-09-28 | — | なし |
 | パーティクル p-chip・p-steam・p-spark・p-coin（8×8） | `atlas.png` | コードで描画 | 同上 | 自作 | — | 同上 | 2026-09-28 | — | なし |
 | パレット（32 色） | — | 自作 | `assets-src/palette.json` | 自作 | — | — | 2026-09-28 | — | — |
-| DotGothic16 サブセット | `dotgothic16-subset.woff2` | フォント（OFL） | https://github.com/google/fonts/tree/main/ofl/dotgothic16 （原作 https://github.com/fontworks-fonts/DotGothic16） | SIL OFL 1.1（`LICENSES/OFL-DotGothic16.txt`） | 使用文字だけにサブセット（`scripts/subset-font.mjs`。2026-09-28 に帯・鉱石の名前などを足して作り直した） | subset-font 2.9.0（harfbuzz） | 2026-09-28 取得 | — | なし |
+| DotGothic16 サブセット | `dotgothic16-subset.woff2` | フォント（OFL） | https://github.com/google/fonts/tree/main/ofl/dotgothic16 （原作 https://github.com/fontworks-fonts/DotGothic16） | SIL OFL 1.1（`LICENSES/OFL-DotGothic16.txt`） | 使用文字だけにサブセット（`scripts/subset-font.mjs`。2026-09-28 に帯・鉱石の名前などを足して作り直した。同日、HUD・購入ボタンの文言を足して作り直した） | subset-font 2.9.0（harfbuzz） | 2026-09-28 取得 | — | なし |
 | 効果音（打撃・破壊） | —（音声ファイルなし） | コードで生成（効果音など） | ZzFX のパラメータ（`src/audio/sfx.ts`） | ZzFX は MIT | — | — | 2026-09-28 | — | なし |

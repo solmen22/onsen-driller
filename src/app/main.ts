@@ -6,6 +6,7 @@ import { loadPlatform } from '../platform/index.ts';
 import { SaveSlots } from '../save/slots.ts';
 import { detectLang, setLang, type Lang } from '../i18n/index.ts';
 import { App } from '../ui/App.tsx';
+import { applyLayout, layoutOf } from '../ui/layout.ts';
 import { Ctx } from '../ui/hooks/use-game.ts';
 import { playBreak, playHit, setMuted, unlockAudio } from '../audio/sfx.ts';
 import { startAutosave } from './autosave.ts';
@@ -23,11 +24,10 @@ const APP_VERSION = __APP_VERSION__;
 /** dev（開発サーバー）と e2e 系のビルドだけ true。本番の 4 ビルドでは定数の置き換えで false になり、下の分岐ごと落ちる */
 const DEV_BUILD = import.meta.env.DEV || import.meta.env.VITE_TEST_HOOKS === 'true';
 
+/** 縦・横の判定（ui/layout.ts の layoutOf。横 ÷ 縦 ≥ 1.1 で横）。回転・大きさの変更で切り替える */
 function layout(root: HTMLElement): void {
   const apply = (): void => {
-    const w = root.clientWidth;
-    const hgt = root.clientHeight;
-    root.dataset.layout = hgt > 0 && w / hgt >= 1.1 ? 'landscape' : 'portrait';
+    applyLayout(root, layoutOf(root.clientWidth, root.clientHeight));
   };
   new ResizeObserver(apply).observe(root);
   apply();
