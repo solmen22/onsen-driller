@@ -28,6 +28,7 @@ export function stateWith(spec: StateSpec = {}): GameState {
     r.maxDepth = Math.max(spec.depth, spec.maxDepth ?? 0);
   }
   if (spec.maxDepth !== undefined) r.maxDepth = Math.max(r.depth, spec.maxDepth);
+  s.stats.bestDepth = Math.max(s.stats.bestDepth, r.maxDepth);
   if (spec.drill !== undefined) r.drill.level = spec.drill;
   if (spec.tool !== undefined) r.drill.tool = spec.tool;
   if (spec.digger !== undefined) r.autoDig.level = spec.digger;
