@@ -8,7 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, describe, test } from 'node:test';
-import { BUDGET, FAKE_AD, MB, transferSize } from './check-lib.mjs';
+import { BUDGET, E2E_JOB_TARGETS, FAKE_AD, MB, PRODUCTION_TARGETS, transferSize } from './check-lib.mjs';
 import { readZip } from './package-zip.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -545,33 +545,39 @@ describe('package', () => {
   });
 });
 
-describe('pick-e2e-dist（CI の e2e ジョブが配信する web 版のビルド）', () => {
-  const pick = (dist) => run('pick-e2e-dist.mjs', ['--dist', dist]);
+describe('check-e2e-dist（CI の e2e ジョブが受け取ったビルドの確認。BL-095）', () => {
+  const check = (dist) => run('check-e2e-dist.mjs', ['--dist', dist]);
   const make = (dist, ...dirs) => {
     for (const d of dirs) write(join(dist, d, 'index.html'), '<!doctype html>');
     return dist;
   };
 
-  test('dist/e2e-web（BL-007 から）があればそれ、なければ dist/e2e（PoC）。両方あれば e2e-web', () => {
-    for (const [dirs, want] of [
-      [['e2e-web', 'e2e-crazygames'], 'e2e-web'], // S1-core の build:e2e
-      [['e2e', 'e2e-crazygames', 'e2e-poki'], 'e2e'], // PoC（main）の build:e2e
-      [['e2e', 'e2e-web'], 'e2e-web'],
-    ]) {
-      const d = make(newDist(), ...dirs);
-      const r = pick(d);
-      assertPass(r);
-      assert.equal(r.out.trim(), `${d}/${want}`);
+  test('受け取るのは e2e 系 2 種（e2e-web・e2e-crazygames）と本番の 4 種。PoC の e2e・e2e-poki は入れない', () => {
+    assert.deepEqual([...E2E_JOB_TARGETS].sort(), ['crazygames', 'e2e-crazygames', 'e2e-web', 'itch', 'poki', 'web']);
+    for (const t of PRODUCTION_TARGETS) assert.ok(E2E_JOB_TARGETS.includes(t), `本番の ${t} が E2E_JOB_TARGETS にない`);
+    assert.equal(new Set(E2E_JOB_TARGETS).size, E2E_JOB_TARGETS.length, '重複がある');
+  });
+
+  test('6 つとも index.html があれば通り、受け取ったものを並べる', () => {
+    const d = make(newDist(), ...E2E_JOB_TARGETS);
+    const r = check(d);
+    assertPass(r);
+    for (const t of E2E_JOB_TARGETS) assert.match(r.out, new RegExp(`${escRe(`${d}/${t}`)}(?:・|\\n|$)`));
+  });
+
+  test('どれか 1 つでも index.html がなければ、その名前を出して失敗（ディレクトリだけあっても欠けている扱い）', () => {
+    for (const miss of E2E_JOB_TARGETS) {
+      const d = make(newDist(), ...E2E_JOB_TARGETS.filter((t) => t !== miss));
+      mkdirSync(join(d, miss, 'assets'), { recursive: true });
+      const r = check(d);
+      assertFail(r, new RegExp(`check-e2e-dist: NG ${escRe(`${d}/${miss}/index.html`)} がない`));
     }
   });
 
-  test('index.html のない dist/e2e-web は選ばない。どちらにも index.html がなければ失敗', () => {
-    const d1 = make(newDist(), 'e2e');
-    mkdirSync(join(d1, 'e2e-web', 'assets'), { recursive: true });
-    assert.equal(pick(d1).out.trim(), `${d1}/e2e`);
-    const d2 = make(newDist(), 'e2e-crazygames');
-    mkdirSync(join(d2, 'e2e-web'), { recursive: true });
-    assertFail(pick(d2), /pick-e2e-dist: .*e2e-web\/index\.html にも .*e2e\/index\.html にもない/);
+  test('PoC の dist/e2e は dist/e2e-web の代わりにならない。欠けたものは全部並べる', () => {
+    const d = make(newDist(), 'e2e', 'e2e-crazygames', 'e2e-poki', 'web', 'crazygames');
+    const r = check(d);
+    assertFail(r, new RegExp(`NG ${escRe(`${d}/e2e-web/index.html`)}・${escRe(`${d}/itch/index.html`)}・${escRe(`${d}/poki/index.html`)} がない`));
   });
 });
 
@@ -583,6 +589,8 @@ describe('ci.yml', () => {
     assert.ok(m, `ジョブ ${name} がない`);
     return m[1];
   };
+  /** ジョブの本文を step ごとに分ける */
+  const steps = (body) => body.split(/\n(?= {6}- )/);
 
   test('TS-008-23 verify の順番: gitleaks → lint → typecheck → test → build:all → check:size → check:assets', () => {
     const v = job('verify');
@@ -620,33 +628,51 @@ describe('ci.yml', () => {
     assert.match(e, /PW_CHANNEL: chromium/);
   });
 
-  // ---- e2e の web 版の出力先（PoC は dist/e2e、BL-007 から dist/e2e-web）。CEO 依頼 2026-09-28 ----
-  test('verify は e2e 系のビルド（dist/e2e・e2e-web・e2e-crazygames・e2e-poki）を dist-e2e として e2e ジョブに渡す', () => {
-    const st = job('verify').split(/\n(?= {6}- )/).find((s) => s.includes('name: dist-e2e'));
+  // ---- e2e ジョブへのビルドの受け渡し（BL-095。e2e 系 2 種と本番 4 種。PoC の分岐は撤去） ----
+  /** コメント行を除いた本文（注記に書いた語で検査が通ったり落ちたりしないように） */
+  const code = (body) => body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+
+  test('verify は E2E_JOB_TARGETS の 6 つだけを dist-e2e として e2e ジョブに渡す（PoC の dist/e2e・e2e-poki はない）', () => {
+    const st = steps(job('verify')).find((s) => s.includes('name: dist-e2e'));
     assert.ok(st, 'verify に dist-e2e の upload-artifact がない');
-    for (const d of ['e2e', 'e2e-web', 'e2e-crazygames', 'e2e-poki']) assert.match(st, new RegExp(`^ +dist/${d}/$`, 'm'), `dist-e2e に dist/${d}/ がない`);
+    const block = /^ {10}path: \|\n((?: {12}\S.*\n)+)/m.exec(code(st));
+    assert.ok(block, 'dist-e2e の path が複数行の一覧になっていない');
+    const paths = block[1].trim().split('\n').map((l) => l.trim());
+    for (const p of paths) assert.match(p, /^dist\/[a-z0-9-]+\/$/, `dist-e2e の path が dist/<名前>/ の形でない: ${p}`);
+    assert.deepEqual(paths.map((p) => p.slice(5, -1)).sort(), [...E2E_JOB_TARGETS].sort(), 'dist-e2e の path が E2E_JOB_TARGETS と一致しない');
     assert.match(st, /if-no-files-found: error/);
+    assert.match(st, /retention-days: 1\n/, '保存は 1 日（500MB の枠）');
     const e = job('e2e');
     assert.match(e, /name: dist-e2e\n {10}path: dist\/\n/, 'e2e ジョブは dist-e2e を dist/ に受け取る');
   });
 
-  test('e2e ジョブは pick-e2e-dist.mjs で web 版を選び、PoC の分岐だけ PW_DIST で渡す（BL-073 の後の serve.mjs には渡さない）', () => {
+  test('e2e ジョブは受け取ったビルドを check-e2e-dist.mjs で確かめてから（Playwright の導入より前）、常に npm run test:e2e を流す', () => {
     const e = job('e2e');
-    assert.doesNotMatch(e, /^ +PW_DIST:/m, 'PW_DIST をジョブ・step の env に置かない（BL-073 の後の PW_MODE を上書きする）');
-    const st = e.split(/\n(?= {6}- )/).find((s) => s.includes('name: test:e2e'));
-    assert.ok(st, 'e2e ジョブに test:e2e の step がない');
-    const pickAt = st.search(/^ +web="\$\(node scripts\/pick-e2e-dist\.mjs\)"$/m); // 単独の代入（失敗すれば bash -e で止まる）
-    assert.ok(pickAt >= 0, 'web 版を pick-e2e-dist.mjs で選んでいない');
-    const branch = st.search(/^ +if node -e .*test:e2e:nightly/m);
-    assert.ok(branch >= 0 && pickAt < branch, 'BL-073 の前後どちらでも、先に web 版を選ぶ（ないならここで失敗）');
-    assert.match(st, /^ +npm run test:e2e$/m, 'BL-073 の後は PW_DIST なしで test:e2e');
-    assert.match(st, /^ +PW_DIST="\$web" npx playwright test e2e\/smoke\.spec\.ts$/m, 'PoC の分岐は選んだ場所を PW_DIST で渡す');
+    const c = code(e);
+    for (const [re, why] of [
+      [/PW_DIST/, 'PW_DIST を渡さない（serve.mjs で mode の outDir より優先され、S2 の PW_MODE=e2e-crazygames を上書きする）'],
+      [/smoke\.spec\.ts/, 'PoC のスモークだけを流す分岐は撤去済み'],
+      [/test:e2e:nightly|if node -e/, 'test:e2e:nightly の有無による分岐は撤去済み'],
+      [/pick-e2e-dist/, 'pick-e2e-dist.mjs は check-e2e-dist.mjs に置き換えた'],
+    ])
+      assert.doesNotMatch(c, re, why);
+    const ss = steps(e);
+    const at = (re, what) => {
+      const i = ss.findIndex((s) => re.test(s));
+      assert.ok(i >= 0, `e2e ジョブに ${what} がない`);
+      return i;
+    };
+    const order = [
+      at(/uses: actions\/download-artifact@\S+\n {8}with:\n {10}name: dist-e2e\n/, 'dist-e2e の受け取り'),
+      at(/^ +run: node scripts\/check-e2e-dist\.mjs$/m, 'check-e2e-dist.mjs'),
+      at(/^ +run: npx playwright install --with-deps chromium$/m, 'Playwright の導入'),
+      at(/^ +run: npm run test:e2e$/m, 'npm run test:e2e（1 行だけの run）'),
+    ];
+    for (let i = 1; i < order.length; i++) assert.ok(order[i - 1] < order[i], `e2e ジョブの step の順番が違う（${i} 番目）`);
   });
 
   // ---- コードレビュー PR #1 の Must: CI から本番（Pages の本番ブランチ main）に出さない ----
   const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
-  /** ジョブの本文を step ごとに分ける */
-  const steps = (body) => body.split(/\n(?= {6}- )/);
 
   test('本番に出さない: ci.yml・nightly.yml に本番ブランチ（main・production）へのデプロイがない。ステージングは staging に固定', () => {
     for (const [name, text] of [['ci.yml', ci], ['nightly.yml', nightly]])
