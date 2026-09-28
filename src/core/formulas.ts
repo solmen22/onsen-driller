@@ -3,17 +3,21 @@ import { PARAMS } from '../content/params.ts';
 import { SPRINGS, SPRING_BY_ID, type SpringId } from '../content/springs.ts';
 import { GUEST_BY_ID, GUESTS, type GuestDef, type GuestId } from '../content/guests.ts';
 import { TOOLS, type ToolDef } from '../content/tools.ts';
+import { ORE_BY_ID, type OreId } from '../content/ores.ts';
+import { STRATA } from '../content/strata.ts';
 import { add, mul, num, ONE, pow, sumGeometric, type Num } from './num.ts';
-import { hash01 } from './rng.ts';
+import { hash01, hash01Kind } from './rng.ts';
 import type { GameState } from './state.ts';
 
 const B = PARAMS.block;
 
-/** 地層の帯の境目（gdd §5-1） */
-export const BAND_STARTS = [0, 30, 80, 150, 250, 400] as const;
+/** 地層の帯の境目（gdd §5-1。content/strata.ts の start） */
+export const BAND_STARTS: readonly number[] = STRATA.map((b) => b.start);
+
+/** 深さの帯（0 始まり。30m は帯 2＝1。開始の深さを含む） */
 export function bandOfDepth(depth: number): number {
   let band = 0;
-  for (let i = 0; i < BAND_STARTS.length; i++) if (depth >= (BAND_STARTS[i] ?? 0)) band = i;
+  for (let i = 0; i < STRATA.length; i++) if (depth >= (STRATA[i]?.start ?? 0)) band = i;
   return band;
 }
 
@@ -84,7 +88,22 @@ export const blockHp = (s: GameState, depth: number, m: Modifiers = modifiers(s)
  * 鉱石の配置は「周回のシード × 深さ」のハッシュ（打つ順番・刻み幅・オフラインで変わらない）。
  * 深さ 0〜4m（最初の 5 ブロック）は鉱石にしない（最初の強化までの時間をシードによらず一定にする。Q-02）
  */
-export const isOre = (s: GameState, depth: number): boolean => depth >= B.oreFreeDepth && hash01(s.run.seed, depth) < B.oreChance;
+export const isOre = (s: Readonly<GameState>, depth: number): boolean => depth >= B.oreFreeDepth && hash01(s.run.seed, depth) < B.oreChance;
+
+/** 帯の 1 種目を選ぶ割合（Q-07。content/ores.ts の weight） */
+const firstOreShare = (band: number): number => ORE_BY_ID[STRATA[band]?.ores[0] ?? 'quartz'].weight;
+
+/**
+ * 深さ depth のブロックの鉱石（鉱石でなければ null）。種類は hash32(seed ^ 0x6f726573, depth) / 2^32 が
+ * 帯の 1 種目の割合（0.7）未満なら 1 種目、そうでなければ 2 種目（Q-07）。打つ順番・刻み幅・オフラインで変わらない
+ */
+export function oreAt(s: Readonly<GameState>, depth: number): OreId | null {
+  if (!isOre(s, depth)) return null;
+  const band = bandOfDepth(depth);
+  const ores = STRATA[band]?.ores;
+  if (!ores) return null;
+  return hash01Kind(s.run.seed, depth) < firstOreShare(band) ? ores[0] : ores[1];
+}
 
 /** 地温（表示用。℃ の整数）: content/params.ts の折れ線（深さ m → ℃）。間は直線、最後の点より深いところは 1m あたり tempSlopeAfter（gdd §5-1） */
 export function temperatureAt(depth: number): number {

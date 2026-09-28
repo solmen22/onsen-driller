@@ -1,6 +1,7 @@
 // GameState（arch §6-1。BL-010）。core だけが書き換える。UI と描画は selectors で読む
 import { PARAMS } from '../content/params.ts';
 import type { GuestId } from '../content/guests.ts';
+import type { OreId } from '../content/ores.ts';
 import type { SpringId } from '../content/springs.ts';
 import { INITIAL_TERRAIN, type TerrainId } from '../content/terrains.ts';
 import { ZERO, type Num } from './num.ts';
@@ -9,8 +10,7 @@ import { normalizeSeed, seedSfc32, sfc32Next, type Sfc32State } from './rng.ts';
 /** 保存データの版（save/schema.ts が再輸出する。形を変えたら上げて移行関数を足す） */
 export const SAVE_SCHEMA_VERSION = 1;
 
-/** 鉱石の ID（content/ores.ts の OreId と同じ。BL-013 で定義） */
-export type OreId = string;
+export type { OreId } from '../content/ores.ts';
 /** 改良・湯の華の木・実績の ID（S2 以降で定義する） */
 export type UpgradeId = string;
 export type PerkId = string;

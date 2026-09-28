@@ -58,6 +58,7 @@ export function dispatch(s: GameState, input: unknown): ActionResult {
     case 'tap': {
       const c = a.count === undefined ? 1 : a.count;
       if (typeof c !== 'number' || !Number.isFinite(c) || c < 1) return fail('invalid');
+      if (r.interludeMs > 0) return fail('interlude'); // 幕間中はドリルが止まる（Q-06）
       // 任意の 1 秒で手動の打撃は 8 まで（Q-04(a)）。超えた分は数えない。1 打も入らなければ rateLimited で状態は変わらない
       const n = Math.min(Math.floor(c), PARAMS.input.manualMaxPerSec);
       if (tapHits(s, n, events) === 0) return fail('rateLimited');

@@ -1,6 +1,8 @@
 // 固定ステップ（arch §7。BL-010・BL-012）。生産は「毎秒の量 × 刻み幅」、打撃は端数を繰り越して刻み幅によらず同じ打数にする。
 // 時刻は読まない（arch §8-2）
 import { PARAMS } from '../content/params.ts';
+import type { SpringId } from '../content/springs.ts';
+import { M2_FIRST_BAND } from '../content/strata.ts';
 import type { GameEvent } from './events.ts';
 import {
   autoDiggerHitsPerSec,
@@ -10,8 +12,8 @@ import {
   blockValue,
   computeGuests,
   drillPower,
-  isOre,
   modifiers,
+  oreAt,
   springAtDepth,
   type Modifiers,
 } from './formulas.ts';
@@ -35,38 +37,67 @@ export function refreshGuests(s: GameState, out: GameEvent[]): void {
   s.run.guests = next;
 }
 
-function breakBlock(s: GameState, m: Modifiers, out: GameEvent[]): boolean {
+/** 源泉を発見した（ポンプ Lv1 を無料で付け、空いている枠につなぐ）。SpringFound を出すかは emit で選ぶ（grant は出さない。Q-16） */
+export function discoverSpring(s: GameState, sp: SpringId, emit: boolean, out: GameEvent[]): void {
+  const r = s.run;
+  if (r.springs[sp]) return;
+  r.springs[sp] = { pump: 1 }; // 発見時にポンプ Lv1 が無料で付く（gdd §5-4）
+  if (!s.collection.springsSeen.includes(sp)) s.collection.springsSeen.push(sp);
+  if (emit) out.push({ type: 'SpringFound', spring: sp, depth: r.depth });
+  const empty = r.bath.slots.indexOf(null);
+  if (empty >= 0) r.bath.slots[empty] = sp;
+  refreshGuests(s, out);
+}
+
+/** 帯を「入ったことにする」（幕間・イベントなし）。stratumSeen は昇順で重複なし */
+export function markStratumSeen(s: GameState, band: number): void {
+  const seen = s.run.stratumSeen;
+  if (seen.includes(band)) return;
+  seen.push(band);
+  seen.sort((a, b) => a - b);
+}
+
+interface BreakResult {
+  /** 源泉の発見で枠・お客さんが変わった（倍率を計算し直す） */
+  changed: boolean;
+  /** 新しい帯に入って幕間が始まった（このステップの残りのダメージと打撃は捨てる。Q-06） */
+  interlude: boolean;
+}
+
+function breakBlock(s: GameState, m: Modifiers, out: GameEvent[]): BreakResult {
   const r = s.run;
   const d = r.depth;
-  const ore = isOre(s, d);
-  const v = blockValue(s, d, ore, m);
+  const ore = oreAt(s, d);
+  const v = blockValue(s, d, ore !== null, m);
   r.coins = add(r.coins, v);
   s.stats.totalCoins = add(s.stats.totalCoins, v);
   s.stats.blocks++;
-  out.push({ type: 'BlockBroken', depth: d, ore: ore ? 'ore' : null, coins: toStr(v) });
+  if (ore !== null) s.collection.ores[ore] = (s.collection.ores[ore] ?? 0) + 1;
+  out.push({ type: 'BlockBroken', depth: d, ore, coins: toStr(v) });
   r.depth = d + 1;
   r.blockDmg = ZERO;
   if (r.depth > r.maxDepth) {
-    const prevBand = bandOfDepth(r.maxDepth);
     r.maxDepth = r.depth;
     if (r.depth > s.stats.bestDepth) s.stats.bestDepth = r.depth;
-    const band = bandOfDepth(r.depth);
-    if (band !== prevBand) out.push({ type: 'StratumEntered', band });
+  }
+  // 周回の中で初めて新しい帯に入った: StratumEntered と 1.5 秒の幕間（起動直後の帯 1 は stratumSeen の初期値で出さない）
+  const band = bandOfDepth(r.depth);
+  let interlude = false;
+  if (!r.stratumSeen.includes(band)) {
+    markStratumSeen(s, band);
+    out.push({ type: 'StratumEntered', band });
+    r.interludeMs = PARAMS.interludeMs;
+    interlude = true;
   }
   const sp = springAtDepth(r.depth);
   if (sp && !r.springs[sp]) {
-    r.springs[sp] = { pump: 1 }; // 発見時にポンプ Lv1 が無料で付く（gdd §5-4）
-    if (!s.collection.springsSeen.includes(sp)) s.collection.springsSeen.push(sp);
-    out.push({ type: 'SpringFound', spring: sp, depth: r.depth });
-    const empty = r.bath.slots.indexOf(null);
-    if (empty >= 0) r.bath.slots[empty] = sp;
-    refreshGuests(s, out);
-    return true;
+    discoverSpring(s, sp, true, out);
+    return { changed: true, interlude };
   }
-  return false;
+  return { changed: false, interlude };
 }
 
-/** hits 回の打撃を与える（壊したブロックの余りのダメージは次のブロックへ繰り越す。Q-02） */
+/** hits 回の打撃を与える（壊したブロックの余りのダメージは次のブロックへ繰り越す。Q-02）。新しい帯に入ったら残りは捨てる（Q-06） */
 export function applyHits(s: GameState, hits: number, out: GameEvent[]): void {
   if (!(hits > 0)) return;
   s.stats.hits += hits;
@@ -79,8 +110,16 @@ export function applyHits(s: GameState, hits: number, out: GameEvent[]): void {
       return;
     }
     dmg = sub(dmg, remaining);
-    if (breakBlock(s, m, out)) m = modifiers(s); // 源泉の発見で枠・お客さんが変わった
+    const res = breakBlock(s, m, out);
+    if (res.interlude) return; // 帯の境目でドリルが止まる
+    if (res.changed) m = modifiers(s);
   }
+}
+
+/** 幕間が終わった: 帯 4〜6（band 3〜5）なら M2 の機会（Q-06）。app（S2 の BL-059）が breakOpportunity('M2') を呼ぶ */
+function endInterlude(s: GameState, out: GameEvent[]): void {
+  const band = bandOfDepth(s.run.depth);
+  if (band >= M2_FIRST_BAND && PARAMS.ads.midgame.onStratum) out.push({ type: 'BreakOpportunity', placement: 'M2', band });
 }
 
 /** 見込みの打数/秒: 手動（長押し 4 か自動掘りの基本 2 の大きいほう）＋自動掘削機。上限（8/秒）は手動だけにかかる */
@@ -110,11 +149,25 @@ function dig(s: GameState, digMs: number, m: Modifiers, out: GameEvent[]): void 
   applyHits(s, hits, out);
 }
 
-/** 論理を dtMs だけ進める。時刻は読まない（arch §8-2） */
+/**
+ * 論理を dtMs だけ進める。時刻は読まない（arch §8-2）。
+ * 幕間の間はドリルの打撃がすべて止まり（端数もたまらない）、入湯料は止まらない。ステップの途中で幕間が終われば、残りの時間は掘る（Q-06）
+ */
 export function step(s: GameState, dtMs: number, out: GameEvent[] = []): GameEvent[] {
   if (!(dtMs > 0) || !Number.isFinite(dtMs)) return out;
   s.clock.playedMs += dtMs;
-  dig(s, dtMs, modifiers(s), out);
+  const r = s.run;
+  let digMs = dtMs;
+  if (r.interludeMs > 0) {
+    const used = Math.min(r.interludeMs, dtMs);
+    r.interludeMs -= used;
+    digMs -= used;
+    if (r.interludeMs <= 1e-9) {
+      r.interludeMs = 0;
+      endInterlude(s, out);
+    }
+  }
+  if (digMs > 0) dig(s, digMs, modifiers(s), out);
   const inc = bathIncomePerSec(s, modifiers(s));
   if (inc.gt(0)) {
     const g = mul(inc, dtMs / 1000);
@@ -194,8 +247,9 @@ export function advance(s: GameState, ms: number, stepOrOpts: number | AdvanceOp
   return out;
 }
 
-/** タップ n 回（アクション tap の本体）。入った打数を返す（上限で 0 もありうる） */
+/** タップ n 回（アクション tap の本体）。入った打数を返す（上限・幕間で 0 もありうる） */
 export function tapHits(s: GameState, n: number, out: GameEvent[]): number {
+  if (s.run.interludeMs > 0) return 0;
   const k = admitManualHits(s, n, s.clock.playedMs);
   if (k > 0) {
     s.stats.taps += k;
