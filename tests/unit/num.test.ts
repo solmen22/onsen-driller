@@ -104,6 +104,36 @@ describe('TS-009-06 不正な入力は例外にせず 0（Infinity は上限）'
   });
 });
 
+describe('レビュー S-10: add・sub・mul の第 2 引数も正規化する（例外なし・NaN で 0 にしない）', () => {
+  const five = num(5);
+  it('文字列の "abc"・NaN・undefined は 0 として扱う（例外を投げず、足し算・引き算では元の値が残る）', () => {
+    for (const bad of ['abc', Number.NaN, '', 'NaN'] as const) {
+      expect(() => add(five, bad), String(bad)).not.toThrow();
+      expect(add(five, bad).eq(5), `add ${String(bad)}`).toBe(true);
+      expect(sub(five, bad).eq(5), `sub ${String(bad)}`).toBe(true);
+      expect(mul(five, bad).eq(0), `mul ${String(bad)}`).toBe(true);
+    }
+  });
+  it('Infinity・"Infinity" は上限、負の数は 0 として扱う', () => {
+    expect(add(five, Number.POSITIVE_INFINITY).eq(NUM_MAX)).toBe(true);
+    expect(mul(five, 'Infinity').eq(NUM_MAX)).toBe(true);
+    expect(sub(NUM_MAX, Number.POSITIVE_INFINITY).eq(0)).toBe(true);
+    expect(add(five, -3).eq(5)).toBe(true);
+    expect(sub(five, -3).eq(5)).toBe(true);
+  });
+  it('正しい入力の結果は変わらない（数値・文字列・Decimal）', () => {
+    expect(add(five, 2).eq(7) && add(five, '2').eq(7) && add(five, num(2)).eq(7)).toBe(true);
+    expect(sub(five, 2).eq(3) && mul(five, 0.5).eq(2.5) && mul(five, '1e3').eq(5000)).toBe(true);
+    fc.assert(
+      fc.property(bigArb, bigArb, (a, b) => {
+        expect(isHealthy(add(a, b)) && isHealthy(sub(a, b)) && isHealthy(mul(a, b))).toBe(true);
+        expect(add(a, b).eq(a.add(b)) || a.add(b).gt(NUM_MAX)).toBe(true);
+      }),
+      { numRuns: 200, seed: 2610 },
+    );
+  });
+});
+
 describe('TS-009-07 文字列の往復', () => {
   it('toStr → num で元と等しく、仮数・指数がビット単位で同じ', () => {
     fc.assert(
