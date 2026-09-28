@@ -1,6 +1,9 @@
 // テスト用フック window.__game を Node 側から呼ぶための型付きの薄い包み（arch §8-4・BL-071）。
 // ここに書く API は設計書どおり。いまのビルドに無いものは gaps.ts の KNOWN_GAPS に載せ、使うテストを保留にする。
-import type { Page } from '@playwright/test';
+import type { Frame, Page } from '@playwright/test';
+
+/** フックを呼ぶ先（ページか、ポータルの枠を模した iframe の Frame。BL-097 の TS-012-18・TS-042-02） */
+export type HookTarget = Page | Frame;
 
 /**
  * getState() の戻り値（JSON。Decimal は "<仮数>e<指数>" の文字列）。E2E が読むフィールドだけを型にする（arch §6-1）。
@@ -83,8 +86,8 @@ export const HOOK_MEMBERS = [
 export type HookMember = (typeof HOOK_MEMBERS)[number];
 
 /** window.__game のメンバーを path（'platform.calls' など）で呼ぶ。引数・戻り値は JSON で受け渡す */
-async function call<T>(page: Page, path: string, args: unknown[] = []): Promise<T> {
-  return page.evaluate(
+async function call<T>(page: HookTarget, path: string, args: unknown[] = []): Promise<T> {
+  return (page as Frame).evaluate(
     ([p, a]) => {
       const g = (window as unknown as { __game?: Record<string, unknown> }).__game;
       if (!g) throw new Error('window.__game がありません（e2e ビルドで実行してください）');
@@ -101,12 +104,12 @@ async function call<T>(page: Page, path: string, args: unknown[] = []): Promise<
   ) as Promise<T>;
 }
 
-async function read<T>(page: Page, prop: 'version' | 'target'): Promise<T> {
-  return page.evaluate((k) => (window as unknown as { __game: Record<string, unknown> }).__game[k], prop) as Promise<T>;
+async function read<T>(page: HookTarget, prop: 'version' | 'target'): Promise<T> {
+  return (page as Frame).evaluate((k) => (window as unknown as { __game: Record<string, unknown> }).__game[k], prop) as Promise<T>;
 }
 
-/** arch §8-4 の API。各メソッドはページの中の window.__game をそのまま呼ぶ */
-export function hooks(page: Page) {
+/** arch §8-4 の API。各メソッドはページ（または iframe の Frame）の中の window.__game をそのまま呼ぶ */
+export function hooks(page: HookTarget) {
   return {
     version: () => read<string>(page, 'version'),
     target: () => read<string>(page, 'target'),
@@ -139,8 +142,8 @@ export function hooks(page: Page) {
 export type Hooks = ReturnType<typeof hooks>;
 
 /** いまのページの window.__game にあるメンバー（HOOK_MEMBERS のうち） */
-export async function presentHookMembers(page: Page): Promise<HookMember[]> {
-  const present = await page.evaluate((names) => {
+export async function presentHookMembers(page: HookTarget): Promise<HookMember[]> {
+  const present = await (page as Frame).evaluate((names) => {
     const g = (window as unknown as { __game?: Record<string, unknown> }).__game;
     if (!g) return [];
     return names.filter((n) => {

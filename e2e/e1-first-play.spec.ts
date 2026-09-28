@@ -7,12 +7,12 @@
 // 技術リードの回答（traceability.md §5-2）に合わせた前提
 // - Q-02: 0〜4m は鉱石にしない → 最初の強化はどのシードでも 14.5 秒。TS-E1-07 も #2 の範囲（5〜15 秒）で判定する（記録のみをやめた）。
 // - Q-03: 自動掘りは道具が 1 段目（ツルハシ）から。Q-04(c)(d): 押した瞬間に 1 打、300ms で長押し（毎秒 4 打）、Space の短押しは 1 打。
-import type { Page } from '@playwright/test';
 import { test, expect } from './support/fixtures.ts';
 import { BOOT_TIMEOUT_MS, bootGame, centerOf, T0, tapUnderground, triggerAutosave } from './support/boot.ts';
 import { later, needs } from './support/gaps.ts';
 import { coinsOf, hitsOf, type Hooks } from './support/hooks.ts';
 import { recordedKeydowns } from './support/privacy.ts';
+import { fullscreenButtons, startScreenElements } from './support/dom.ts';
 import { SEED_A, SEED_B } from '../tests/helpers/seeds.ts';
 
 const PICKAXE_COST = 3; // gdd §5-3・content/tools.ts（ツルハシ 3 コイン）
@@ -33,15 +33,6 @@ async function buyPickaxeByTaps(g: Hooks): Promise<void> {
   expect(await timeToPickaxe(g)).not.toBeNull();
   const r = await g.dispatch({ type: 'buy', item: 'tool', qty: 1 });
   expect(r.ok).toBe(true);
-}
-
-/** 画面の要素のうち、全画面を思わせるボタン（テキスト・aria-label・data-testid・title） */
-async function fullscreenButtons(page: Page): Promise<string[]> {
-  return page.evaluate(() =>
-    [...document.querySelectorAll('button, [role="button"], a, input[type="button"]')]
-      .map((el) => [el.textContent, el.getAttribute('aria-label'), el.getAttribute('data-testid'), el.getAttribute('title')].join(' '))
-      .filter((s) => /full\s*-?\s*screen|全画面/i.test(s)),
-  );
 }
 
 test.describe('E1 初回起動 → 最初の強化', () => {
@@ -262,8 +253,35 @@ test.describe('E1 初回起動 → 最初の強化', () => {
     expect(keys.filter((k) => !k.prevented)).toEqual([]);
   });
 
-  test('TS-E1-12 全画面を要求しない・独自の全画面ボタンがない（CrazyGames の規約）', async ({ page }) => {
+  test('TS-E1-12・TS-042-10 全画面を要求しない・独自の全画面ボタンがない（CrazyGames の規約）。起動直後（0 クリック）にタイトル画面・開始ボタンもない', async ({
+    page,
+  }) => {
     await bootGame(page);
+    // TS-042-10（BL-042）: 起動直後、どこも押していない時点で、タイトル画面・開始ボタン・全画面のボタンがなく、全画面を要求していない。
+    // ゲーム画面の上に覆いがない（ステージの中の数か所で、いちばん上の要素がキャンバス。道具の位置は TS-E1-01 で見る）
+    expect(await page.evaluate(() => (window as unknown as { __fsCalls: number }).__fsCalls)).toBe(0);
+    expect(await startScreenElements(page)).toEqual([]);
+    expect(await fullscreenButtons(page)).toEqual([]);
+    // ステージの下端の「自動掘り」「ブースト」のボタン（キャンバスに重ねた帯。StageActions）より上の点だけを見る
+    const covered = await page.evaluate(() => {
+      const stage = document.querySelector('[data-testid="stage"]')!.getBoundingClientRect();
+      const actionsTop = Math.min(
+        stage.bottom,
+        ...[...document.querySelectorAll('[data-testid="toggle-auto-dig"], [data-testid="btn-boost"]')].map((el) => el.getBoundingClientRect().top),
+      );
+      const out: string[] = [];
+      for (const fx of [0.25, 0.5, 0.75]) {
+        for (const fy of [0.3, 0.6, 0.9]) {
+          const x = stage.left + stage.width * fx;
+          const y = stage.top + (actionsTop - stage.top) * fy;
+          const el = document.elementFromPoint(x, y);
+          if (!(el instanceof HTMLCanvasElement && el.closest('[data-testid="stage"]')))
+            out.push(`(${Math.round(x)},${Math.round(y)}) ${el?.tagName ?? 'null'} ${el?.closest('[data-testid]')?.getAttribute('data-testid') ?? ''}`);
+        }
+      }
+      return out;
+    });
+    expect(covered).toEqual([]);
     await tapUnderground(page, 5);
     const offenders: string[] = [];
     for (const tab of await page.getByRole('tab').all()) {

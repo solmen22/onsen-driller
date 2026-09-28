@@ -14,7 +14,7 @@
 //   要素の読み込みと setAttribute('src') は包んでいない。preconnect・dns-prefetch は要求にならない。これらはビルドの静的検査で塞ぐ案がある
 // - TS-COM-03 Cookie: context.cookies() と、開いているページの document.cookie
 // - TS-COM-04 キー名: localStorage のキーがすべて `onsen-driller:` で始まる（テストが自分で入れた他のゲームのキーは除く）
-import type { BrowserContext, Page } from '@playwright/test';
+import type { BrowserContext, Frame, Page } from '@playwright/test';
 
 export const STORAGE_PREFIX = 'onsen-driller:';
 
@@ -150,9 +150,9 @@ function pageProbe(journalKey: string): void {
   );
 }
 
-/** pageProbe がためた keydown（コード・自動リピートか・preventDefault されたか） */
-export async function recordedKeydowns(page: Page): Promise<{ code: string; repeat: boolean; prevented: boolean }[]> {
-  return page.evaluate(() =>
+/** pageProbe がためた keydown（コード・自動リピートか・preventDefault されたか）。page はポータルの枠を模した iframe の Frame でもよい */
+export async function recordedKeydowns(page: Page | Frame): Promise<{ code: string; repeat: boolean; prevented: boolean }[]> {
+  return (page as Frame).evaluate(() =>
     (window as unknown as { __keys: KeyboardEvent[] }).__keys.map((e) => ({ code: e.code, repeat: e.repeat, prevented: e.defaultPrevented })),
   );
 }

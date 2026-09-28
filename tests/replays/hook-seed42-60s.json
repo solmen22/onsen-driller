@@ -1,0 +1,9 @@
+{
+ "name": "hook-seed42-60s",
+ "seed": 42,
+ "advanceMs": 60000,
+ "input": {
+  "tapsPerSec": 2
+ },
+ "expectedHash": "75a6638b"
+}

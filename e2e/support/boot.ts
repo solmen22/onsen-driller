@@ -16,8 +16,8 @@
 //     __game.pause() 中はループが止まっているので、runFor はロジックを進めない。
 //   - 15 秒ごとの自動保存を起こす: triggerAutosave(page)（fastForward）。runFor(15000) は実時間でも約 10 秒かかるため。
 //   - 再読み込みの後も時計は止まったまま（Playwright が時計の操作を新しい文書で再生する）。
-import type { Page } from '@playwright/test';
-import { hooks, type Hooks } from './hooks.ts';
+import type { Frame, Page } from '@playwright/test';
+import { hooks, type Hooks, type HookTarget } from './hooks.ts';
 
 /** E2E の基準時刻（2026-10-01T00:00:00Z） */
 export const T0 = Date.UTC(2026, 9, 1, 0, 0, 0);
@@ -80,8 +80,9 @@ export function collectPageErrors(page: Page): { errors: string[]; stop: () => v
   return { errors, stop: () => page.off('pageerror', on) };
 }
 
-/** どこもクリックせずに、ゲーム画面（キャンバスと HUD）と __game が出るまで待つ */
-export async function waitForGame(page: Page, timeoutMs = BOOT_TIMEOUT_MS, pageErrors: readonly string[] = []): Promise<void> {
+/** どこもクリックせずに、ゲーム画面（キャンバスと HUD）と __game が出るまで待つ（page はポータルの枠を模した iframe の Frame でもよい） */
+export async function waitForGame(target: HookTarget, timeoutMs = BOOT_TIMEOUT_MS, pageErrors: readonly string[] = []): Promise<void> {
+  const page = target as Frame;
   try {
     await page.locator('[data-testid="stage"] canvas').waitFor({ state: 'visible', timeout: timeoutMs });
     await page.getByTestId('hud-coins').waitFor({ state: 'visible', timeout: timeoutMs });
