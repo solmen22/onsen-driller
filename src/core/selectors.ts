@@ -18,7 +18,7 @@ import { autoDigUnlocked } from './input.ts';
 import { add, affordGeometric, div, gt, mul, num, sub, sumGeometric, toNumber, ZERO, type Num } from './num.ts';
 import type { GameState } from './state.ts';
 
-export { bandOfDepth, temperatureAt } from './formulas.ts';
+export { bandOfDepth, oreAt, springAtDepth, temperatureAt } from './formulas.ts';
 export { autoDigUnlocked } from './input.ts';
 
 /** レベルを買う品目（ドリル・自動掘削機・湯船・源泉ごとのポンプ） */
@@ -169,3 +169,14 @@ export function secondsUntil(s: Readonly<GameState>, cost: Num): number | null {
 
 /** 今の深さの地温（表示用の ℃ の整数。HUD の深さの横） */
 export const temperatureOf = (s: Readonly<GameState>): number => temperatureAt(s.run.depth);
+
+/** 今のブロックの進み具合（入ったダメージ ÷ HP。0 以上 1 未満。ひびの段と道具の位置の補間に使う） */
+export function blockProgress(s: Readonly<GameState>): number {
+  const hp = blockHp(s, s.run.depth);
+  if (hp.eq(0)) return 0;
+  const r = toNumber(div(s.run.blockDmg, hp));
+  return Number.isFinite(r) ? Math.min(Math.max(r, 0), 0.999999) : 0;
+}
+
+/** 幕間の残り（ms。0 なら幕間ではない。描画の帯の名前のカード） */
+export const interludeLeftMs = (s: Readonly<GameState>): number => s.run.interludeMs;

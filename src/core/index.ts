@@ -9,4 +9,5 @@ export * from './step.ts';
 export * from './actions.ts';
 export * from './serialize.ts';
 export * from './content-check.ts';
+export * from './debug.ts';
 export * from './selectors.ts';
