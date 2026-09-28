@@ -10,15 +10,17 @@ import { App } from '../ui/App.tsx';
 import { Ctx } from '../ui/hooks/use-game.ts';
 import { playBreak, playHit, setMuted, unlockAudio } from '../audio/sfx.ts';
 import { systemClock } from './clock.ts';
+import type { DevParams } from './dev-params.ts';
 import { setupInput } from './input.ts';
 import { startLoop } from './loop.ts';
-import { PerfMonitor } from './perf.ts';
-import { readPocParams } from './dev-params.ts';
+import type { PerfMonitor } from './perf.ts';
 import { GameStore } from './store.ts';
 import '../styles/global.css';
 
-const APP_VERSION = '0.0.1-poc';
+const APP_VERSION = __APP_VERSION__;
 const SAVE_KEY = `${STORAGE_PREFIX}save:a`;
+/** dev（開発サーバー）と e2e 系のビルドだけ true。本番の 4 ビルドでは定数の置き換えで false になり、下の分岐ごと落ちる */
+const DEV_BUILD = import.meta.env.DEV || import.meta.env.VITE_TEST_HOOKS === 'true';
 
 function layout(root: HTMLElement): void {
   const apply = (): void => {
@@ -30,8 +32,14 @@ function layout(root: HTMLElement): void {
   apply();
 }
 
+/** 最初の起動のシード（Q-16）: 壁時計と単調時計から作る */
+const clockSeed = (): number => (systemClock.wallNow() ^ Math.floor(systemClock.monoNow() * 1000)) >>> 0;
+
 async function boot(): Promise<void> {
-  const params = readPocParams(location.search);
+  const params: DevParams = DEV_BUILD
+    ? (await import('./dev-params.ts')).readDevParams(location.search)
+    : { fps: false, particles: 0, auto: false, demo: false, seed: null };
+  const perf: PerfMonitor | null = DEV_BUILD ? new (await import('./perf.ts')).PerfMonitor() : null;
   const root = document.getElementById('app');
   const stage = document.getElementById('stage');
   const uiRoot = document.getElementById('ui');
@@ -46,7 +54,7 @@ async function boot(): Promise<void> {
   platform.onMutedChange(setMuted);
 
   // 読み込み（PoC: 1 枠だけ。2 枠保存・移行は E5）
-  let state: GameState = createInitialState(params.seed);
+  let state: GameState = createInitialState(params.seed ?? clockSeed());
   const raw = platform.storage.get(SAVE_KEY);
   if (raw && !params.demo) {
     const r = decodeSave(raw);
@@ -62,8 +70,7 @@ async function boot(): Promise<void> {
     state.run.hold = true;
   }
   const store = new GameStore(state);
-  const perf = new PerfMonitor();
-  perf.start();
+  perf?.start();
   const loop = startLoop(store, systemClock);
 
   render(h(Ctx.Provider, { value: { store, platform, version: APP_VERSION } }, h(App, {})), uiRoot);
@@ -74,8 +81,8 @@ async function boot(): Promise<void> {
   const view = await createView(stage, {
     state: () => store.state,
     drain: () => store.drainView(),
-    onInputRendered: (now) => perf.markRendered(now),
-    hasPendingInput: () => perf.hasPendingInput(),
+    onInputRendered: (now) => perf?.markRendered(now),
+    hasPendingInput: () => perf?.hasPendingInput() ?? false,
     stressParticles: params.particles,
     reduceMotion,
     onContext: (ev) => contextEvents.push(ev),
@@ -125,7 +132,7 @@ async function boot(): Promise<void> {
   platform.loadingStop();
   root.dataset.ready = 'true';
 
-  if (params.fps) {
+  if (DEV_BUILD && perf && params.fps) {
     perf.mountOverlay(
       () =>
         `${view.rendererName().slice(0, 40)}\ndpr ${devicePixelRatio} ${innerWidth}x${innerHeight} ${root.dataset.layout}\nparticles ${view.aliveParticles()} depth ${store.state.run.depth}m`,

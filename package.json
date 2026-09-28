@@ -23,7 +23,7 @@
     "build:itch": "vite build --mode itch",
     "build:poki": "vite build --mode poki",
     "build:all": "npm run build:web && npm run build:crazygames && npm run build:itch && npm run build:poki",
-    "build:e2e": "vite build --mode e2e && vite build --mode e2e-crazygames && vite build --mode e2e-poki",
+    "build:e2e": "vite build --mode e2e && vite build --mode e2e-crazygames",
     "check:size": "node scripts/check-size.mjs",
     "preview:web": "vite preview --outDir dist/web --port 4173 --strictPort",
     "test:e2e": "playwright test",

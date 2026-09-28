@@ -1,44 +1,46 @@
-// Vite（arch §16）: mode ごとに dist/<mode> へ出力。SDK の script はそのビルドにだけ入れる
+// Vite（arch §16）: mode ごとに dist/<出力先> へ出力。SDK の script はそのビルドにだけ入れる
+import { readFileSync } from 'node:fs';
 import preact from '@preact/preset-vite';
 import { defineConfig, type Plugin } from 'vite';
+import { resolveMode } from './tools/build/modes.ts';
 
-const SDK_SCRIPTS: Record<string, string> = {
-  crazygames: 'https://sdk.crazygames.com/crazygames-sdk-v3.js',
-  'e2e-crazygames': 'https://sdk.crazygames.com/crazygames-sdk-v3.js',
-  poki: 'https://game-cdn.poki.com/scripts/v2/poki-sdk.js',
-  'e2e-poki': 'https://game-cdn.poki.com/scripts/v2/poki-sdk.js',
-};
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
-/** 出力のファイル名を英小文字・数字・ハイフンにする（itch.io・Linux は大文字小文字を区別する。DevOps の検査規則） */
+/** 出力のファイル名を英小文字・数字・ハイフンにする（itch.io・Linux は大文字小文字を区別する。DevOps の検査規則。ADR D12） */
 const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9-]+/g, '-');
 
-function portalSdk(mode: string): Plugin {
+function portalSdk(src: string | null): Plugin {
   return {
     name: 'portal-sdk',
     transformIndexHtml() {
-      const src = SDK_SCRIPTS[mode];
       return src ? [{ tag: 'script', attrs: { src }, injectTo: 'head-prepend' }] : [];
     },
   };
 }
 
-export default defineConfig(({ mode }) => ({
-  base: './',
-  plugins: [preact(), portalSdk(mode)],
-  build: {
-    outDir: `dist/${mode}`,
-    emptyOutDir: true,
-    target: 'es2022',
-    assetsInlineLimit: 0,
-    chunkSizeWarningLimit: 1600,
-    rolldownOptions: {
-      output: {
-        hashCharacters: 'base36',
-        entryFileNames: (c) => `assets/${slug(c.name)}-[hash].js`,
-        chunkFileNames: (c) => `assets/${slug(c.name)}-[hash].js`,
-        assetFileNames: (a) => `assets/${slug((a.names[0] ?? 'asset').replace(/\.[^.]+$/, ''))}-[hash][extname]`,
+export default defineConfig(({ mode, command }) => {
+  const m = resolveMode(mode, command);
+  return {
+    base: './',
+    plugins: [preact(), portalSdk(m.sdk)],
+    define: { __APP_VERSION__: JSON.stringify(pkg.version) },
+    build: {
+      outDir: m.outDir,
+      emptyOutDir: true,
+      target: 'es2022',
+      // 本番にソースマップを含めない（Q-15）
+      sourcemap: false,
+      assetsInlineLimit: 0,
+      chunkSizeWarningLimit: 1600,
+      rolldownOptions: {
+        output: {
+          hashCharacters: 'base36',
+          entryFileNames: (c) => `assets/${slug(c.name)}-[hash].js`,
+          chunkFileNames: (c) => `assets/${slug(c.name)}-[hash].js`,
+          assetFileNames: (a) => `assets/${slug((a.names[0] ?? 'asset').replace(/\.[^.]+$/, ''))}-[hash][extname]`,
+        },
       },
     },
-  },
-  server: { host: false },
-}));
+    server: { host: false },
+  };
+});

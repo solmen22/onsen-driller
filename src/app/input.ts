@@ -4,7 +4,7 @@ import type { PerfMonitor } from './perf.ts';
 
 const HOLD_DELAY_MS = 300;
 
-export function setupInput(stage: HTMLElement, store: GameStore, perf: PerfMonitor, onFirstInput: () => void): { setEnabled(on: boolean): void } {
+export function setupInput(stage: HTMLElement, store: GameStore, perf: PerfMonitor | null, onFirstInput: () => void): { setEnabled(on: boolean): void } {
   let enabled = true;
   let first = true;
   let holdTimer = 0;
@@ -21,7 +21,7 @@ export function setupInput(stage: HTMLElement, store: GameStore, perf: PerfMonit
     if (!enabled || !e.isPrimary) return;
     e.preventDefault();
     firstInput();
-    perf.markInput(e.timeStamp);
+    perf?.markInput(e.timeStamp);
     store.dispatch({ type: 'tap', count: 1 });
     clearTimeout(holdTimer);
     holdTimer = window.setTimeout(() => store.dispatch({ type: 'hold', on: true }), HOLD_DELAY_MS);
@@ -31,7 +31,7 @@ export function setupInput(stage: HTMLElement, store: GameStore, perf: PerfMonit
     if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault(); // ポータルの枠をスクロールさせない
     if (!enabled || e.code !== 'Space' || e.repeat) return;
     firstInput();
-    perf.markInput(e.timeStamp);
+    perf?.markInput(e.timeStamp);
     store.dispatch({ type: 'tap', count: 1 });
     store.dispatch({ type: 'hold', on: true });
   });

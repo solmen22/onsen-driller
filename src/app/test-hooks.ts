@@ -9,7 +9,7 @@ import type { GameStore } from './store.ts';
 export interface HookDeps {
   store: GameStore;
   loop: Loop;
-  perf: PerfMonitor;
+  perf: PerfMonitor | null;
   platform: Platform;
   view: View;
   contextEvents: string[];
@@ -17,7 +17,7 @@ export interface HookDeps {
 
 export function install(d: HookDeps): void {
   const hooks = {
-    version: '0.0.1-poc',
+    version: __APP_VERSION__,
     target: d.platform.target,
     getState: (): GameState => d.store.state,
     stateHash: (): string => stateHash(d.store.state),
@@ -25,7 +25,7 @@ export function install(d: HookDeps): void {
     pause: () => d.loop.pause(),
     resume: () => d.loop.resume(),
     advance: (ms: number) => advance(d.store.state, ms),
-    perf: { reset: () => d.perf.reset(), stats: () => d.perf.stats() },
+    perf: { reset: () => d.perf?.reset(), stats: () => d.perf?.stats() ?? null },
     view: {
       renderer: () => d.view.rendererName(),
       particles: () => d.view.aliveParticles(),

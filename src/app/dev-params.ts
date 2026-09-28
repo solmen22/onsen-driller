@@ -1,5 +1,6 @@
-// PoC 用の URL パラメータ（iPhone 確認・性能試験用）。S1 で quality.ts・デバッグパネルに置き換え、公開前に外す
-export interface PocParams {
+// dev・e2e のビルドだけで読む URL パラメータ（PoC の iPhone 確認・性能試験用。arch §16-1）。
+// main.ts が import.meta.env.DEV か VITE_TEST_HOOKS のときだけ動的に読み込むので、本番の 4 ビルドには入らない
+export interface DevParams {
   /** 右上にフレーム時間・タップの反応時間を表示 */
   fps: boolean;
   /** 常に N 個のパーティクルを出す負荷試験 */
@@ -8,20 +9,23 @@ export interface PocParams {
   auto: boolean;
   /** 深い地層と道具を見るためのデモ状態（コイン・ドリル Lv40・ツルハシを付与） */
   demo: boolean;
-  seed: number;
+  /** 最初のシード（なければ時計から作る） */
+  seed: number | null;
 }
 
-export function readPocParams(search: string): PocParams {
+export const NO_DEV_PARAMS: DevParams = { fps: false, particles: 0, auto: false, demo: false, seed: null };
+
+export function readDevParams(search: string): DevParams {
   const p = new URLSearchParams(search);
-  const n = (k: string, d: number): number => {
+  const n = (k: string): number | null => {
     const x = Number(p.get(k));
-    return Number.isFinite(x) && p.has(k) ? x : d;
+    return p.has(k) && Number.isFinite(x) ? x : null;
   };
   return {
     fps: p.has('fps'),
-    particles: Math.max(0, Math.min(1000, n('particles', 0))),
+    particles: Math.max(0, Math.min(1000, n('particles') ?? 0)),
     auto: p.has('auto'),
     demo: p.has('demo'),
-    seed: n('seed', 1),
+    seed: n('seed'),
   };
 }
