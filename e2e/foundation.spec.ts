@@ -5,7 +5,7 @@ import { bootGame, HooksMissingError, pageNow, T0, triggerAutosave } from './sup
 import { describeRequirement, isKnownGap, type Requirement } from './support/gaps.ts';
 import { HOOK_MEMBERS, hitsOf, presentHookMembers, type HookMember } from './support/hooks.ts';
 import { localStorageKeys } from './support/privacy.ts';
-import { readSlots } from './support/storage.ts';
+import { injectStorageFault, readSlots } from './support/storage.ts';
 
 test.describe('E2E の基盤（BL-073）', () => {
   test('TS-073-04 テストの開始時にストレージと Cookie が空で、別の context に保存が漏れない', async ({ context, page, harness }) => {
@@ -97,7 +97,12 @@ test.describe('E2E の基盤（BL-073）', () => {
     await triggerAutosave(page);
     const slots = await readSlots(page.context(), harness.origin);
     check('feature:twoSlotSave', slots.a.raw !== null && slots.b.raw !== null);
-    // feature:saveWarning は保存できない環境を作らないと確かめられないので、ここでは見ない（E9 のテストが保留になる）
+    // feature:saveWarning は保存できない環境（V1）の context を別に開いて確かめる（V1 は起動直後から unavailable の案内。Q-11 の 5）
+    const v1 = await harness.newContext();
+    await injectStorageFault(v1, 'V1');
+    const p1 = await v1.newPage();
+    await bootGame(p1);
+    check('feature:saveWarning', await p1.getByTestId('save-warning').isVisible());
 
     test.info().annotations.push({ type: '突き合わせ', description: found.join(' / ') });
     expect(problems).toEqual([]);

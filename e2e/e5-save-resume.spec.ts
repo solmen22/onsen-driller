@@ -1,5 +1,5 @@
 // E2E E5 保存と再開（e2e_E5_save-resume.md）
-// PR: TS-E5-01・02・03・05・10・11（S1）。毎晩: TS-E5-04（BL-089）。
+// PR: TS-E5-01・02・03・05・10・11・16（S1）。毎晩: TS-E5-04（BL-089）。
 // 保留: TS-E5-13（S3）、TS-E5-14（S2）。TS-E5-15 は手動（オーナーの iPhone）。
 // 欠番: TS-E5-06〜09（壊れ方の種類は integration の TS-027-05・07 に統合。E2E は TS-E5-05 が代表）、TS-E5-12（TS-027-20・TS-COM-04）。
 //
@@ -12,37 +12,26 @@
 // - Q-11: 最初の保存は a・seq 1、以後「今の正」と反対の枠に「有効な枠の最大の seq＋1」。壊れた X から復元した後の保存は X に Y.seq＋1（TS-E5-10）。
 //   両方壊れていたら新しいゲーム・save:broken に 1 つ退避・a から書く（TS-E5-11）。hidden への visibilitychange と pagehide は
 //   それぞれ 1 回書く（TS-E5-03 は、再読み込みで実際に来た契機の数だけ seq が増えることを見る）。
+// - Q-10 の 4・Q-22（S1 コードレビュー M-1）: 新しい版（schema 2）の枠は、v1 から見て形・checksum が壊れていても newer で、
+//   そのセッションは一切書かない（TS-E5-16）。
 import type { BrowserContext, Page } from '@playwright/test';
 import { test, expect, type Harness } from './support/fixtures.ts';
 import { armUnloadTriggerProbe, bootGame, centerOf, pageNow, readUnloadTriggers, reloadGame, setHidden, triggerAutosave } from './support/boot.ts';
 import { later, needs } from './support/gaps.ts';
 import { coinsOf, hitsOf, type Hooks, type SerializedState } from './support/hooks.ts';
+import { prepareSaveState as prepare } from './support/prepare.ts';
 import {
   BROKEN_SLOT_KEY,
   newerOlder,
   readLocalStorage,
   readSlots,
   reopenWithStorage,
+  saveKeysOf,
   SLOT_KEYS,
   writtenSlots,
   type SlotName,
   type Slots,
 } from './support/storage.ts';
-import { SEED_A } from '../tests/helpers/seeds.ts';
-
-/** 準備: 状態を作る（シナリオの「準備」の 1〜3） */
-async function prepare(page: Page, harness: Harness): Promise<{ g: Hooks; base: Slots }> {
-  const g = await bootGame(page);
-  await g.pause();
-  await g.seed(SEED_A);
-  await g.pause(); // seed が新しいゲームでループを動かし直す実装でも、ロジックは止めたままにする
-  await g.advance(30_000, { tapsPerSec: 2 });
-  expect((await g.dispatch({ type: 'buy', item: 'tool', qty: 1 })).ok).toBe(true);
-  await g.dispatch({ type: 'setAutoDig', on: true });
-  await g.advance(30_000);
-  // 起動直後に保存が起きるかは実装しだいなので、seq は基準からの増分で見る
-  return { g, base: await readSlots(page.context(), harness.origin) };
-}
 
 const maxSeq = (s: Slots): number => Math.max(s.a.env?.seq ?? 0, s.b.env?.seq ?? 0);
 
@@ -210,7 +199,10 @@ test.describe('E5 保存と再開', () => {
     expect(s.run.depth).toBe(0);
     expect(s.run.drill.tool).toBe(0);
     expect(s.meta.tickets).toBe(2);
-    // 最初の保存の後: 退避があり、a に seq 1 の有効な封筒
+    // 最初の保存の後: 退避があり、a に seq 1 の有効な封筒。
+    // ロジックは止めてから保存を起こす（止めないと、fastForward で最大 1 秒・その後の runFor(100) で 0.1 秒進み、
+    // 保存した game と後で読む getState() が playedMs などでずれる。準備の 1〜3 と同じく pause() する）
+    await g2.pause();
     await triggerAutosave(reopened.page);
     const ls = await readLocalStorage(reopened.context, harness.origin);
     const backup = ls.get(BROKEN_SLOT_KEY) ?? null;
@@ -221,6 +213,41 @@ test.describe('E5 保存と再開', () => {
     expect(after.a.env, 'その後は a から書く').not.toBeNull();
     expect(after.a.env!.seq).toBe(1);
     expect(after.a.env!.game).toEqual(await g2.getState());
+  });
+
+  test('TS-E5-16 ロールバックの再現: v1 から見て壊れた新しい版（schema 2）の枠があるセッションは、どの枠も書き換えない（M-1）', async ({ page, harness }) => {
+    // 本体は integration の TS-027-22（4 通り）。E2E は代表 1 件。案内の表示とストレージ全体の比較は S3 の TS-E5-13
+    const { g } = await prepare(page, harness);
+    await threeSaves(page, harness, g);
+    const slots = await readSlots(page.context(), harness.origin);
+    const { newer: x, older: y } = newerOlder(slots);
+    // 将来の版を模した封筒: schema 2、seq のキーを消し、checksum を別の 8 桁の 16 進に、知らないキー checksumV2 を足す
+    // （先頭のキーは schema のまま。arch §11「封筒の約束」）
+    const env = JSON.parse(slots[x].raw!) as Record<string, unknown>;
+    const rest: Record<string, unknown> = { ...env };
+    delete rest.seq;
+    delete rest.schema;
+    const otherChecksum = env.checksum === '00000000' ? '11111111' : '00000000';
+    const futureRaw = JSON.stringify({ schema: 2, ...rest, checksum: otherChecksum, checksumV2: 'deadbeef' });
+    const reopened = await reopenWithStorage(harness, page.context(), (ls) => ls.set(SLOT_KEYS[x], futureRaw));
+    const before = await readLocalStorage(reopened.context, harness.origin);
+    expect(before.get(SLOT_KEYS[x])).toBe(futureRaw);
+    const yRaw = before.get(SLOT_KEYS[y]) ?? null;
+    const keysBefore = saveKeysOf(before);
+
+    // 起動 → 15 秒ごとの保存 4 回 → 非表示 → 表示 → 再読み込み（pagehide）
+    await bootGame(reopened.page);
+    for (let i = 0; i < 4; i++) await triggerAutosave(reopened.page);
+    await setHidden(reopened.page, true);
+    await setHidden(reopened.page, false);
+    await reloadGame(reopened.page);
+
+    const after = await readLocalStorage(reopened.context, harness.origin);
+    expect(harness.pageErrors, '捕まえていない例外がない').toEqual([]);
+    expect(after.get(SLOT_KEYS[x]), 'X（新しい版の枠）の生の文字列が 1 バイトも変わらない').toBe(futureRaw);
+    expect(after.get(SLOT_KEYS[y]) ?? null, 'Y も変わらない').toBe(yRaw);
+    expect(after.has(BROKEN_SLOT_KEY), 'onsen-driller:save:broken ができない').toBe(false);
+    expect(saveKeysOf(after), 'onsen-driller:save: で始まるキーが増えない').toEqual(keysBefore);
   });
 
   test('TS-E5-13 新しい版のセーブで読み取り専用になり、ストレージを書き換えない', () => {

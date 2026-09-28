@@ -9,9 +9,10 @@
 // - foundation.spec.ts の「フックと機能の一覧」が、KNOWN_GAPS とビルドの食い違いを検出して失敗する
 //   （実装が入ったのに一覧に残っている → 行を消す／一覧に無いのに欠けている → BL-071 などの不足）。
 //
-// 基準にしたビルド: main c6a1f60（PoC。技術リードの T-022）。S1 の実装（BL-071 など）が main に入ったら見直す。
-// 参考: feat/S1-core 00d2cd4（BL-010 まで）のビルドでも、foundation.spec.ts の突き合わせで見る項目（feature:saveWarning は対象外）は
-// すべて「無い」ままだった（2026-09-28 の参考の実行。hook:renderStats はその後に足したので、ソース src/app/test-hooks.ts で確認）。
+// 基準にしたビルド: main 71247a2（S1 の本体。PR #3。BL-071 のフック・BL-027 の 2 枠保存・save-warning・BL-043 の購入ボタン）。
+// このビルドで、下の REQUIREMENTS はすべて実装済み（foundation.spec.ts の突き合わせで確認）なので、KNOWN_GAPS は空。
+// S2 以降に新しいフック・機能を前提にするテストを先に書くときは、REQUIREMENTS に足し、入るまで KNOWN_GAPS に載せる。
+// 履歴: main c6a1f60（PoC）では 14 項目すべてが無かった（2026-09-28 の実行記録 org/30_quality/test-engineer/runs/2026-09-28_s1-e2e-foundation.md）。
 import { test } from '@playwright/test';
 
 /** テストが宣言できる前提（フック・機能）と、その中身 */
@@ -38,23 +39,8 @@ const REQUIREMENTS = {
 
 export type Requirement = keyof typeof REQUIREMENTS;
 
-/** いまのビルド（main c6a1f60 の PoC）に無いもの。実装が入ったら消す */
-export const KNOWN_GAPS: readonly Requirement[] = [
-  'hook:seed',
-  'hook:setState',
-  'hook:setClock',
-  'hook:grant',
-  'hook:rect',
-  'hook:renderStats',
-  'hook:events',
-  'hook:errors',
-  'hook:advance.input',
-  'feature:tickets',
-  'feature:autoDigLock',
-  'feature:buyState',
-  'feature:twoSlotSave',
-  'feature:saveWarning',
-];
+/** いまのビルド（main 71247a2 の S1）に無いもの。実装が入ったら消す（S1 の本体ですべて入ったので空） */
+export const KNOWN_GAPS: readonly Requirement[] = [];
 
 /** 後のスプリントで有効にするもの（CEO 決定・traceability.md の「S1 で動かすもの」の外） */
 const LATER = {
