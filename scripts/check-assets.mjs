@@ -15,13 +15,15 @@
 //     照合キーはファイル名だけ（ディレクトリは見ない。`src/generated/atlas.png` と書いても atlas.png として扱う）。
 //     ビルド側は Vite のハッシュ「-xxxxxxxx」を外して比べる。大文字小文字は区別する
 //   - 1 つのファイル（アトラスなど）に複数の素材が入る場合は、各行に同じファイル名を書いてよい
-// 失敗: 台帳にない素材がビルドにある / 台帳の表がない / 必要な列がない
+//   - 見出しの 1 列目が「素材名」でない表（メモの表など）は読まない。台帳の表が複数あれば、表ごとに必要な列を検査する
+// 失敗: 台帳にない素材がビルドにある / 台帳の表がない / 必要な列がない / 素材ファイルを書いた行のライセンスが空か「—」
+//   / ターゲットを指定しないときに本番の 4 種（web・crazygames・itch・poki）のどれかのビルドがない
 // 警告（終了コード 0）: 区分が 6 種（AI 生成・コードで描画・CC0・自作と、CEO 承認で追加したフォント（OFL）・コードで生成（効果音など））以外
-//   / 台帳にあってビルドにない
+//   / 素材ファイルを書いた行の入手元が空か「—」 / 台帳にあってビルドにない（参考表示）
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join, posix, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { ASSET_EXT, assetKey, extOf, walk } from './check-lib.mjs';
+import { ASSET_EXT, PRODUCTION_TARGETS, assetKey, extOf, walk } from './check-lib.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const { values, positionals } = parseArgs({
@@ -44,49 +46,65 @@ const splitRow = (line) =>
   line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map((c) => c.trim());
 const isSeparator = (line) => /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line.trim());
 
+/** 値が空か、「—」「-」だけ（記録がない） */
+const isBlank = (v) => /^[—–\-ー]*$/.test((v ?? '').replace(/\s+/g, ''));
+
 const ledgerKeys = new Map(); // key -> 行番号の配列
-let header = null;
+let ledgerTables = 0;
 if (!existsSync(ledgerPath)) fails.push(`[ledger.missing] 台帳 ${ledgerPath} がない`);
 else {
+  const name = basename(ledgerPath);
   const lines = readFileSync(ledgerPath, 'utf8').split(/\r?\n/);
-  let inLedger = false;
-  let catCol = -1;
-  let fileCol = -1;
+  let inTable = false; // Markdown の表の中か（台帳かどうかによらない）
+  let ledger = null; // 台帳の表の中なら列の位置。台帳ではない表の中では null（その表の行は読まない）
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim().startsWith('|')) {
-      inLedger = false;
+      inTable = false;
+      ledger = null;
       continue;
     }
-    if (!inLedger) {
+    if (!inTable) {
+      // 表の 1 行目（見出し）。見出しの 1 列目が（空白を除いて）「素材名」の表だけを台帳として読む（コードレビュー PR #1 の Should）
+      inTable = true;
       const cells = splitRow(line);
-      if (cells[0]?.includes('素材') && isSeparator(lines[i + 1] ?? '')) {
-        inLedger = true;
-        header ??= cells;
-        catCol = cells.findIndex((c) => c.includes('区分'));
-        fileCol = cells.findIndex((c) => c.includes('ファイル名'));
+      if (cells[0]?.replace(/\s+/g, '') === '素材名' && isSeparator(lines[i + 1] ?? '')) {
+        ledgerTables++;
+        const missing = REQUIRED_COLUMNS.filter((c) => !cells.some((h) => h.includes(c)));
+        if (missing.length)
+          fails.push(`[ledger.columns] ${name}:${i + 1} 台帳の表に必要な列がない: ${missing.join('・')}（いまの見出し: ${cells.join('｜')}）`);
+        const col = (word) => cells.findIndex((c) => c.includes(word));
+        ledger = { cat: col('区分'), file: col('ファイル名'), source: col('入手元'), license: col('ライセンス') };
         i++; // 区切り行を飛ばす
       }
       continue;
     }
+    if (!ledger) continue;
     const cells = splitRow(line);
     const names = [...(cells[0] ?? '').matchAll(/`([^`]+)`/g)].map((m) => m[1]);
-    if (fileCol > 0) names.push(...(cells[fileCol] ?? '').replaceAll('`', ' ').split(/[\s,、・;；]+/));
+    if (ledger.file > 0) names.push(...(cells[ledger.file] ?? '').replaceAll('`', ' ').split(/[\s,、・;；]+/));
+    const keys = [];
     for (const n of names) {
       const base = posix.basename(n.trim().replaceAll('\\', '/'));
-      if (ASSET_EXT.has(extOf(base))) ledgerKeys.set(base, [...(ledgerKeys.get(base) ?? []), i + 1]);
+      if (ASSET_EXT.has(extOf(base))) {
+        ledgerKeys.set(base, [...(ledgerKeys.get(base) ?? []), i + 1]);
+        keys.push(base);
+      }
     }
-    if (catCol >= 0) {
-      const cat = (cells[catCol] ?? '').replace(/\s+/g, '');
+    if (ledger.cat >= 0) {
+      const cat = (cells[ledger.cat] ?? '').replace(/\s+/g, '');
       if (!CATEGORIES.includes(cat))
-        warns.push(`[ledger.category] ${basename(ledgerPath)}:${i + 1} 区分「${cells[catCol] ?? ''}」が 6 種（AI 生成／コードで描画／CC0／自作／フォント（OFL）／コードで生成（効果音など））以外`);
+        warns.push(`[ledger.category] ${name}:${i + 1} 区分「${cells[ledger.cat] ?? ''}」が 6 種（AI 生成／コードで描画／CC0／自作／フォント（OFL）／コードで生成（効果音など））以外`);
+    }
+    // 素材ファイルを書いた行は、ライセンスの記録が必須（空・「—」は失敗）。入手元の空は警告
+    if (keys.length) {
+      if (ledger.license >= 0 && isBlank(cells[ledger.license]))
+        fails.push(`[ledger.license] ${name}:${i + 1} ${keys.join('・')} のライセンスが記録されていない（空か「—」）`);
+      if (ledger.source >= 0 && isBlank(cells[ledger.source]))
+        warns.push(`[ledger.source] ${name}:${i + 1} ${keys.join('・')} の入手元が記録されていない（空か「—」）`);
     }
   }
-  if (!header) fails.push(`[ledger.table] ${ledgerPath} に、見出しの 1 列目が「素材名」の表がない`);
-  else {
-    const missing = REQUIRED_COLUMNS.filter((c) => !header.some((h) => h.includes(c)));
-    if (missing.length) fails.push(`[ledger.columns] 台帳の表に必要な列がない: ${missing.join('・')}（いまの見出し: ${header.join('｜')}）`);
-  }
+  if (!ledgerTables) fails.push(`[ledger.table] ${ledgerPath} に、見出しの 1 列目が「素材名」の表がない`);
 }
 
 // ---- ビルドを読む ----
@@ -96,6 +114,9 @@ const targets = positionals.length
     ? readdirSync(distRoot).filter((d) => statSync(join(distRoot, d)).isDirectory()).sort()
     : [];
 if (!targets.length) fails.push(`[dist.missing] ${distRoot} にビルドがない（先に npm run build:all）`);
+// ターゲットを指定しないときは、本番の 4 種がそろっていることも求める（build:all から 1 つ抜けても緑にならないように）
+if (!positionals.length && targets.length)
+  for (const t of PRODUCTION_TARGETS) if (!targets.includes(t)) fails.push(`[dist.missing] 本番のターゲット ${t} のビルドがない（${join(distRoot, t)}）`);
 
 const rows = [];
 const usedKeys = new Set();

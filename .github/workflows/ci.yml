@@ -2,12 +2,19 @@
 # - verify: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets
 #   同じジョブの連続した step なので、前が失敗したら後ろは動かない（TS-008-23）
 # - e2e: verify が緑のときだけ（needs）。PR と手動実行で動く。main への push では PR で実施済みなので省く
-# - deploy-preview / deploy-staging: Actions の Variables に CF_PAGES_PROJECT を登録するまで（BL-080）はスキップされる
-#   本番（--branch=main）には出さない。本番は release.yml（手動・G3 の後）だけ
+# - deploy-preview / deploy-staging: Actions の Variables の CF_PAGES_PROJECT が空のあいだはスキップされる（BL-080 で登録済み）
+#   このワークフローは本番ブランチ（main）には決して出さない。本番は release.yml（手動・G3 の後。BL-085）だけ
+#   - PR は main をベースにしたものだけ（head が main の PR は同じリポジトリでは作れない）
+#   - プレビューは同じリポジトリのブランチからの PR だけ（フォーク・Dependabot には出さない）
+#   - プレビューのデプロイの直前に、ブランチ名が 空・main・staging・production（小文字にしたもの、別名にしたもの）なら失敗させる
+#   - これらは scripts/check-selftest.mjs（npm run test:checks）が静的に検査する（コードレビュー PR #1 の Must）
+# - サプライチェーン: gitleaks は版と SHA256 を固定した CLI を直接使う（第三者のアクションを動かさない）。
+#   wrangler は deploy/package-lock.json で固定し、トークンのない step で npm ci --ignore-scripts する
 name: ci
 
 on:
   pull_request:
+    branches: [main]
     paths-ignore: ['docs/**']
   push:
     branches: [main]
@@ -25,18 +32,22 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: read
-      pull-requests: read # gitleaks-action が PR のコミット一覧を読む
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # gitleaks が履歴を走査するため
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v3 # 個人アカウントのリポジトリはライセンスキー不要
+          fetch-depth: 0 # gitleaks が全ブランチの全履歴を走査するため
+          persist-credentials: false
+      - name: gitleaks（全ブランチの全履歴。-m でマージコミットの差分も見る）
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_COMMENTS: 'false' # PR へのコメントには書き込み権限が要るので使わない（結果はジョブのサマリー）
+          GITLEAKS_VERSION: 8.30.1
+          # gitleaks_8.30.1_linux_x64.tar.gz の SHA256（公式の gitleaks_8.30.1_checksums.txt と同じ値。2026-09-28 に確認）
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSLf -o "$RUNNER_TEMP/$f" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$f"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$f" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --log-opts="--all -m" --redact --no-banner --exit-code 1 .
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -59,12 +70,19 @@ jobs:
         run: npm run check:size
       - name: check:assets
         run: npm run check:assets
-      - name: dist を e2e・デプロイのジョブに渡す
+      - name: dist/web をデプロイのジョブに渡す
         uses: actions/upload-artifact@v7
         with:
-          name: dist
-          path: dist/
-          retention-days: 3
+          name: dist-web
+          path: dist/web/
+          retention-days: 1
+          if-no-files-found: error
+      - name: e2e 系のビルドを e2e のジョブに渡す
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-e2e
+          path: dist/e2e* # e2e（PoC）・e2e-web（BL-007）・e2e-crazygames・e2e-poki。dist/ からの相対パスで保存される
+          retention-days: 1
           if-no-files-found: error
 
   e2e:
@@ -76,6 +94,8 @@ jobs:
       PW_CHANNEL: chromium # ローカルの既定は chrome（インストール済みの Chrome）。CI は Playwright の Chromium
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -84,7 +104,7 @@ jobs:
         run: npm ci
       - uses: actions/download-artifact@v8
         with:
-          name: dist
+          name: dist-e2e
           path: dist/
       - name: Playwright の Chromium
         run: npx playwright install --with-deps chromium
@@ -113,22 +133,44 @@ jobs:
 
   deploy-preview:
     needs: [verify, e2e]
-    if: github.event_name == 'pull_request' && vars.CF_PAGES_PROJECT != ''
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CF_PAGES_PROJECT != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read # deploy/ の lockfile を取る checkout だけに使う
     steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: deploy
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: deploy/package-lock.json
+      - name: wrangler を入れる（deploy/package-lock.json で固定。インストールのスクリプトは動かさず、トークンも渡さない）
+        run: npm ci --prefix deploy --ignore-scripts --no-audit --no-fund
       - uses: actions/download-artifact@v8
         with:
-          name: dist
-          path: dist/
+          name: dist-web
+          path: dist/web/
       - name: Cloudflare Pages（プレビュー https://<branch>.<project>.pages.dev）
-        run: npx --yes wrangler@4.142.0 pages deploy dist/web --project-name="$PROJECT" --branch="$BRANCH" --commit-hash="$SHA"
+        run: |
+          # 本番・ステージングの別名と同じ名前、空の名前には出さない（Pages は小文字にし、英数字以外をハイフンにした名前を別名にする）
+          lower="$(printf '%s' "$BRANCH" | tr '[:upper:]' '[:lower:]')"
+          alias="$(printf '%s' "$lower" | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+          for name in "$lower" "$alias"; do
+            case "$name" in
+              ''|main|staging|production)
+                echo "::error::ブランチ名「$BRANCH」はプレビューに出さない（本番・ステージングの別名と衝突するか、空）"
+                exit 1 ;;
+            esac
+          done
+          deploy/node_modules/.bin/wrangler pages deploy dist/web --project-name="$PROJECT" --branch="$BRANCH" --commit-hash="$SHA" --commit-dirty=true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
           PROJECT: ${{ vars.CF_PAGES_PROJECT }}
           BRANCH: ${{ github.head_ref }}
           SHA: ${{ github.event.pull_request.head.sha }}
@@ -138,20 +180,31 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CF_PAGES_PROJECT != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read # deploy/ の lockfile を取る checkout だけに使う
     concurrency:
       group: deploy-staging
       cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: deploy
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: deploy/package-lock.json
+      - name: wrangler を入れる（deploy/package-lock.json で固定。インストールのスクリプトは動かさず、トークンも渡さない）
+        run: npm ci --prefix deploy --ignore-scripts --no-audit --no-fund
       - uses: actions/download-artifact@v8
         with:
-          name: dist
-          path: dist/
-      - name: Cloudflare Pages（ステージング https://staging.<project>.pages.dev。本番の main にはしない）
-        run: npx --yes wrangler@4.142.0 pages deploy dist/web --project-name="$PROJECT" --branch=staging --commit-hash="$GITHUB_SHA"
+          name: dist-web
+          path: dist/web/
+      - name: Cloudflare Pages（ステージング https://staging.<project>.pages.dev。本番ブランチにはしない）
+        run: deploy/node_modules/.bin/wrangler pages deploy dist/web --project-name="$PROJECT" --branch=staging --commit-hash="$GITHUB_SHA" --commit-dirty=true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
           PROJECT: ${{ vars.CF_PAGES_PROJECT }}

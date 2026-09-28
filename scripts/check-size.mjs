@@ -4,12 +4,12 @@
 //   node scripts/check-size.mjs [--dist <dir>] [--headers <file>] [target ...]
 //   - --dist    ビルドの親ディレクトリ（既定 ./dist。環境変数 CHECK_DIST でも可）
 //   - --headers dist/web/_headers と一致すべき原本（既定 ./deploy/web/_headers）
-//   - target    検査するターゲット名（省略時は --dist の下のディレクトリすべて）
+//   - target    検査するターゲット名（省略時は --dist の下のディレクトリすべて。そのときは本番の 4 種がそろっていることも求める）
 // 失敗が 1 つでもあれば終了コード 1。警告だけなら 0。
 // 規則の一覧（[規則 ID] で出力する）:
 //   dist.missing / index.missing / name.invalid / path.long / file.large / files.count
 //   size.initial（初回 gzip 5MB 超）/ size.initial.warn（1.5MB 超・警告）/ size.total（合計 8MB 超）/ size.self（20MB 超）
-//   path.absolute（HTML の src・href・srcset・poster と CSS の url()・@import が / で始まる。// も含む）
+//   path.absolute（HTML・SVG の src・href・xlink:href・data・srcset・poster と CSS の url()・@import が / で始まる。// も含む）
 //   sourcemap（本番ビルドに .map か sourceMappingURL）
 //   mix.crazygames / mix.poki / mix.hooks / mix.headers（SDK・テスト用フック・_headers の混入と欠落）
 //   headers.diff（dist/web/_headers が deploy/web/_headers と違う）
@@ -17,7 +17,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
-  BUDGET, HOOK, MB, SDK, TARGETS, UNKNOWN_TARGET,
+  BUDGET, HOOK, MB, PRODUCTION_TARGETS, SDK, TARGETS, UNKNOWN_TARGET,
   extOf, fmtKB, fmtMB, isExcludedFromInitial, transferSize, walk,
 } from './check-lib.mjs';
 
@@ -39,8 +39,11 @@ if (!targets.length) {
   process.exit(1);
 }
 
+// ターゲットを指定しないときは、本番の 4 種がそろっていることも求める（build:all から 1 つ抜けても緑にならないように。ないものは dist.missing）
+if (!positionals.length) for (const t of PRODUCTION_TARGETS) if (!targets.includes(t)) targets.push(t);
+
 const NAME_OK = /^[a-z0-9.-]+$/; // 1 階層ごと。英小文字・数字・ドット・ハイフンだけ
-const HTML_ATTR = /\s(src|href|poster)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
+const HTML_ATTR = /\s(src|href|xlink:href|data|poster)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
 const HTML_SRCSET = /\ssrcset\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
 const CSS_URL = /url\(\s*(["']?)\s*([^"')\s]*)/gi;
 const CSS_IMPORT = /@import\s+(["'])\s*([^"']*)/gi;
@@ -100,7 +103,7 @@ for (const t of targets) {
     if (buf.includes(HOOK)) found.hooks.push(rel);
 
     const ext = extOf(rel);
-    if (ext === '.html' || ext === '.htm' || ext === '.css') {
+    if (ext === '.html' || ext === '.htm' || ext === '.svg' || ext === '.css') {
       for (const h of findAbsolutePaths(buf.toString('utf8'), ext !== '.css'))
         fail('path.absolute', `${rel}: ${h}（相対パス ./ にする）`);
     }

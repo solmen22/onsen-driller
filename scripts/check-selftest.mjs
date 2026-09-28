@@ -172,6 +172,32 @@ describe('check:size', () => {
     }
   });
 
+  test('絶対パス: <object data>・SVG の xlink:href・.svg ファイルの中も検査する（コードレビュー PR #1 の Nit）', () => {
+    const svg = (body) => `<svg xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
+    for (const [file, content, bad] of [
+      ['index.html', html('itch', '<object data="/x.svg"></object>'), true],
+      ['index.html', html('itch', '<svg><image xlink:href="/x.png"/></svg>'), true],
+      ['assets/icon.svg', svg('<image href="/x.png"/>'), true],
+      ['assets/icon.svg', svg('<image href="./x.png"/><use href="#a"/>'), false],
+      ['index.html', html('itch', '<div data-x="/a"></div>'), false],
+    ]) {
+      const d = newDist();
+      const dir = makeTarget(d, 'itch');
+      write(join(dir, file), content);
+      const r = size(d, 'itch');
+      if (bad) assertFail(r, /\[path\.absolute\]/);
+      else assertPass(r);
+    }
+  });
+
+  test('ターゲットを指定しないときは、本番の 4 種がそろっていないと失敗する（コードレビュー PR #1 の Nit）', () => {
+    const d = newDist();
+    for (const t of ['web', 'crazygames', 'itch', 'e2e']) makeTarget(d, t);
+    assertFail(size(d), /\[dist\.missing\].*poki/);
+    makeTarget(d, 'poki');
+    assertPass(size(d));
+  });
+
   test('TS-008-08 ファイル名の大文字・ASCII 以外・空白・大文字のディレクトリは失敗', () => {
     for (const [name, bad] of [
       ['assets/Atlas.png', true],
@@ -342,6 +368,49 @@ describe('check:assets', () => {
     assert.match(r.out, /WARN \[ledger\.category\]/);
   });
 
+  // ---- コードレビュー PR #1 の Should（台帳の読み方）と Nit（記録の空欄）----
+  const ledgerFile = (lines) => {
+    const f = join(tmpRoot, `ledger-${++seq}.md`);
+    write(f, [...lines, ''].join('\n'));
+    return f;
+  };
+
+  test('見出しの 1 列目が「素材名」でない表にだけ書いた素材は、台帳にない扱いで失敗する', () => {
+    const d = newDist();
+    write(join(makeTarget(d, 'web'), 'assets', 'hit-abcd1234.ogg'), 'x');
+    const f = ledgerFile(['# 素材台帳', '', ...LEDGER_HEAD, row('`atlas.png`'), '', '## メモ', '', '| 素材の種類 | メモ |', '|---|---|', '| `hit.ogg` | あとで台帳に書く |']);
+    assertFail(assets(d, f, 'web'), /\[asset\.unlisted\] web\/assets\/hit-abcd1234\.ogg/);
+  });
+
+  test('台帳の表が 2 つあれば、表ごとに必要な列を検査する', () => {
+    const d = newDist();
+    write(join(makeTarget(d, 'web'), 'assets', 'atlas-abcd1234.png'), 'x');
+    const f = ledgerFile(['# 素材台帳', '', ...LEDGER_HEAD, row('`atlas.png`'), '', '| 素材名 | ライセンス |', '|---|---|', '| `hit.ogg` | CC0 |']);
+    assertFail(assets(d, f, 'web'), /\[ledger\.columns\] ledger-\d+\.md:\d+ 台帳の表に必要な列がない/);
+  });
+
+  test('素材ファイルを書いた行のライセンスが空か「—」なら失敗、入手元が空なら警告。ファイルのない行は「—」でよい', () => {
+    const d = newDist();
+    write(join(makeTarget(d, 'web'), 'assets', 'atlas-abcd1234.png'), 'x');
+    for (const lic of ['', '—', ' - ']) {
+      const r = assets(d, ledger([`| \`atlas.png\` | コードで描画 | 自作 | ${lic} | なし | — | 2026-09-28 | — | なし |`]), 'web');
+      assertFail(r, /\[ledger\.license\] .*atlas\.png のライセンスが記録されていない/);
+    }
+    const r = assets(d, ledger(['| `atlas.png` | コードで描画 | — | 自作 | なし | — | 2026-09-28 | — | なし |']), 'web');
+    assertPass(r);
+    assert.match(r.out, /WARN \[ledger\.source\]/);
+    assertPass(assets(d, ledger([row('`atlas.png`'), '| パレット | 自作 | — | — | — | — | 2026-09-28 | — | — |']), 'web'));
+  });
+
+  test('ターゲットを指定しないときは、本番の 4 種がそろっていないと失敗する', () => {
+    const d = newDist();
+    for (const t of ['web', 'crazygames', 'itch']) makeTarget(d, t);
+    const led = ledger([row('`atlas.png`')]);
+    assertFail(run('check-assets.mjs', ['--dist', d, '--ledger', led]), /\[dist\.missing\] 本番のターゲット poki/);
+    makeTarget(d, 'poki');
+    assertPass(run('check-assets.mjs', ['--dist', d, '--ledger', led]));
+  });
+
   test('TS-008-17 区分の 6 種（CEO 承認で追加したフォント（OFL）・コードで生成（効果音など）を含む）は警告なし', () => {
     const d = newDist();
     write(join(makeTarget(d, 'web'), 'assets', 'atlas-abcd1234.png'), 'x');
@@ -404,6 +473,21 @@ describe('package', () => {
     assert.equal(sums.trim().split('\n').length, 4);
   });
 
+  test('package:verify は本番の 4 種がそろわないか、SHA256SUMS にない zip があると失敗する（コードレビュー PR #1 の Nit）', () => {
+    const d = makeAll();
+    const out = join(dirname(d), 'release');
+    assertPass(pack(d, out));
+    const stray = join(out, `${pkg.name}-web-v0.0.0.zip`);
+    write(stray, 'old');
+    assertFail(run('package-verify.mjs', ['--out', out]), /NG: .*-web-v0\.0\.0\.zip は SHA256SUMS に載っていない/);
+    rmSync(stray);
+    const sumsPath = join(out, 'SHA256SUMS');
+    const kept = readFileSync(sumsPath, 'utf8').trim().split('\n').filter((l) => !l.includes('-poki-'));
+    writeFileSync(sumsPath, `${kept.join('\n')}\n`);
+    rmSync(join(out, `${pkg.name}-poki-${tag}.zip`));
+    assertFail(run('package-verify.mjs', ['--out', out]), /NG: 本番の .*-poki-.* が SHA256SUMS にない/);
+  });
+
   test('e2e 系は zip にしない。RELEASE_TAG が version と違えば失敗', () => {
     const d = makeAll();
     const out = join(dirname(d), 'release');
@@ -424,7 +508,7 @@ describe('ci.yml', () => {
   test('TS-008-23 verify の順番: gitleaks → lint → typecheck → test → build:all → check:size → check:assets', () => {
     const v = job('verify');
     const order = [
-      /uses: gitleaks\/gitleaks-action@/,
+      /"\$RUNNER_TEMP\/gitleaks" git /,
       /run: npm ci$/m,
       /run: npm run lint$/m,
       /run: npm run typecheck$/m,
@@ -455,5 +539,70 @@ describe('ci.yml', () => {
     const e = job('e2e');
     assert.match(e, /run: npx playwright install --with-deps chromium/);
     assert.match(e, /PW_CHANNEL: chromium/);
+  });
+
+  // ---- コードレビュー PR #1 の Must: CI から本番（Pages の本番ブランチ main）に出さない ----
+  const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
+  /** ジョブの本文を step ごとに分ける */
+  const steps = (body) => body.split(/\n(?= {6}- )/);
+
+  test('本番に出さない: ci.yml・nightly.yml に本番ブランチ（main・production）へのデプロイがない。ステージングは staging に固定', () => {
+    for (const [name, text] of [['ci.yml', ci], ['nightly.yml', nightly]])
+      assert.doesNotMatch(text, /--branch(?:=|\s+)["']?(?:main|production)\b/, `${name} に本番ブランチへのデプロイがある`);
+    assert.doesNotMatch(nightly, /pages deploy/);
+    assert.match(job('deploy-staging'), /wrangler pages deploy dist\/web --project-name="\$PROJECT" --branch=staging /);
+  });
+
+  test('本番に出さない: PR は main をベースにしたものだけで動く（head が main の PR を作れないようにする）', () => {
+    assert.match(ci, /^on:\n {2}pull_request:\n {4}branches: \[main\]\n/m);
+  });
+
+  test('本番に出さない: deploy-preview は同じリポジトリの PR だけ。空・main・staging・production のブランチ名を、同じ step で deploy の前に拒否する', () => {
+    const p = job('deploy-preview');
+    assert.match(p, /if: .*github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
+    const st = steps(p).find((s) => /wrangler pages deploy/.test(s));
+    assert.ok(st, 'deploy-preview に wrangler pages deploy の step がない');
+    const guard = st.search(/''\|main\|staging\|production\)/);
+    assert.ok(guard >= 0, 'ブランチ名の拒否がない');
+    const exit = st.indexOf('exit 1', guard);
+    assert.ok(exit > guard && exit < st.search(/wrangler pages deploy/), '拒否（exit 1）が deploy より前にない');
+    assert.match(st, /tr '\[:upper:\]' '\[:lower:\]'/, '小文字にしてから比べていない');
+    assert.match(st, /sed -E 's\/\[\^a-z0-9\]\+\/-\/g/, 'Pages の別名（英数字以外をハイフン）にしてからも比べていない');
+  });
+
+  // ---- コードレビュー PR #1 の Should: サプライチェーン ----
+  test('サプライチェーン: 第三者のアクションを使わない。gitleaks は版と SHA256 を固定した CLI で、全ブランチの全履歴を -m 付きで走査する', () => {
+    for (const [name, text] of [['ci.yml', ci], ['nightly.yml', nightly]])
+      for (const m of text.matchAll(/uses:\s*([^\s#]+)/g)) assert.match(m[1], /^actions\//, `${name} に第三者のアクション: ${m[1]}`);
+    const v = job('verify');
+    assert.match(v, /GITLEAKS_VERSION: \d+\.\d+\.\d+/);
+    assert.match(v, /GITLEAKS_SHA256: [0-9a-f]{64}/);
+    assert.match(v, /sha256sum -c/);
+    assert.match(v, /"\$RUNNER_TEMP\/gitleaks" git --log-opts="--all -m"/);
+    assert.match(v, /fetch-depth: 0/);
+  });
+
+  test('サプライチェーン: wrangler は deploy/package-lock.json から --ignore-scripts で、トークンのない step で入れる', () => {
+    assert.doesNotMatch(ci, /npx[^\n]*wrangler/);
+    const dpkg = JSON.parse(readFileSync(join(root, 'deploy', 'package.json'), 'utf8'));
+    assert.match(dpkg.devDependencies?.wrangler ?? '', /^\d+\.\d+\.\d+$/, 'wrangler の版を固定する');
+    assert.ok(existsSync(join(root, 'deploy', 'package-lock.json')), 'deploy/package-lock.json がない');
+    for (const name of ['deploy-preview', 'deploy-staging']) {
+      const ss = steps(job(name));
+      const install = ss.find((s) => s.includes('npm ci --prefix deploy'));
+      assert.ok(install, `${name} に npm ci --prefix deploy がない`);
+      assert.match(install, /--ignore-scripts/);
+      assert.doesNotMatch(install, /CLOUDFLARE_API_TOKEN/);
+      for (const s of ss)
+        if (s.includes('CLOUDFLARE_API_TOKEN')) assert.doesNotMatch(s, /npm (ci|install)|npx /, `${name}: トークンのある step でインストールしている`);
+    }
+  });
+
+  test('checkout は認証情報を残さない（persist-credentials: false）', () => {
+    for (const [name, text] of [['ci.yml', ci], ['nightly.yml', nightly]]) {
+      const n = (text.match(/uses: actions\/checkout@/g) ?? []).length;
+      const p = (text.match(/persist-credentials: false/g) ?? []).length;
+      assert.equal(p, n, `${name}: checkout ${n} 件のうち persist-credentials: false は ${p} 件`);
+    }
   });
 });
