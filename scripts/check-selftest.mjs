@@ -8,7 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, describe, test } from 'node:test';
-import { BUDGET, MB, transferSize } from './check-lib.mjs';
+import { BUDGET, FAKE_AD, MB, transferSize } from './check-lib.mjs';
 import { readZip } from './package-zip.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -36,12 +36,19 @@ const html = (target, extra = '') => {
   return `<!doctype html><html><head>${sdk}<script type="module" src="./assets/index-abcd1234.js"></script>${extra}</head><body></body></html>`;
 };
 
+/** 偽の広告（src/platform/dev.ts）を vite build で圧縮した後の形（2026-09-28 に feat/S1-core の dist/e2e-web で実測した並びを短くしたもの） */
+const FAKE_AD_JS = 'let n=document.createElement(`div`);n.textContent=`FAKE AD (${e})`,n.dataset.testid=`fake-ad`;';
+/** 偽の広告が入るはずのターゲット（QA test-strategy §4-5: e2e＝web＋フック＋偽の広告。出力名は e2e（PoC）か e2e-web） */
+const FAKE_AD_TARGETS = new Set(['e2e', 'e2e-web']);
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /** 想定どおりの最小の出力（違反なし）を作る */
 function makeTarget(distRoot, target, { index = true, headers = target === 'web' } = {}) {
   const dir = join(distRoot, target);
   mkdirSync(join(dir, 'assets'), { recursive: true });
   if (index) write(join(dir, 'index.html'), html(target));
   write(join(dir, 'assets', 'index-abcd1234.js'), target.startsWith('e2e') ? 'window.__game={};console.log(1);' : 'console.log(1);');
+  if (FAKE_AD_TARGETS.has(target)) write(join(dir, 'assets', 'dev-abcd1234.js'), FAKE_AD_JS);
   if (headers) copyFileSync(HEADERS, join(dir, '_headers'));
   return dir;
 }
@@ -286,6 +293,48 @@ describe('check:size', () => {
     const d = newDist();
     write(join(makeTarget(d, 'poki'), 'assets', 'vendor-abcd1234.js'), 'var o={__gameState:1};');
     assertFail(size(d, 'poki'), /\[mix\.hooks\].*vendor-abcd1234\.js/);
+  });
+
+  // ---- コードレビュー S1-core の S-8: .env.local の VITE_FAKE_ADS=true で、偽の広告が本番のビルドに入る ----
+  test('S-8 偽の広告の目印（FAKE AD・fake-ad）が 1 つでも、本番 4 種・e2e-crazygames・e2e-poki・想定表にないターゲットに入ると失敗する', () => {
+    const cases = [
+      ['assets/dev-abcd1234.js', FAKE_AD_JS, 'FAKE AD・fake-ad'], // vite build の実際の形（2 つとも）
+      ['assets/dev-abcd1234.js', 'n.textContent=`FAKE AD (${e})`;', 'FAKE AD'], // 画面の文言だけ
+      ['assets/dev-abcd1234.js', 'n.dataset.testid="fake-ad";', 'fake-ad'], // data-testid だけ
+      ['index.html', null, 'fake-ad'], // .js 以外（全ファイルのバイト列で検査する）
+    ];
+    for (const t of ['web', 'crazygames', 'itch', 'poki', 'e2e-crazygames', 'e2e-poki', 'newportal']) {
+      for (const [name, data, marks] of cases) {
+        const d = newDist();
+        write(join(makeTarget(d, t), name), data ?? html(t, '<div data-testid="fake-ad"></div>'));
+        assertFail(size(d, t), new RegExp(`\\[mix\\.fakeads\\] 偽の広告が混入: ${escRe(`${name}（${marks}）`)}`));
+      }
+    }
+  });
+
+  test('S-8 偽の広告が入るはずの e2e・e2e-web は、目印が 1 つでも欠けると失敗する（dev.ts の文言が変わって目印が古くなる偽の緑を防ぐ）', () => {
+    for (const t of FAKE_AD_TARGETS) {
+      const ok = newDist();
+      makeTarget(ok, t);
+      const r = size(ok, t);
+      assertPass(r);
+      assert.match(r.out, new RegExp(`\\| ${t} \\|(?: [^|]+ \\|){6} あり \\|`), '表の fake ad の列が「あり」');
+      for (const [data, missing] of [
+        ['n.dataset.testid=`fake-ad`;', 'FAKE AD'],
+        ['n.textContent=`FAKE AD (${e})`;', 'fake-ad'],
+        ['console.log(2);', 'FAKE AD'],
+      ]) {
+        const d = newDist();
+        write(join(makeTarget(d, t), 'assets', 'dev-abcd1234.js'), data); // 基準の偽の広告を置き換える
+        assertFail(size(d, t), new RegExp(`\\[mix\\.fakeads\\] 偽の広告の目印「${missing}」があるはずのビルドにない`));
+      }
+    }
+  });
+
+  test('S-8 目印は 2 つとも偽の広告の本体（src/platform/dev.ts）にある', () => {
+    assert.deepEqual(FAKE_AD, ['FAKE AD', 'fake-ad']);
+    const src = readFileSync(join(root, 'src', 'platform', 'dev.ts'), 'utf8');
+    for (const m of FAKE_AD) assert.ok(src.includes(m), `src/platform/dev.ts に「${m}」がない（文言を変えたら scripts/check-lib.mjs の FAKE_AD も直す）`);
   });
 
   test('想定表にないターゲットは、SDK を「なし」として検査する', () => {

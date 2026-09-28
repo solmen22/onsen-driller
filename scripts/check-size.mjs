@@ -12,12 +12,13 @@
 //   path.absolute（HTML・SVG の src・href・xlink:href・data・srcset・poster と CSS の url()・@import が / で始まる。// も含む）
 //   sourcemap（本番ビルドに .map か sourceMappingURL）
 //   mix.crazygames / mix.poki / mix.hooks / mix.headers（SDK・テスト用フック・_headers の混入と欠落）
+//   mix.fakeads（偽の広告の混入。偽の広告が入るはずの e2e では目印の欠落。目印は check-lib.mjs の FAKE_AD）
 //   headers.diff（dist/web/_headers が deploy/web/_headers と違う）
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
-  BUDGET, HOOK, MB, PRODUCTION_TARGETS, SDK, TARGETS, UNKNOWN_TARGET,
+  BUDGET, FAKE_AD, HOOK, MB, PRODUCTION_TARGETS, SDK, TARGETS, UNKNOWN_TARGET,
   extOf, fmtKB, fmtMB, isExcludedFromInitial, transferSize, walk,
 } from './check-lib.mjs';
 
@@ -85,7 +86,8 @@ for (const t of targets) {
   const files = walk(dir);
   let raw = 0;
   let initial = 0;
-  const found = { cg: [], poki: [], hooks: [] };
+  const found = { cg: [], poki: [], hooks: [], fakeAds: [] };
+  const fakeAdMarks = new Set(); // ビルドのどこかで見つかった偽の広告の目印
   for (const rel of files) {
     const buf = readFileSync(join(dir, rel));
     raw += buf.length;
@@ -101,6 +103,11 @@ for (const t of targets) {
     if (buf.includes(SDK.crazygames)) found.cg.push(rel);
     if (buf.includes(SDK.poki)) found.poki.push(rel);
     if (buf.includes(HOOK)) found.hooks.push(rel);
+    const marks = FAKE_AD.filter((m) => buf.includes(m));
+    if (marks.length) {
+      found.fakeAds.push(`${rel}（${marks.join('・')}）`);
+      for (const m of marks) fakeAdMarks.add(m);
+    }
 
     const ext = extOf(rel);
     if (ext === '.html' || ext === '.htm' || ext === '.svg' || ext === '.css') {
@@ -124,6 +131,15 @@ for (const t of targets) {
   mix('mix.crazygames', SDK.crazygames, found.cg, exp.cg);
   mix('mix.poki', SDK.poki, found.poki, exp.poki);
   mix('mix.hooks', `${HOOK}（テスト用フック）`, found.hooks, exp.hooks);
+  // 偽の広告: 本番は目印が 1 つでもあれば失敗（.env.local の VITE_FAKE_ADS=true など。S-8）。
+  // 入るはずの e2e は目印が 1 つでも欠けたら失敗（dev.ts の文言が変わって目印が古くなったことに気づくため）
+  if (exp.fakeAds) {
+    for (const m of FAKE_AD)
+      if (!fakeAdMarks.has(m))
+        fail('mix.fakeads', `偽の広告の目印「${m}」があるはずのビルドにない（src/platform/dev.ts の文字列を変えたら scripts/check-lib.mjs の FAKE_AD も直す）`);
+  } else if (found.fakeAds.length) {
+    fail('mix.fakeads', `偽の広告が混入: ${found.fakeAds.join(', ')}（.env.local などの VITE_FAKE_ADS=true・VITE_TARGET=dev を確認）`);
+  }
   if (exp.headers && !hasHeaders) fail('mix.headers', '_headers がない（web には必ず要る）');
   if (!exp.headers && hasHeaders) fail('mix.headers', '_headers が混入（web 以外に入れない）');
   if (exp.headers && hasHeaders) {
@@ -144,12 +160,12 @@ for (const t of targets) {
 
 const yn = (v) => (v === undefined ? '-' : v ? 'あり' : 'なし');
 console.log(`check:size — dist: ${distRoot}（1 MB = 10^6 B、kB = 10^3 B。初回＝_headers と .map を除く全ファイルの gzip 換算）`);
-console.log('| target | files | total kB | initial gzip kB | crazygames SDK | poki SDK | __game | _headers | result |');
-console.log('|---|---|---|---|---|---|---|---|---|');
+console.log('| target | files | total kB | initial gzip kB | crazygames SDK | poki SDK | __game | fake ad | _headers | result |');
+console.log('|---|---|---|---|---|---|---|---|---|---|');
 for (const r of results) {
   const res = r.fails.length ? `FAIL（${r.fails.length}）` : r.warns.length ? 'OK（警告あり）' : 'OK';
   console.log(
-    `| ${r.t} | ${r.files ?? '-'} | ${r.raw !== undefined ? fmtKB(r.raw) : '-'} | ${r.initial !== undefined ? fmtKB(r.initial) : '-'} | ${yn(r.found && r.found.cg.length > 0)} | ${yn(r.found && r.found.poki.length > 0)} | ${yn(r.found && r.found.hooks.length > 0)} | ${yn(r.hasHeaders)} | ${res} |`,
+    `| ${r.t} | ${r.files ?? '-'} | ${r.raw !== undefined ? fmtKB(r.raw) : '-'} | ${r.initial !== undefined ? fmtKB(r.initial) : '-'} | ${yn(r.found && r.found.cg.length > 0)} | ${yn(r.found && r.found.poki.length > 0)} | ${yn(r.found && r.found.hooks.length > 0)} | ${yn(r.found && r.found.fakeAds.length > 0)} | ${yn(r.hasHeaders)} | ${res} |`,
   );
 }
 let failed = false;
