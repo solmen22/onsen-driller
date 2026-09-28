@@ -1,0 +1,108 @@
+// 地層タイル 16×16（gdd §5-1 の帯 1〜4）。手で打った画素配列
+import type { SpriteDef } from '../lib.ts';
+
+export const tileTopsoil: SpriteDef = {
+  id: 'tile-topsoil',
+  w: 16,
+  h: 16,
+  tile: true,
+  key: { a: 'soilDark', b: 'soilMid', c: 'soil', d: 'soilLight', e: 'sand' },
+  rows: [
+    'ccccbccccccccdcc',
+    'ccdcccccbccccccc',
+    'cccccacccccccbcc',
+    'cbcccaaccccdcccc',
+    'ccccccaccccccccc',
+    'cccddccacccccbcc',
+    'ccdeedcccccccccc',
+    'cbdddbcccccdcccc',
+    'cccbbccccccccccc',
+    'ccccccccbcccccdc',
+    'cdcccccccccccccc',
+    'cccccbcccccddccc',
+    'ccccccccccdeedcc',
+    'ccbcccdcccbddbcc',
+    'cccccccccccbbccc',
+    'bcccccccccccccbc',
+  ],
+};
+
+export const tileClay: SpriteDef = {
+  id: 'tile-clay',
+  w: 16,
+  h: 16,
+  tile: true,
+  key: { k: 'clayDark', l: 'clay', m: 'clayLight' },
+  rows: [
+    'llllllllllllllll',
+    'lllmmllllllkllll',
+    'llllllllllllllll',
+    'kkllllllllllmmll',
+    'lllllkkkllllllll',
+    'llllllllllllllll',
+    'llmmlllllllkkkll',
+    'llllllllllllllll',
+    'lllllllmmmllllll',
+    'lkllllllllllllll',
+    'llllllkkllllllml',
+    'llllllllllllllll',
+    'mmllllllllkkllll',
+    'llllllllllllllll',
+    'lllkkllllllmmlll',
+    'llllllllllllllll',
+  ],
+};
+
+export const tileSandstone: SpriteDef = {
+  id: 'tile-sandstone',
+  w: 16,
+  h: 16,
+  tile: true,
+  key: { o: 'ochreDark', p: 'ochre', q: 'ochreLight' },
+  rows: [
+    'pppppppppppppppp',
+    'qqqqpppqqqqqqppp',
+    'pppppppppppppppp',
+    'pppppppppppppppp',
+    'oooopppooooooppp',
+    'pppppppppppppppp',
+    'ppqqqqqqppppqqqq',
+    'pppppppppppppppp',
+    'pppppppppppppppp',
+    'ppppoooooooppppo',
+    'pppppppppppppppp',
+    'qqqpppppqqqqqqqp',
+    'pppppppppppppppp',
+    'pppppppppppppppp',
+    'ooppppoooooppppp',
+    'pppppppppppppppp',
+  ],
+};
+
+export const tileTuff: SpriteDef = {
+  id: 'tile-tuff',
+  w: 16,
+  h: 16,
+  tile: true,
+  key: { t: 'tuffDark', u: 'tuff', v: 'tuffLight' },
+  rows: [
+    'uuuuuuuuvuuuuuuu',
+    'uuvuuuuuuuuutuuu',
+    'uuuuuutuuuuuuuuu',
+    'uuuuuuuuuuvvuuuu',
+    'utuuuuuuuuvuuuuu',
+    'uuuuvuuuuuuuuutu',
+    'uuuuuuuuutuuuuuu',
+    'uuuuuuuuuuuuuuuu',
+    'uuvvuuuuuuuuvuuu',
+    'uuvuuuuutuuuuuuu',
+    'uuuuuuuuuuuuuuuu',
+    'uuuuutuuuuuuuvuu',
+    'uuuuuuuuvvuuuuuu',
+    'tuuuuuuuvuuuutuu',
+    'uuuuuuuuuuuuuuuu',
+    'uuuutuuuuuuuuuuu',
+  ],
+};
+
+export const tiles = [tileTopsoil, tileClay, tileSandstone, tileTuff];

@@ -1,0 +1,21 @@
+node_modules/
+dist/
+release/
+.wrangler/
+playwright-report/
+test-results/
+.vite/
+*.log
+.env*
+!.env.example
+!.env.web
+!.env.crazygames
+!.env.itch
+!.env.poki
+!.env.e2e
+!.env.e2e-crazygames
+!.env.e2e-poki
+# PoC: 計測の生データ（報告書に要約を転記する）
+perf-results/
+# フォントの元データ（ダウンロードして再生成する）
+assets-src/fonts/*.ttf
