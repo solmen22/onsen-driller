@@ -235,8 +235,15 @@ function springIncomeRaw(s: GameState, id: SpringId, m: Modifiers): number {
 /** 源泉の基本の入湯料/秒（枠・湯船・全体の倍率の前。未発見は 0。ボットの枠の並べ替えなどに使う） */
 export const springIncome = (s: GameState, id: SpringId, m: Modifiers = modifiers(s)): Num => num(springIncomeRaw(s, id, m));
 
-/** つないだ源泉すべてに掛かる倍率（number）: 湯船（1＋Lv × 5%）× 全入湯料（泉質・お客さん） */
-const bathScale = (s: GameState, m: Modifiers): number => (1 + s.run.bath.level * PARAMS.bath.bonusPerLv) * m.incomeAll;
+/**
+ * 入湯料の基本量（number）に、つないだ源泉すべてに共通の倍率を掛ける（入湯料の式はここ 1 か所。レビュー PR #10 S-1）:
+ * ×（1＋湯船の Lv × 5%）× 全入湯料（泉質・お客さん・改良。modifiers）× 転生（湯の華）。
+ * number の部分は左から順に掛ける（S1 からの `sum * bath * incomeAll` と同じ丸め。リプレイのハッシュを保つ）
+ */
+function scaleBathIncome(raw: number, s: GameState, m: Modifiers): Num {
+  if (!(raw > 0)) return num(0);
+  return mul(num(raw * (1 + s.run.bath.level * PARAMS.bath.bonusPerLv) * m.incomeAll), yunohanaMult(s));
+}
 
 /**
  * 入湯料/秒（gdd §5-4。BL-015）＝ Σ（枠につないだ源泉の基本の入湯料）×（1＋湯船の Lv × 5%）× 全入湯料の倍率 × 転生の倍率。
@@ -246,19 +253,16 @@ export function bathIncomePerSec(s: GameState, m: Modifiers = modifiers(s)): Num
   // 源泉ごとの基本量は number の範囲（MVP では最大でも 1e12 程度）なので、合計してから Decimal にする
   let sum = 0;
   for (const id of s.run.bath.slots) if (id !== null) sum += springIncomeRaw(s, id, m);
-  if (sum <= 0) return num(0);
-  const bath = 1 + s.run.bath.level * PARAMS.bath.bonusPerLv;
-  return mul(num(sum * bath * m.incomeAll), yunohanaMult(s));
+  return scaleBathIncome(sum, s, m);
 }
 
 /**
- * 1 つの源泉をつないだときの入湯料/秒（表示用。今の倍率のまま。その源泉自身の効果〔単純温泉の ×1.2 など〕の変化は含めない）。
- * つないでいる源泉なら、入湯料/秒の合計のうちその源泉の分（合計との差は丸めの範囲）
+ * 1 つの源泉の入湯料/秒（表示用）。つないでいる源泉なら、入湯料/秒の合計のうちその源泉の分（合計との差は丸めの範囲）。
+ * つないでいない源泉は「今の倍率のまま」の目安で、その源泉をつなぐことで変わる泉質の効果（単純温泉の ×1.2 など）・
+ * 来る／帰るお客さん（タヌキ・カピバラなど）の効果と、空きがなければ外す源泉の分は含めない（レビュー PR #10 N-2）
  */
 export function springIncomeIfSlotted(s: GameState, id: SpringId, m: Modifiers = modifiers(s)): Num {
-  const raw = springIncomeRaw(s, id, m);
-  if (raw <= 0) return num(0);
-  return mul(num(raw * bathScale(s, m)), yunohanaMult(s));
+  return scaleBathIncome(springIncomeRaw(s, id, m), s, m);
 }
 
 /** 湯船の Lv に対する枠の数（Lv0・5・15・35 で 1・2・3・4。gdd §5-5） */

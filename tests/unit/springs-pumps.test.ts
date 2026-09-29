@@ -272,11 +272,12 @@ describe('TS-015-08 枠につないでいない源泉の入湯料は 0', () => {
     expect(bathIncomePerSec(s).toString()).toBe(before);
   });
 
-  it('性質: springViews の incomePerSec の合計＝入湯料/秒（丸めの範囲）、つないでいない源泉は 0（fast-check）', () => {
+  it('性質: springViews の incomePerSec の合計＝入湯料/秒（丸めの範囲）、つないでいない源泉は 0。湯の華の累計も動かす（fast-check。レビュー PR #10 S-1）', () => {
     const lv = fc.integer({ min: 0, max: 300 });
     fc.assert(
-      fc.property(fc.tuple(lv, lv, lv, lv, lv), fc.integer({ min: 0, max: 60 }), (lvs, bath) => {
+      fc.property(fc.tuple(lv, lv, lv, lv, lv), fc.integer({ min: 0, max: 60 }), fc.integer({ min: 0, max: 5000 }), (lvs, bath, yunohana) => {
         const s = stateWith({ bath, pumps: Object.fromEntries(SPRING_IDS.map((id, i) => [id, lvs[i] ?? 0])) });
+        s.meta.yunohana.lifetime = num(yunohana);
         const v = springViews(s);
         const sum = v.reduce((a, x) => a + x.incomePerSec.toNumber(), 0);
         const total = bathIncomePerSec(s).toNumber();
