@@ -8,7 +8,7 @@ import { detectLang, setLang, type Lang } from '../i18n/index.ts';
 import { App } from '../ui/App.tsx';
 import { applyLayout, layoutOf } from '../ui/layout.ts';
 import { Ctx } from '../ui/hooks/use-game.ts';
-import { playBreak, playHit, setMuted, unlockAudio } from '../audio/sfx.ts';
+import { playBreak, playHit, resumeAudio, setMuted, unlockAudio } from '../audio/sfx.ts';
 import { startAutosave } from './autosave.ts';
 import { createAppClock } from './clock.ts';
 import type { View } from '../view/game.ts';
@@ -98,6 +98,9 @@ async function boot(): Promise<void> {
     },
     onPress: (ts) => perf?.markInput(ts),
   });
+  // 止まった音（iOS のバックグラウンドからの復帰・電話の後など）を、次の入力のハンドラの中で同期に戻す（BL-104）。
+  // タッチでは pointerdown が利用者の操作とみなされないブラウザがあるので、pointerup・touchend でも呼ぶ（running なら何もしない）
+  for (const type of ['pointerdown', 'pointerup', 'touchend', 'keydown']) window.addEventListener(type, resumeAudio, true);
 
   // 広告の再生中はループ・入力・音を止め、gameplay も止める
   platform.ads.onPlaying((playing) => {
