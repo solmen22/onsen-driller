@@ -790,6 +790,57 @@ function assertFailureReportPolicy(body, label, testRuns) {
   }
 }
 
+describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別のジョブ。決定 0006-2）', () => {
+  const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
+  const e = jobOf(nightly, 'e2e');
+
+  test('E2E のジョブは balance・property を呼ばず、ほかのジョブを待たない（BL-090 がそろう前から動く）', () => {
+    const c = codeOf(e);
+    assert.doesNotMatch(c, /test:balance|test:property/);
+    assert.doesNotMatch(c, /^ {4}needs:/m);
+  });
+
+  test('npm ci → build:all → build:e2e → Playwright（chromium・webkit・firefox）→ mode ごとに test:e2e:nightly／test:e2e:full（PR #6 のレビュー S-3）', () => {
+    const ss = stepsOf(e);
+    const at = (re, what) => {
+      const i = ss.findIndex((s) => re.test(s));
+      assert.ok(i >= 0, `nightly.yml の e2e に ${what} がない`);
+      return i;
+    };
+    const order = [
+      at(/^ {8}run: npm ci$/m, 'npm ci'),
+      at(/^ {8}run: npm run build:all$/m, 'build:all（e2e-full の prod-builds が本番 4 種を使う）'),
+      at(/^ {8}run: npm run build:e2e$/m, 'build:e2e'),
+      at(/^ {8}run: npx playwright install --with-deps chromium webkit firefox$/m, 'Playwright の 3 ブラウザの導入'),
+    ];
+    const nightlyRun = at(/^ {8}run: npm run test:e2e:nightly$/m, 'test:e2e:nightly');
+    const fullRun = at(/^ {8}run: npm run test:e2e:full$/m, 'test:e2e:full');
+    for (let i = 1; i < order.length; i++) assert.ok(order[i - 1] < order[i], `nightly.yml の e2e の step の順番が違う（${i} 番目）`);
+    assert.ok(order.at(-1) < nightlyRun && order.at(-1) < fullRun, 'テストがビルドと Playwright の導入より前にある');
+    assert.match(ss[nightlyRun], /^ {8}if: .*inputs\.mode != 'full'$/m);
+    assert.match(ss[fullRun], /^ {8}if: .*inputs\.mode == 'full'$/m);
+    const c = codeOf(e);
+    assert.doesNotMatch(c, /^ {8}run: npm run test:e2e$/m, 'test:e2e（--project=chromium。PR ごとに流している）は毎晩に使わない');
+    assert.doesNotMatch(c, /PW_DIST/, 'PW_DIST を渡さない（serve.mjs で mode の outDir より優先される）');
+  });
+
+  test('package.json の test:e2e:nightly は WebKit・Firefox を含み、PR ごとの chromium を重ねない', () => {
+    const projects = [...pkg.scripts['test:e2e:nightly'].matchAll(/--project=([\w-]+)/g)].map((m) => m[1]);
+    for (const p of ['webkit', 'firefox']) assert.ok(projects.includes(p), `test:e2e:nightly に ${p} がない`);
+    assert.ok(!projects.includes('chromium'), 'test:e2e:nightly に chromium（PR ごとの test:e2e と同じ）がある');
+  });
+
+  test('失敗したときの記録: playwright-report/ だけを 3 日、HTML レポートができなかったときだけ test-results/（BL-099 と同じ方針）', () => {
+    assertFailureReportPolicy(e, 'nightly.yml の e2e', ['npm run test:e2e:nightly', 'npm run test:e2e:full']);
+  });
+
+  test('schedule は週 2 回（月・木の 03:00 JST＝UTC の日・水 18:00。CEO 決定）。コメントのままでも値を固定する', () => {
+    const crons = [...nightly.matchAll(/cron: '([^']+)'/g)].map((m) => m[1]);
+    assert.ok(crons.length >= 1, 'cron の行がない');
+    for (const c of crons) assert.equal(c, '0 18 * * 0,3');
+  });
+});
+
 describe('失敗したときの E2E の記録（BL-099。決定 0006-4・QA 判定書 S1 §6-3。500MB の保存量の枠）', () => {
   const ci = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8').replaceAll('\r\n', '\n');
   const pw = readFileSync(join(root, 'playwright.config.ts'), 'utf8');
