@@ -1,4 +1,5 @@
 // お客さん 6 種（gdd §5-6）。条件を満たしている間だけ来ている（抽選なし）。
+import type { Effect } from './effects.ts';
 import type { SpringId } from './springs.ts';
 
 export type GuestId = 'tanuki' | 'monkey' | 'capybara' | 'fox' | 'cat' | 'redPanda';
@@ -8,12 +9,8 @@ export type GuestCondition =
   | { kind: 'slottedLevel'; spring: SpringId; level: number }
   | { kind: 'allSlotsDistinct'; slots: number };
 
-export type GuestEffect =
-  | { kind: 'incomeAll'; mult: number }
-  | { kind: 'drillPower'; mult: number }
-  | { kind: 'springIncome'; spring: SpringId; mult: number }
-  | { kind: 'autoDig'; mult: number }
-  | { kind: 'digCoins'; mult: number };
+/** お客さんの効果（content/effects.ts の共通の語彙のうち、お客さんが使う種類。来ている間だけ効く） */
+export type GuestEffect = Extract<Effect, { kind: 'incomeAll' | 'drillPower' | 'springIncome' | 'autoDig' | 'digCoins' }>;
 
 export interface GuestDef {
   id: GuestId;

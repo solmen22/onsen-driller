@@ -1,14 +1,12 @@
 // 源泉 5 種（gdd §5-4。地形「山あい」の深さ）。深さに届くと発見し、ポンプ Lv1 が無料で付く（BL-015）。
 // 500m の伝説の源泉（エンディング）は BL-023、地形ごとの深さ（depthByTerrain）は S3 の BL-024 で足す。
 // 名前は i18n のキー（spring.<id>）。文章は i18n/*.json に置く
+import type { Effect } from './effects.ts';
+
 export type SpringId = 'simple' | 'co2' | 'salt' | 'sulfur' | 'iron';
 
-export type SpringEffect =
-  | { kind: 'incomeAll'; mult: number }
-  | { kind: 'drillPower'; mult: number }
-  | { kind: 'offlineEff'; add: number }
-  | { kind: 'oreValue'; mult: number }
-  | { kind: 'hardness'; mult: number };
+/** 源泉の効果（content/effects.ts の共通の語彙のうち、源泉が使う種類。枠につないでいる間だけ効く。BL-016） */
+export type SpringEffect = Extract<Effect, { kind: 'incomeAll' | 'drillPower' | 'offlineEff' | 'oreValue' | 'hardness' }>;
 
 export interface SpringDef {
   id: SpringId;
