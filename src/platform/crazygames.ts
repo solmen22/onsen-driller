@@ -42,6 +42,9 @@ export interface CrazySdk {
   user?: { systemInfo?: { locale?: string } };
 }
 
+/** init の中で広告ブロッカーの判定（SDK.ad.hasAdblock）を待つ上限。過ぎたら判定は「不明」として起動を続ける（PR #24 のレビューの連絡 1） */
+export const ADBLOCK_TIMEOUT_MS = 1_000;
+
 export interface CrazyGamesOptions {
   getSdk: () => CrazySdk | undefined;
   /** Basic Launch 中は false（VITE_CG_ADS）。広告を一度も要求しない */
@@ -195,13 +198,32 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
       muted = !!st.muteAudio;
       mutedL.emit(muted);
     });
-    if (opts.adsEnabled && s.ad.hasAdblock) {
-      try {
-        adsOff = await s.ad.hasAdblock();
-      } catch {
-        /* 無視 */
-      }
+    if (opts.adsEnabled && s.ad.hasAdblock) await checkAdblock(s.ad.hasAdblock.bind(s.ad));
+  }
+
+  /**
+   * 広告ブロッカーの判定（arch §12-3。Q-35 (c)）。**起動を止めないよう ADBLOCK_TIMEOUT_MS までしか待たない**
+   * （main.ts は init の後にゲームを作る。返らないとゲームが始まらなかった。PR #24 のレビューの連絡 1）。
+   * 時間切れ・失敗は「不明」: 動画のボタンは出す（本当にブロックされていれば、最初の要求の adError 'adblock' で以後は隠す）。
+   * 遅れて返った結果も使う（true なら以後は隠す）
+   */
+  async function checkAdblock(hasAdblock: () => Promise<boolean>): Promise<void> {
+    let answer: Promise<boolean>;
+    try {
+      answer = Promise.resolve(hasAdblock());
+    } catch (e) {
+      answer = Promise.reject(e instanceof Error ? e : new Error(String(e)));
     }
+    answer.then(
+      (blocked) => {
+        if (blocked === true) adsOff = true;
+      },
+      () => {
+        /* 不明のまま */
+      },
+    );
+    const r = await withTimeout(answer, ADBLOCK_TIMEOUT_MS);
+    if (r === 'timeout' || r === 'error') log.push('adblockCheck', r);
   }
 
   return {

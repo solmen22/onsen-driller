@@ -2,7 +2,7 @@
 // L2 の契約テストの本体（TS-057-09・14・15 など）は BL-072（実行・修復エンジニア）。ここはアダプタの直しの再発防止
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLifecycle } from '../../src/app/lifecycle.ts';
-import { createCrazyGamesPlatform, type CgAdCallbacks, type CgAdType } from '../../src/platform/crazygames.ts';
+import { ADBLOCK_TIMEOUT_MS, createCrazyGamesPlatform, type CgAdCallbacks, type CgAdType } from '../../src/platform/crazygames.ts';
 import { AD_END_TIMEOUT_MS, AD_START_TIMEOUT_MS, type RewardResult } from '../../src/platform/types.ts';
 import { crazyMock, type CrazyMock } from '../mocks/sdk.ts';
 
@@ -240,4 +240,117 @@ describe('Q-35 (c): 広告の失敗の種類と、動画のボタンを出し続
         expect(sdk.log.filter((x) => x === 'requestAd:rewarded')).toHaveLength(1); // 2 回目は SDK に求めない
       }
     });
+});
+
+describe('広告ブロッカーの判定（hasAdblock）が返らなくても起動は止まらない（PR #24 のレビューの連絡 1。重大度 S1 になりうる）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** hasAdblock を外から決める（返らない・遅れて返る・拒否） */
+  function adblockControl(sdk: CrazyMock): { answer: (v: boolean) => void; fail: () => void; asked: () => number } {
+    let asked = 0;
+    let answer: (v: boolean) => void = () => {};
+    let fail: () => void = () => {};
+    sdk.ad.hasAdblock = () =>
+      new Promise<boolean>((res, rej) => {
+        asked++;
+        answer = res;
+        fail = () => rej(new Error('adblock check failed (test)'));
+      });
+    return { answer: (v) => answer(v), fail: () => fail(), asked: () => asked };
+  }
+
+  it(`返らない: init は ADBLOCK_TIMEOUT_MS（${ADBLOCK_TIMEOUT_MS}ms）で終わり、判定は不明＝動画のボタンを出す。遅れて true が返ったら以後は出さない`, async () => {
+    const sdk = crazyMock('crazygames');
+    const ctl = adblockControl(sdk);
+    const p = createCrazyGamesPlatform({ getSdk: () => sdk, adsEnabled: true });
+    const init = track(p.init());
+    await vi.advanceTimersByTimeAsync(ADBLOCK_TIMEOUT_MS - 1);
+    expect(init.done()).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(init.done()).toBe(true);
+    expect(ctl.asked()).toBe(1);
+    expect(p.ads.rewardedAvailable()).toBe(true);
+    expect(p.calls()).toContainEqual({ name: 'adblockCheck', arg: 'timeout' });
+    ctl.answer(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(p.ads.rewardedAvailable()).toBe(false);
+    expect(await p.ads.showRewarded('R2')).toBe('unavailable');
+  });
+
+  it('遅れて false が返っても、出したまま。上限より早く返れば、その結果で始まる（true なら最初から出さない）', async () => {
+    const late = crazyMock('crazygames');
+    const lateCtl = adblockControl(late);
+    const p1 = createCrazyGamesPlatform({ getSdk: () => late, adsEnabled: true });
+    const i1 = track(p1.init());
+    await vi.advanceTimersByTimeAsync(ADBLOCK_TIMEOUT_MS);
+    expect(i1.done()).toBe(true);
+    lateCtl.answer(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(p1.ads.rewardedAvailable()).toBe(true);
+
+    const fast = crazyMock('crazygames');
+    const fastCtl = adblockControl(fast);
+    const p2 = createCrazyGamesPlatform({ getSdk: () => fast, adsEnabled: true });
+    const i2 = track(p2.init());
+    await vi.advanceTimersByTimeAsync(10);
+    fastCtl.answer(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(i2.done()).toBe(true);
+    expect(p2.ads.rewardedAvailable()).toBe(false);
+    expect(p2.calls().some((c) => c.name === 'adblockCheck')).toBe(false);
+  });
+
+  it('拒否・同期の例外: すぐ起動を続け、判定は不明（ボタンを出す）。未処理の拒否を出さない', async () => {
+    const rej = crazyMock('crazygames');
+    const ctl = adblockControl(rej);
+    const p1 = createCrazyGamesPlatform({ getSdk: () => rej, adsEnabled: true });
+    const i1 = track(p1.init());
+    await vi.advanceTimersByTimeAsync(0);
+    ctl.fail();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(i1.done()).toBe(true);
+    expect(p1.ads.rewardedAvailable()).toBe(true);
+    expect(p1.calls()).toContainEqual({ name: 'adblockCheck', arg: 'error' });
+
+    const thrower = crazyMock('crazygames');
+    thrower.ad.hasAdblock = () => {
+      throw new Error('sync throw (test)');
+    };
+    const p2 = createCrazyGamesPlatform({ getSdk: () => thrower, adsEnabled: true });
+    const i2 = track(p2.init());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(i2.done()).toBe(true);
+    expect(p2.ads.rewardedAvailable()).toBe(true);
+  });
+
+  it('起動の全体（main.ts と同じ順番）: hasAdblock が返らなくても、init の後に loadingStop と最初の入力の gameplayStart が SDK に届く', async () => {
+    const sdk = crazyMock('crazygames');
+    adblockControl(sdk);
+    const p = createCrazyGamesPlatform({ getSdk: () => sdk, adsEnabled: true });
+    const life = createLifecycle(p);
+    life.loadingStart();
+    const init = track(p.init());
+    await vi.advanceTimersByTimeAsync(ADBLOCK_TIMEOUT_MS);
+    expect(init.done()).toBe(true);
+    life.loadingStop();
+    life.firstInput();
+    expect(sdk.log).toEqual(['init', 'loadingStart', 'loadingStop', 'gameplayStart']);
+  });
+
+  it('Basic Launch（adsEnabled=false）では hasAdblock を呼ばない（今までどおり）', async () => {
+    const sdk = crazyMock('crazygames');
+    const ctl = adblockControl(sdk);
+    const p = createCrazyGamesPlatform({ getSdk: () => sdk, adsEnabled: false });
+    await p.init();
+    expect(ctl.asked()).toBe(0);
+  });
+
+  it('上限の値: 1 秒（本物は local で即時。init の 5 秒と合わせても #1 の 10 秒に収まる）', () => {
+    expect(ADBLOCK_TIMEOUT_MS).toBe(1_000);
+  });
 });
