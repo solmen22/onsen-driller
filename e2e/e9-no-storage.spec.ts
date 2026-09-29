@@ -1,6 +1,8 @@
 // E2E E9 保存できない環境（e2e_E9_no-storage.md）
 // PR: TS-E9-01〜04（V1）、TS-E9-07（V2 で 01〜04）、TS-E9-08（V3 で 01〜04 と設定の保存）、TS-E9-10（V5）、TS-E9-13（共通の検査）、
-//     TS-E9-14（V6）、TS-E9-15（V7）（S1）。毎晩: TS-E9-05・06・09（BL-089）。保留: TS-E9-11（S3）、TS-E9-12（S2）。
+//     TS-E9-14（V6）、TS-E9-15（V7）（S1）。TS-E9-09（V4。S2 の BL-094 で毎晩から PR へ。QA 判定書 sprint-01 §4・決定 0006-5:
+//     気づけないセーブの消失の唯一の守りが案内で、毎晩のジョブは Chromium を流さないため）。
+//     毎晩: TS-E9-05・06（BL-089）。保留: TS-E9-11（S3）、TS-E9-12（S2）。
 // 保存できない状態は context.addInitScript でページのスクリプトより先に入れる（e2e/support/storage.ts の V1〜V7）。
 // 文言は S1 では data-testid（save-warning）で存在だけを見る。文言の一致は S2（BL-052）から。
 // 技術リードの回答（traceability.md §5-2）に合わせた期待
@@ -216,7 +218,7 @@ test.describe('E9 保存できない環境', () => {
     });
   });
 
-  test('TS-E9-09 V4（書き込みが捨てられる）: 起動直後に案内が出て（failing。Q-25）、ゲームは続く @nightly', async ({ page, context, harness }) => {
+  test('TS-E9-09 V4（書き込みが捨てられる）: 起動直後に案内が出て（failing。Q-25）、ゲームは続く', async ({ page, context, harness }) => {
     // Q-25: V4 は読めるので localStorage のまま、起動時の試し書きの読み戻しが合わないので起動直後から failing。
     // 15 秒ごとに再試行するが V4 では成功しないので出したまま。キーは 1 つも書かれない
     needs('feature:saveWarning');
