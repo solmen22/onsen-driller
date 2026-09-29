@@ -14,13 +14,26 @@ import { hitsOf } from './support/hooks.ts';
 import { recordedKeydowns } from './support/privacy.ts';
 
 /** 親ページのスクロールが止まるまで待ち（キーのスクロールは滑らかに動く）、その位置を返す */
-async function settledScrollY(page: Page): Promise<number> {
-  let last = await page.evaluate(() => window.scrollY);
-  for (let i = 0; i < 40; i++) {
+// 100ms ごとに読み、3 回続けて同じ値（200ms 動かない）なら止まったとみなす。遅いランナーでは滑らかなスクロールの始まりが
+// 100ms より遅れる（PR #6 のレビュー N-3。2026-09-29 の毎晩〔run 36524469312〕で webkit の対照が 1 回目に 400 → 400 で赤）。
+// movedFrom を渡すと、まずその値から動くのを最大 3 秒待ってから止まるのを待つ（対照: ↓ で親が動くこと）
+async function settledScrollY(page: Page, opts: { movedFrom?: number } = {}): Promise<number> {
+  const read = (): Promise<number> => page.evaluate(() => window.scrollY);
+  if (opts.movedFrom !== undefined) {
+    const from = opts.movedFrom;
+    await expect.poll(read, { timeout: 3_000, intervals: [50], message: `親ページの scrollY が ${from} から動く` }).not.toBe(from);
+  }
+  let last = await read();
+  let same = 1;
+  for (let i = 0; i < 60; i++) {
     await page.waitForTimeout(100);
-    const y = await page.evaluate(() => window.scrollY);
-    if (y === last) return y;
-    last = y;
+    const y = await read();
+    if (y === last) {
+      if (++same >= 3) return y;
+    } else {
+      last = y;
+      same = 1;
+    }
   }
   throw new Error('親ページのスクロールが止まりません');
 }
@@ -53,7 +66,7 @@ async function keysInPortal(page: Page, focusGame: (frame: Frame) => Promise<voi
   await page.mouse.click(10, 50);
   expect(await frame.evaluate(() => document.hasFocus()), '親ページを押すとゲームの枠からフォーカスが外れる').toBe(false);
   await page.keyboard.press('ArrowDown');
-  const moved = await settledScrollY(page);
+  const moved = await settledScrollY(page, { movedFrom: START_Y });
   test.info().annotations.push({ type: '対照: 親ページの ↓ で動いた scrollY', description: `${START_Y} → ${moved}` });
   expect(moved, '親ページは ↓ でスクロールする（対照）').toBeGreaterThan(START_Y);
   await page.evaluate((y) => window.scrollTo(0, y), START_Y);

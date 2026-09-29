@@ -11,15 +11,73 @@ import { SEED_A } from '../tests/helpers/seeds.ts';
 
 /** 大きさの変更の後に描画のフレームを回す時間（ms。ロジックは __game.pause() で止めておく） */
 const SETTLE_MS = 300;
+/** キャンバスが合うまで描画のフレームを回し続ける上限（Phaser の大きさの見直しの間隔〔ScaleManager の resizeInterval 500ms〕を超える） */
+const SETTLE_MAX_MS = 1_500;
+
+type Fit = { canvas: { w: number; h: number }; stage: { w: number; h: number }; scrollWidth: number; innerWidth: number };
+const fitsStage = (f: Fit): boolean => Math.abs(f.canvas.w - f.stage.w) <= 1 && Math.abs(f.canvas.h - f.stage.h) <= 1;
+
+/**
+ * BL-114（S2。QA 2026-09-29_bug-canvas-resize-severity.md §2）の既知の形を見分けるため、変更の前のキャンバスの大きさと、
+ * window の resize の時点のステージの大きさ（新しいレイアウトに切り替わる前）を、ページに記録する
+ */
+async function armStaleSizes(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __e2eStale?: number[][]; __e2eStaleArmed?: boolean };
+    const rect = (sel: string): number[] => {
+      const r = document.querySelector(sel)!.getBoundingClientRect();
+      return [r.width, r.height];
+    };
+    w.__e2eStale = [rect('[data-testid="stage"] canvas')];
+    if (!w.__e2eStaleArmed) {
+      w.__e2eStaleArmed = true;
+      addEventListener('resize', () => w.__e2eStale?.push(rect('[data-testid="stage"]')));
+    }
+  });
+}
 
 /**
  * ビューポートの大きさを変え、DOM のレイアウト（ResizeObserver で data-layout が変わる。実時間で動く）が新しい大きさに
- * 追いついてから、描画のフレームを回して Phaser の RESIZE を追いつかせる（Clock API で止めた時計の rAF。先に回すと古いステージの大きさを測る）
+ * 追いついてから、描画のフレームを回して Phaser の RESIZE を追いつかせる（Clock API で止めた時計の rAF。先に回すと古いステージの大きさを測る）。
+ * 遅いランナーでは、レイアウトが変わらない変更（横 → 横など）で Phaser が大きさを読むのが遅れ、SETTLE_MS では「変更の前の大きさ」のまま
+ * のことがある（2026-09-29 の毎晩 run 36524469312 の mobile-safari の TS-035-07 の 1 回目）。そこで Phaser の見直しの間隔を超えるまで、
+ * 合うまでフレームを回す。それでも合わなければそのまま判定に進む（BL-114 か、ほかの不具合）
  */
 async function resizeTo(page: Page, vp: { width: number; height: number }): Promise<void> {
+  await armStaleSizes(page);
   await page.setViewportSize(vp);
   await expect(page.getByTestId('app-root')).toHaveAttribute('data-layout', vp.width / vp.height >= 1.1 ? 'landscape' : 'portrait');
+  await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([vp.width, vp.height]);
   await page.clock.runFor(SETTLE_MS);
+  for (let t = SETTLE_MS; t < SETTLE_MAX_MS && !fitsStage(await fitOf(page)); t += 100) await page.clock.runFor(100);
+}
+
+/** 既知の不具合の印（test-strategy 第3.5版 §4-3 のときどき起きる既知の不具合の扱い）。期限を過ぎたら印は効かず、テストは失敗する */
+const KNOWN_BUG_BL_114 = { type: 'KNOWN_BUG_BL-114', project: 'mobile-safari', until: Date.UTC(2026, 9, 8) } as const;
+
+/**
+ * 大きさの変更の後の TS-035-03・07 の確認。BL-114 の印は **mobile-safari の、キャンバスとステージの大きさの比較だけ**に効き、
+ * キャンバスが「古い大きさ（変更の前のキャンバス、または window の resize の時点のステージ）のまま」の既知の形だけを許して
+ * 数値を注記に残す（QA の条件 1・2）。ほかの形のずれ・ほかのプロジェクト・ほかの確認（ステージが見える・横スクロールなし）は今までどおり
+ */
+async function expectFitsAfterResize(page: Page, label: string): Promise<void> {
+  const f = await fitOf(page);
+  if (!fitsStage(f) && test.info().project.name === KNOWN_BUG_BL_114.project) {
+    const stale = await page.evaluate(() => (window as unknown as { __e2eStale?: number[][] }).__e2eStale ?? []);
+    const match = stale.find(([w = -1, h = -1]) => Math.abs(f.canvas.w - w) <= 1 && Math.abs(f.canvas.h - h) <= 1);
+    if (match) {
+      expect(Date.now(), `${KNOWN_BUG_BL_114.type} の印の期限（S2 の末）を過ぎた。BL-114 を直して印を消すか、QA リードが扱いを決め直す`).toBeLessThan(KNOWN_BUG_BL_114.until);
+      test.info().annotations.push({
+        type: KNOWN_BUG_BL_114.type,
+        description: `${label}: キャンバス ${f.canvas.w}×${f.canvas.h}・ステージ ${f.stage.w}×${f.stage.h}（古い大きさ ${match.map((x) => Math.round(x)).join('×')} のまま）`,
+      });
+      expect(f.stage.w, `${label}: ステージが見える`).toBeGreaterThan(0);
+      expect(f.stage.h, `${label}: ステージが見える`).toBeGreaterThan(0);
+      expect(f.scrollWidth, `${label}: 横スクロールが出ない`).toBeLessThanOrEqual(f.innerWidth);
+      return;
+    }
+  }
+  expectFits(f, label);
 }
 
 /** ステージの中の <canvas> の数と、文書全体の <canvas> の数 */
@@ -27,7 +85,7 @@ const canvasCounts = (page: Page): Promise<{ stage: number; all: number }> =>
   page.evaluate(() => ({ stage: document.querySelectorAll('[data-testid="stage"] canvas').length, all: document.querySelectorAll('canvas').length }));
 
 /** キャンバスとステージの表示の大きさ、横スクロールの有無（TS-035-03） */
-async function fitOf(page: Page): Promise<{ canvas: { w: number; h: number }; stage: { w: number; h: number }; scrollWidth: number; innerWidth: number }> {
+async function fitOf(page: Page): Promise<Fit> {
   return page.evaluate(() => {
     const c = document.querySelector('[data-testid="stage"] canvas')!.getBoundingClientRect();
     const s = document.querySelector('[data-testid="stage"]')!.getBoundingClientRect();
@@ -89,7 +147,7 @@ test.describe('BL-035 Phaser の骨格', () => {
       await resizeTo(page, vp);
       const f = await fitOf(page);
       seen.push(`${vp.width}x${vp.height}: canvas ${f.canvas.w}x${f.canvas.h} stage ${f.stage.w}x${f.stage.h}`);
-      expectFits(f, `${vp.width}×${vp.height}`);
+      await expectFitsAfterResize(page, `${vp.width}×${vp.height}`);
     }
     test.info().annotations.push({ type: '大きさ', description: seen.join(' / ') });
   });
@@ -146,7 +204,7 @@ test.describe('BL-035 Phaser の骨格', () => {
     const seen: string[] = [];
     for (const vp of [{ width: 390, height: 844 }, ...SIZES.slice(1), { width: 1280, height: 720 }]) {
       await resizeTo(page, vp);
-      expectFits(await fitOf(page), `${vp.width}×${vp.height}`);
+      await expectFitsAfterResize(page, `${vp.width}×${vp.height}`);
       const r = await g.rect('drill');
       expect(r, `${vp.width}×${vp.height}: rect('drill')`).not.toBeNull();
       seen.push(`${vp.width}x${vp.height}: ${JSON.stringify(r)}`);
@@ -162,8 +220,22 @@ test.describe('BL-035 Phaser の骨格', () => {
     test.info().annotations.push({ type: "rect('drill')", description: seen.join(' / ') });
   });
 
-  test('TS-035-09 自動掘りオンで WebGL のコンテキストを失わせて 1 秒後に戻すと、描画が戻り、打撃・コインが増え続け、例外が出ない', async ({ page, harness }) => {
+  test('TS-035-09 自動掘りオンで WebGL のコンテキストを失わせて 1 秒後に戻すと、描画が戻り、打撃・コインが増え続け、例外が出ない', async ({ page, harness, browserName }) => {
     const g = await bootGame(page, { seed: SEED_A });
+    // 前提: Phaser が WebGL で描いている（AUTO は WebGL、だめなら Canvas）。GPU のない Linux の Firefox（毎晩の CI）は WebGL が使えず
+    // Canvas で描く（2026-09-29 の毎晩 run 36524469312: webgl=false）。Canvas にはコンテキストの喪失がないので、そのときだけ理由つきで対象外。
+    // Chromium（PR の e2e。CI は SwiftShader で WebGL）は WebGL を必須のまま（ここが Canvas になったら不具合として赤にする）
+    const renderer = await page.evaluate(() => {
+      const c = document.querySelector('[data-testid="stage"] canvas') as HTMLCanvasElement;
+      if (c.getContext('webgl2') ?? c.getContext('webgl')) return 'webgl';
+      return c.getContext('2d') ? 'canvas' : 'none';
+    });
+    test.info().annotations.push({ type: '描画の方式', description: renderer });
+    test.skip(
+      renderer === 'canvas' && browserName !== 'chromium',
+      `${browserName} のこの環境は WebGL が使えず Phaser が Canvas で描いている（コンテキストの喪失は起きない）。Canvas での描画・入力は TS-035-10（S3）`,
+    );
+    expect(renderer, 'Phaser が WebGL で描いている').toBe('webgl');
     await g.pause();
     await autoDigOn(g);
     await g.resume();
