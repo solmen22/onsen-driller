@@ -1,7 +1,8 @@
 # CI（BL-008・BL-080。infra.md §4-3・付録 A-1 を npm に読み替えたもの）
 # - verify: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets
 #   同じジョブの連続した step なので、前が失敗したら後ろは動かない（TS-008-23）
-# - e2e: verify が緑のときだけ（needs）。PR と手動実行で動く。main への push では PR で実施済みなので省く
+# - e2e: verify が緑のときだけ（needs）。PR・手動実行・main への push のすべてで動く（決定 0007: main の push でも PR と同じ範囲の
+#   npm run test:e2e を流し、ステージングは e2e の緑を待つ。マージの規則の案 L〔手元で合成して push せずにマージ〕の前提。QA の条件 1）
 #   verify のビルド（e2e 系 2 種と本番 4 種。成果物 dist-e2e）を受け取り、scripts/check-e2e-dist.mjs でそろっていることを
 #   確かめてから npm run test:e2e を流す（BL-095）
 # - deploy-preview / deploy-staging: Actions の Variables の CF_PAGES_PROJECT が空のあいだはスキップされる（BL-080 で登録済み）
@@ -100,7 +101,6 @@ jobs:
 
   e2e:
     needs: verify
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -185,7 +185,7 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha }}
 
   deploy-staging:
-    needs: verify
+    needs: [verify, e2e] # e2e が緑でないとステージングに出さない（決定 0007）
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CF_PAGES_PROJECT != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
