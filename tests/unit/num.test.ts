@@ -13,6 +13,7 @@ import {
   num,
   NUM_MAX,
   pow,
+  sanitize,
   sub,
   sumGeometric,
   toNumber,
@@ -127,7 +128,7 @@ describe('レビュー S-10: add・sub・mul の第 2 引数も正規化する�
     fc.assert(
       fc.property(bigArb, bigArb, (a, b) => {
         expect(isHealthy(add(a, b)) && isHealthy(sub(a, b)) && isHealthy(mul(a, b))).toBe(true);
-        expect(add(a, b).eq(a.add(b)) || a.add(b).gt(NUM_MAX)).toBe(true);
+        expect(add(a, b).eq(sanitize(a.add(b))) || a.add(b).gt(NUM_MAX)).toBe(true); // BL-106: 生の和は仮数が [1, 10) の外のことがあるので正規化して比べる
       }),
       { numRuns: 200, seed: 2610 },
     );
