@@ -32,18 +32,27 @@ export interface Platform {
   readonly target: Target;
   /** 失敗・5 秒のタイムアウトでも resolve する（広告なしで続行） */
   init(): Promise<void>;
+  /**
+   * loading・gameplay の 4 つの合図を呼ぶのは `app/lifecycle.ts` だけ（BL-056。PR #16 のレビュー Nit 1）。UI・広告の流れなどから
+   * 直接呼ぶと、ライフサイクルの状態（止まる理由の集合）とずれる（例: 隠れている間に gameplayStart が出る）。
+   * eslint.config.js の規則で src/app・ui・view からの直接の呼び出しを止めている。
+   * init の前に呼ばれた loadingStart・loadingStop は、アダプタが覚えて init の成功の直後に送る（CrazyGames。レビュー S-2）
+   */
   loadingStart(): void;
   loadingStop(): void;
-  /** 冪等（今の状態を覚え、二重に呼ばない） */
+  /** 冪等（今の状態を覚え、二重に呼ばない）。呼ぶのは app/lifecycle.ts だけ（上の注） */
   gameplayStart(): void;
   gameplayStop(): void;
   happyTime(): void;
   ads: {
     rewardedAvailable(): boolean;
     showRewarded(p: RewardPlacement): Promise<RewardResult>;
-    /** 区切りの機会を渡すだけ。流すかどうかは SDK が決める（広告のタイマーは持たない） */
+    /** 区切りの機会を渡すだけ。流すかどうかは SDK が決める（広告のタイマーは持たない）。SDK が答えなくても必ず終わる（下の時間） */
     breakOpportunity(p: BreakPlacement): Promise<void>;
-    /** 広告の再生中は false → true の順で呼ぶ（音・入力・ループの停止に使う） */
+    /**
+     * 広告の再生の開始で true、終わりで false（音・入力・ループの停止に使う）。true の後は必ず false が来る:
+     * SDK から終了も失敗も来なければ、AD_END_TIMEOUT_MS でアダプタが false を出す（Q-35 (d)）
+     */
     onPlaying(cb: (playing: boolean) => void): void;
   };
   storage: KeyValueStore;
@@ -62,3 +71,14 @@ export interface Platform {
 
 export const STORAGE_PREFIX = 'onsen-driller:';
 export const INIT_TIMEOUT_MS = 5_000;
+/**
+ * 広告の要求から開始（CrazyGames の adStarted）まで待つ上限（Q-35 (d)。arch §12-3）。過ぎたら結果を failed で返す
+ * （ボタンのスピナー・ミッドゲームの待ちを終わらせる）。その後に遅れて始まったら、再生中はゲームを止め、終わったら戻す（報酬はなし）
+ */
+export const AD_START_TIMEOUT_MS = 30_000;
+/**
+ * 広告の開始から終わり（adFinished・adError）まで待つ上限（Q-35 (d)）。過ぎたら failed で返し、onPlaying(false) を出して
+ * gameplay・消音・入力・ループを戻す（SDK が終わりを知らせないと、ゲームが止まったまま・消音のままになるため）。
+ * 動画広告の長さ（多くは 15〜30 秒、長くても 1〜2 分【推定】）より十分長くする。Poki の runBreak（BL-060）も同じ考え方
+ */
+export const AD_END_TIMEOUT_MS = 180_000;

@@ -17,7 +17,7 @@ import type { DevParams } from './dev-params.ts';
 import { captureErrors, createErrorLog } from './errors.ts';
 import { isHappyMoment } from './happy-time.ts';
 import { setupInput } from './input.ts';
-import { createLifecycle } from './lifecycle.ts';
+import { createLifecycle, signalsHidden } from './lifecycle.ts';
 import { startLoop } from './loop.ts';
 import type { PerfMonitor } from './perf.ts';
 import { loadSettings, saveSettings } from './settings.ts';
@@ -59,8 +59,9 @@ async function boot(): Promise<void> {
   layout(root);
 
   const platform = await loadPlatform();
-  // ポータルへの loading・gameplay の合図（arch §7。BL-056）。gameplay は最初の入力の後、止まる理由がない間だけ
-  const life = createLifecycle(platform);
+  // ポータルへの loading・gameplay の合図（arch §7。BL-056）。gameplay は最初の入力の後、止まる理由がない間だけ。
+  // CrazyGames ではタブの非表示を合図にしない（ポータルが扱う。BL-057・PR #16 のレビュー S-1）
+  const life = createLifecycle(platform, { signalHidden: signalsHidden(platform.target) });
   life.loadingStart();
   await platform.init();
   const storage = platform.storage;
@@ -124,7 +125,7 @@ async function boot(): Promise<void> {
     onStatus: (st) => store.setSaveStatus(st),
   });
   // タブを隠したら gameplay とループを止める（保存は autosave が先に行う。戻ったときの早送りは S3 の BL-030）。
-  // 見えるようになったら、ほかに止まる理由がなければ gameplay を再開する
+  // 見えるようになったら、ほかに止まる理由がなければ gameplay を再開する（CrazyGames は gameplay の合図を送らず、ループだけ止める）
   life.setPaused('hidden', document.hidden);
   document.addEventListener('visibilitychange', () => {
     life.setPaused('hidden', document.hidden);
