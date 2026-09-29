@@ -21,10 +21,10 @@ export interface HookReplayFile {
 const file = resolve(process.cwd(), 'tests/replays/hook-seed42-60s.json');
 const r = JSON.parse(readFileSync(file, 'utf8')) as HookReplayFile;
 
-function run(): { hash: string; depth: number; hits: number } {
+function run(): { hash: string; depth: number; hits: number; guestsSeen: string[] } {
   const s = createInitialState(r.seed);
   advance(s, r.advanceMs, { input: r.input, carry: createAdvanceCarry() });
-  return { hash: stateHash(s), depth: s.run.depth, hits: s.stats.hits };
+  return { hash: stateHash(s), depth: s.run.depth, hits: s.stats.hits, guestsSeen: Object.keys(s.collection.guestsSeen) };
 }
 
 describe('TS-071-07・TS-036-08 の Node 側の期待値（tests/replays/hook-seed42-60s.json）', () => {
@@ -40,5 +40,8 @@ describe('TS-071-07・TS-036-08 の Node 側の期待値（tests/replays/hook-se
     // 60 秒・毎秒 2 打で、ツルハシを買わないまま掘り進んでいる（何も起きない入力で一致していないこと）
     expect(a.hits).toBe(120);
     expect(a.depth).toBeGreaterThan(5);
+    // ブラウザの stateHash には、ストアが埋める初来訪の壁時計（collection.guestsSeen）が入る（BL-017。core-api.md §5・§6c）。
+    // Node と比べるこのリプレイは最初のお客さんの前で止まっていること（数値の調整で 30m を越えたら、ここが名前つきで赤になる。PR #20 レビュー S-1）
+    expect(a.guestsSeen).toEqual([]);
   });
 });
