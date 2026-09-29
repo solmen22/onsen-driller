@@ -141,6 +141,23 @@ describe('TS-015-02・03 深さに届くと源泉を発見し、ポンプ Lv1 �
 });
 
 describe('TS-015-04・05 発見の境目', () => {
+  it('転生の後の周回では、同じ深さで源泉を発見し直す（SpringFound 1 回・ポンプ Lv1・枠 1・図鑑は重複しない。レビュー PR #10 S-3）', () => {
+    const s = createInitialState(3);
+    oneBlockTo(s, 30);
+    oneBlockTo(s, 80);
+    s.run.springs.simple = { pump: 12 };
+    s.run.maxDepth = 150; // 湯の華が得られる深さ
+    expect(dispatch(s, { type: 'prestige' }).ok).toBe(true);
+    expect(s.run.springs).toEqual({});
+    expect(found(oneBlockTo(s, 29))).toEqual([]);
+    const ev = oneBlockTo(s, 30);
+    expect(found(ev)).toEqual([{ type: 'SpringFound', spring: 'simple', depth: 30 }]);
+    expect(s.run.springs).toEqual({ simple: { pump: 1 } });
+    expect(s.run.bath.slots).toEqual(['simple']);
+    expect(found(oneBlockTo(s, 80))).toEqual([{ type: 'SpringFound', spring: 'co2', depth: 80 }]);
+    expect(s.collection.springsSeen).toEqual(['simple', 'co2']);
+  });
+
   it('TS-015-04 同じ周回でもう一度 30m を越えても 2 回目の発見はない（ポンプの Lv は戻らない・図鑑は重複しない）', () => {
     const s = createInitialState(1);
     reach(s, 30);
