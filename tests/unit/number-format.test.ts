@@ -7,6 +7,9 @@ import { describe, expect, it } from 'vitest';
 import { num, NUM_EXP_MAX, NUM_MAX, type Num } from '../../src/core/num.ts';
 import { digitsOf, formatAmount, formatRate, formatShortfall, type Notation } from '../../src/i18n/number-format.ts';
 import type { Lang } from '../../src/i18n/index.ts';
+import { buyQuote } from '../../src/core/index.ts';
+import { etaOf } from '../../src/ui/panels/buy-view.ts';
+import { stateWith } from '../support/states.ts';
 
 const amt = (v: string | number | Num, lang: Lang, notation: Notation = 'auto'): string => formatAmount(num(v), lang, notation).text;
 const rate = (v: string | number | Num, lang: Lang, notation: Notation = 'auto'): string => formatRate(num(v), lang, notation).text;
@@ -121,10 +124,22 @@ const bigNum = fc.oneof(
   fc.tuple(fc.integer({ min: 1, max: 2100 }), fc.integer({ min: 1, max: 12 })).map(([e, d]) => num(`${(10 - 10 ** -d).toFixed(d)}e${e - 1}`)), // 10^e のすぐ下
   fc.integer({ min: 0, max: 9e15 - 1 }).map((e) => num(`1e${e}`)),
 );
+/**
+ * 表記の境目（QA リードの条件 (a)）: どの境目も 10 のべき乗（日本語の単位 10^(4k)・単位の中の 4 桁の帯の出入り〔1,000万 = 1e7・
+ * 9,999万の次 = 1e8〕・英語の 1,000 倍ごと・1e72・1e2064・指数の設定の 1,000）。その直前・ちょうど・直後
+ */
+const EDGE_OFFSETS = [-1e-3, -1e-9, -1e-15, 0, 1e-15, 1e-9, 1e-3] as const;
+const edgeNum = fc
+  .tuple(fc.oneof(fc.integer({ min: 0, max: 80 }), fc.constantFrom(72, 2061, 2063, 2064, 2065), fc.integer({ min: 0, max: 2100 })), fc.constantFrom(...EDGE_OFFSETS))
+  .map(([e, o]) => num(num(`1e${e}`).mul(1 + o)));
 const nearPair = fc.oneof(
   fc.tuple(bigNum, bigNum),
   fc.tuple(bigNum, fc.double({ min: -1e-3, max: 1e-3, noNaN: true })).map(([c, r]) => [c, num(c.mul(1 + r))] as const),
   bigNum.map((c) => [c, c] as const),
+  fc.tuple(edgeNum, edgeNum), // 境目をまたぐ組
+  fc.tuple(fc.integer({ min: 0, max: 2100 }), fc.constantFrom(...EDGE_OFFSETS), fc.constantFrom(...EDGE_OFFSETS)).map(
+    ([e, a, b]) => [num(num(`1e${e}`).mul(1 + a)), num(num(`1e${e}`).mul(1 + b))] as const,
+  ),
 );
 
 describe('表記と「買えるか」の一致（TS-011-09。Q-33）', () => {
@@ -139,7 +154,8 @@ describe('表記と「買えるか」の一致（TS-011-09。Q-33）', () => {
         if (d < 0) expect(affordable).toBe(false);
         if (d > 0) expect(affordable).toBe(true);
         if (c.eq(k)) expect(fc_.text).toBe(fk.text);
-        if (fc_.text === fk.text) expect(d).toBe(0);
+        // 条件 (b): 表記の種類と言語が同じなら「丸めた値が同じ ⇔ 文字列が同じ」
+        expect(fc_.text === fk.text).toBe(d === 0);
         if (!affordable) {
           const l = formatShortfall(k.sub(c), lang, notation);
           expect(l.text).not.toBe('0');
@@ -148,6 +164,26 @@ describe('表記と「買えるか」の一致（TS-011-09。Q-33）', () => {
         }
       }),
       { numRuns: 3000, seed: 110 },
+    );
+  });
+  it('条件 (c): 足りないときの目安は「あと 0 コイン」も「あと 0 秒」も出ない（所持がコストのごく近く〔Decimal の引き算で差が消える〕でも）', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 150 }),
+        fc.constantFrom(-1e-3, -1e-9, -1e-15, -1e-17),
+        fc.boolean(),
+        fc.constantFrom<Lang>('ja', 'en'),
+        (drill, rel, withIncome, lang) => {
+          const s = withIncome ? stateWith({ drill, tool: 1, autoOn: true, depth: 3 }) : stateWith({ drill });
+          const cost = buyQuote(s, 'drill', 1).cost;
+          s.run.coins = num(cost.mul(1 + rel));
+          if (s.run.coins.gte(cost)) return; // 浮動小数で同じ値に戻った組は対象外
+          const eta = etaOf(s, cost, lang);
+          expect(eta.text).not.toMatch(/(^|\s)0(\s|s|$)/);
+          if (eta.seconds !== null) expect(eta.seconds).toBeGreaterThanOrEqual(1);
+        },
+      ),
+      { numRuns: 400, seed: 112 },
     );
   });
   it('表記は値の大小の順番を崩さない（単調）', () => {
