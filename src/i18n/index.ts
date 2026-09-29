@@ -43,9 +43,20 @@ export function resolveLang(setting: Lang | 'auto', platformLocale: string | nul
 export const detectLang = (platformLocale: string | null, browserLocale: string | null = navigatorLanguage()): Lang =>
   resolveLang('auto', platformLocale, browserLocale);
 
-/** 文を引く（今の言語 → 英語 → キーそのもの）。{名前} を置き換え変数で置き換える（同じ変数が何度出てもすべて。知らない変数は残す） */
+/** 辞書（言語 → キー → 文）。translate を辞書から切り離して確かめるための形 */
+export type Dictionaries = Readonly<Record<Lang, Readonly<Record<string, string | undefined>>>>;
+
+/**
+ * 文を引く純粋な関数（今の言語 → 英語 → キーそのもの）。{名前} を置き換え変数で置き換える
+ * （同じ変数が何度出てもすべて。値のない変数は {名前} のまま残し、余った変数は使わない。Q-34 (a)）
+ */
+export function translate(d: Dictionaries, l: Lang, key: string, vars?: TextVars): string {
+  return fill(d[l][key] ?? d.en[key] ?? key, vars);
+}
+
+/** 今の言語で文を引く */
 export function t(key: TextKey, vars?: TextVars): string {
-  return fill(dict[lang][key] ?? dict.en[key] ?? key, vars);
+  return translate(dict, lang, key, vars);
 }
 
 /** 表示する数が 1 か（英語の単数。数でも表示の文字列でもよい。「1.0」「1K」は複数） */
@@ -53,7 +64,8 @@ export const isOne = (count: number | string): boolean => (typeof count === 'num
 
 /**
  * 数に応じて文を引く（英語の複数形。arch §13）: count が 1 で「<key>.one」があればそれを、なければ key を使う。
- * count には表示する数（表記の後の文字列）を渡す（丸めた後に「1」と見えるなら単数）
+ * count には**表示する数（表記の後の文字列）**を渡す。文の数と文法を一致させるため、丸めた後に「1」と見えるなら単数、
+ * 「1.5」「1K」「0」は複数（Q-34 (b)。表記の前の Decimal では判定しない: 0.4 コインの不足は「1」と表示されるので単数にする）
  */
 export function tn(key: TextKey, count: number | string, vars?: TextVars): string {
   const one = `${key}.one`;
