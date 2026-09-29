@@ -67,14 +67,15 @@ describe('TS-006-12 lint の抜け道', () => {
   });
 
   // BL-089（棚卸し traceability §6-3）: content・save も無効化のコメントを許さない（eslint.config.js の noInlineConfig）
+  // 形ごとに、無効化しようとした規則そのものが出ることを見る（PR #15 のレビュー N-1）
   for (const dir of ['src/content', 'src/save'])
-    for (const code of [
-      '// eslint-disable-next-line\nexport const a = Math.random();',
-      '/* eslint-disable */\nexport const a = Date.now();',
-      '// eslint-disable-next-line no-restricted-globals\nexport const a = performance.now();',
-    ])
+    for (const [code, rule] of [
+      ['// eslint-disable-next-line\nexport const a = Math.random();', 'no-restricted-properties'],
+      ['/* eslint-disable */\nexport const a = Date.now();', 'no-restricted-globals'],
+      ['// eslint-disable-next-line no-restricted-globals\nexport const a = performance.now();', 'no-restricted-globals'],
+    ] as const)
       it(`TS-006-14 ${dir} でも無効化のコメントは効かない: ${code.split('\n')[0]}`, async () => {
-        expect((await ruleIds(`${dir}/__fixture__.ts`, code)).filter((id) => !id.startsWith('fatal:'))).not.toEqual([]);
+        expect(await ruleIds(`${dir}/__fixture__.ts`, code)).toContain(rule);
       });
 });
 

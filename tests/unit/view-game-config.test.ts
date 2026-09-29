@@ -55,6 +55,7 @@ describe('TS-035-02 gameConfig()（arch §14）', () => {
     expect(scale.mode).not.toBe(P.Scale.FIT);
     // 渡した親と場面をそのまま使う
     expect(cfg.parent).toBe(parent);
-    expect(cfg.scene).toEqual([scene]);
+    expect(cfg.scene).toHaveLength(1);
+    expect((cfg.scene as unknown[])[0]).toBe(scene);
   });
 });

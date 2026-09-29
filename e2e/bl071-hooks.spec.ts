@@ -328,9 +328,10 @@ test.describe('BL-071 テスト用フック（BL-089）', () => {
 
   test('TS-071-19 本物のページで setTimeout の中の例外（x1）と処理されない reject（x2）が errors() に入る（main.ts の結線）', async ({ page, harness }) => {
     // 「25 件の後は直近 20 件」は unit（tests/unit/errors.test.ts）・integration（test-hooks.test.ts）で実施済み（traceability §6-4）
-    // Playwright の Clock API を入れない（ブラウザ本来のタイマー）。Clock API の偽の setTimeout は、中の例外を window の
-    // error にせず clock.runFor の呼び出し元に投げ返す（2026-09-29 の実測: runFor が「Error: x1」で失敗）ので、main.ts が
-    // window に付けた error の購読（captureErrors）を通らない
+    // Playwright の Clock API を入れない（ブラウザ本来のタイマー）。Clock API の偽の setTimeout の中の例外は window の error に
+    // ならず、時計を止めている間は clock.runFor の呼び出し元に投げ返され（2026-09-29 の実測: runFor が「Error: x1」で失敗）、
+    // 時計が流れている間は console.error にだけ出る（PR #15 のレビュー N-3・連絡 1）。どちらでも main.ts が window に付けた
+    // error の購読（captureErrors）を通らない
     const g = await bootGame(page, { skipClockInstall: true, pauseClock: false });
     const before = await g.errors();
     expect(before.filter((e) => /\bx[12]\b/.test(e))).toEqual([]);
@@ -340,7 +341,8 @@ test.describe('BL-071 テスト用フック（BL-089）', () => {
       }, 0);
       void Promise.reject(new Error('x2'));
     });
-    await expect.poll(async () => (await g.errors()).slice(before.length)).toEqual(expect.arrayContaining(['Error: x1', 'Error: x2']));
+    // before に x1・x2 がないことは上で確かめたので、全体で見る（errors() は直近 20 件なので slice はしない。レビュー N-4）
+    await expect.poll(() => g.errors()).toEqual(expect.arrayContaining(['Error: x1', 'Error: x2']));
     // ブラウザも同じ 2 件を捕まえていない例外として出している（ページの例外の見張り。わざと起こしたものだけ）。
     // 文の形はエンジンで違う（WebKit は reject を「Unhandled Promise Rejection: Error: x2」と出す。2026-09-29 の手元の毎晩の実行）
     for (const x of ['x1', 'x2']) expect(harness.pageErrors.some((e) => new RegExp(`\\bError: ${x}\\b`).test(e)), `ページの例外に ${x}`).toBe(true);
