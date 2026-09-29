@@ -16,6 +16,9 @@
 //     __game.pause() 中はループが止まっているので、runFor はロジックを進めない。
 //   - 15 秒ごとの自動保存を起こす: triggerAutosave(page)（fastForward）。runFor(15000) は実時間でも約 10 秒かかるため。
 //   - 再読み込みの後も時計は止まったまま（Playwright が時計の操作を新しい文書で再生する）。
+//   - Clock API の偽のタイマー・rAF の中の例外は window の error にならない（2026-09-29 の実測・PR #15 のレビュー連絡 1）:
+//     時計を止めている間は runFor・fastForward の呼び出し元に投げ返され（テストが失敗する）、流れている間（起動中・pauseClock: false）は
+//     console.error にだけ出る（pageErrors・__game.errors() には入らない）。本物のタイマーの例外が要るテストは skipClockInstall で起動する
 import type { Frame, Page } from '@playwright/test';
 import { hooks, type Hooks, type HookTarget } from './hooks.ts';
 
@@ -40,7 +43,10 @@ export interface BootOptions {
    * 保存から読み込んだ状態をそのまま比べるとき（E5 の壊れた枠の試験など）に使う
    */
   startPaused?: boolean;
-  /** page.clock.install を省く（同じ context で 2 回目の起動をするとき） */
+  /**
+   * page.clock.install を省く（同じ context で 2 回目の起動をするとき。または Clock API を使わずに本物のタイマーで起動するとき:
+   * TS-071-19 のようにタイマーの中の例外を window の error として受けたいテスト。pauseClock: false と一緒に使う）
+   */
   skipClockInstall?: boolean;
 }
 
