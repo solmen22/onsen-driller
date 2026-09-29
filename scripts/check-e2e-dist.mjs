@@ -23,3 +23,6 @@ if (missing.length) {
   process.exit(1);
 }
 console.log(`check-e2e-dist: OK ${E2E_JOB_TARGETS.map((t) => `${dist}/${t}`).join('・')}`);
+
+// TS-008-24 の一時的な確認（マージしない）: lint のエラー（no-unused-vars）
+const ts00824Unused = 1;
