@@ -31,7 +31,7 @@
     "package:verify": "node scripts/package-verify.mjs",
     "preview:web": "vite preview --outDir dist/web --port 4173 --strictPort",
     "test:e2e": "playwright test --project=chromium --project=prod-builds",
-    "test:e2e:nightly": "playwright test --project=webkit --project=firefox --project=mobile-safari --project=mobile-chrome",
+    "test:e2e:nightly": "playwright test --project=webkit --project=firefox --project=mobile-safari --project=mobile-chrome --max-failures=20",
     "test:e2e:full": "playwright test --project=chromium-full --project=webkit --project=firefox --project=mobile-safari --project=mobile-chrome --project=prod-builds",
     "preview:lan": "vite preview --outDir dist/web --port 4173 --strictPort --host"
   },
