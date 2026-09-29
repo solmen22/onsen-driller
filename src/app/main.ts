@@ -88,7 +88,7 @@ async function boot(): Promise<void> {
   // （リスナーを付けた順。長押しの終わりで端数が変わった後の状態を保存する。以前の順番と同じ）
   const input = setupInput({ stage, win: window, doc: document }, store, {
     onFirstInput: () => {
-      unlockAudio();
+      void unlockAudio(); // 拒否しない（音が使えない環境では音なしで続ける。BL-102）
       platform.gameplayStart(); // Poki の要件: 最初の入力で gameplayStart
     },
     onPress: (ts) => perf?.markInput(ts),
