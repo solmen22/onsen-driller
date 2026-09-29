@@ -12,6 +12,9 @@ import {
   drillPower,
   modifiers,
   nextPumpMilestone,
+  nextSlotLevel,
+  offlineEfficiency,
+  slotsForBathLevel,
   springIncomeIfSlotted,
   temperatureAt,
   type Modifiers,
@@ -174,24 +177,27 @@ export function secondsUntil(s: Readonly<GameState>, cost: Num): number | null {
   return Math.max(1, Math.ceil(toNumber(div(lack, inc)) - 1e-9));
 }
 
-/** 源泉 1 つの表示用の値（湯宿タブ T2 の「発見済みの源泉とポンプ」。BL-015） */
+/** 源泉 1 つの表示用の値（湯宿タブ T2 の「発見済みの源泉とポンプ」。BL-015）。読み取り専用（effect は内容定義そのものなので書き換えない） */
 export interface SpringView {
-  id: SpringId;
+  readonly id: SpringId;
   /** 発見の深さ（未発見のとき「〇m で発見」） */
-  depth: number;
-  found: boolean;
+  readonly depth: number;
+  readonly found: boolean;
   /** ポンプの Lv（未発見は 0。発見時に Lv1） */
-  pump: number;
+  readonly pump: number;
   /** つないでいる枠（0 始まり）。つないでいなければ null */
-  slot: number | null;
-  /** 今この源泉から入っている入湯料/秒（つないでいなければ 0。合計は incomePerSec の入湯料の分と丸めの範囲で一致） */
-  incomePerSec: Num;
-  /** つないだときの入湯料/秒の目安（今の倍率のまま。この源泉自身の効果の変化は含めない。未発見は 0） */
-  potentialPerSec: Num;
+  readonly slot: number | null;
+  /** 今この源泉から入っている入湯料/秒（つないでいなければ 0。つないでいる源泉の合計は bathIncomePerSec と丸めの範囲で一致） */
+  readonly incomePerSec: Num;
+  /**
+   * つないだときの入湯料/秒の目安（今の倍率のまま。未発見は 0）。その源泉をつなぐことで変わる泉質の効果・来る／帰るお客さんの効果と、
+   * 空きがなければ外す源泉の分は含めない（「つなぐと +X/秒」と出すなら、この注意を UI の文言で補う）
+   */
+  readonly potentialPerSec: Num;
   /** 次に ×2 になるポンプの Lv（10・25・50・100。すべて越えたら null。未発見は 10） */
-  nextMilestone: number | null;
-  /** 枠につないでいる間だけ効く効果（content/springs.ts の定義そのまま） */
-  effect: SpringEffect;
+  readonly nextMilestone: number | null;
+  /** 枠につないでいる間だけ効く効果（content/springs.ts の定義。書き換えない） */
+  readonly effect: Readonly<SpringEffect>;
 }
 
 /** 源泉 5 種の表示用の値（content/springs.ts の順。未発見も含む） */
@@ -213,6 +219,52 @@ export function springViews(s: Readonly<GameState>): SpringView[] {
       effect: def.effect,
     };
   });
+}
+
+/** 湯船の枠 1 つの表示用の値（BL-016）。読み取り専用 */
+export interface SlotView {
+  /** 枠の番号（0 始まり） */
+  readonly slot: number;
+  /** つないでいる源泉（空きは null） */
+  readonly spring: SpringId | null;
+  /** この枠の源泉から入っている入湯料/秒（空きは 0） */
+  readonly incomePerSec: Num;
+  /** この枠の源泉の効果（空きは null。内容定義そのものなので書き換えない） */
+  readonly effect: Readonly<SpringEffect> | null;
+}
+
+/** 湯船の表示用の値（湯宿タブ T2 の「湯船の枠」「湯船のレベル」。BL-016）。読み取り専用 */
+export interface BathView {
+  readonly level: number;
+  /** 今の枠の数（1〜4） */
+  readonly slotCount: number;
+  /** 枠の最大（MVP は 4） */
+  readonly maxSlots: number;
+  /** 次に枠が増える Lv（最大なら null） */
+  readonly nextSlotLevel: number | null;
+  /** 入湯料の合計に足している割合（%。Lv × 5） */
+  readonly bonusPct: number;
+  readonly slots: readonly SlotView[];
+  /** オフライン効率（0.5〜1。枠の塩化物泉で +0.25） */
+  readonly offlineEfficiency: number;
+}
+
+export function bathView(s: Readonly<GameState>): BathView {
+  const m = modifiers(s);
+  const level = s.run.bath.level;
+  return {
+    level,
+    slotCount: slotsForBathLevel(level),
+    maxSlots: PARAMS.bath.slotsAtLevel.length,
+    nextSlotLevel: nextSlotLevel(level),
+    bonusPct: Math.round(level * PARAMS.bath.bonusPerLv * 100 * 1e6) / 1e6,
+    slots: s.run.bath.slots.map((id, slot) =>
+      id === null
+        ? { slot, spring: null, incomePerSec: ZERO, effect: null }
+        : { slot, spring: id, incomePerSec: springIncomeIfSlotted(s, id, m), effect: SPRING_BY_ID[id].effect },
+    ),
+    offlineEfficiency: offlineEfficiency(s, m),
+  };
 }
 
 /** 今の深さの地温（表示用の ℃ の整数。HUD の深さの横） */

@@ -95,6 +95,7 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
       if (n > 0) for (const e of dispatch(s, { type: 'tap', count: n }).events) events.push(e);
     }
     rec.observe(events, s.clock.playedMs);
+    rec.observeState(s);
     events.length = 0;
     steps++;
     if ((steps & 1023) === 0 && !(isHealthy(s.run.coins) && isHealthy(s.stats.totalCoins))) healthy = false;
@@ -118,7 +119,7 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
     stepUsLate: lateUs / minuteSteps,
     milestones: rec.at,
     // 数えていなければ（5 分より短い実行）NaN
-    bathShare: allCoins > 0 ? Math.min(1, bathCoins / allCoins) : NaN,
+    bathShare: allCoins > 0 ? bathCoins / allCoins : NaN, // 頭打ちにしない（数え方の誤りを 100% に隠さない。レビュー PR #10 N-3）
     state: s,
   };
 }

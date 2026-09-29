@@ -36,7 +36,7 @@ console.log(`|---|---|---|${results.map(() => '---|').join('')}---|`);
 const standard = results.find((r) => r.bot === 'standard');
 for (const m of MILESTONES) {
   const range = m.rangeSec ? `${fmtClock(m.rangeSec[0] * 1000)}〜${fmtClock(m.rangeSec[1] * 1000)}` : '—';
-  console.log(`| ${m.no} | ${m.label} | ${range} | ${results.map((r) => fmtClock(r.milestones[m.id])).join(' | ')} | ${judge(m, standard?.milestones[m.id])} |`);
+  console.log(`| ${m.no || '—'} | ${m.label} | ${range} | ${results.map((r) => fmtClock(r.milestones[m.id])).join(' | ')} | ${judge(m, standard?.milestones[m.id])} |`);
 }
 const share = (x: number): string => (Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : '—');
 const shareOk = standard && Number.isFinite(standard.bathShare) ? (standard.bathShare > 0.5 ? '○' : '×') : '—';

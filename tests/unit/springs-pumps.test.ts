@@ -141,6 +141,23 @@ describe('TS-015-02・03 深さに届くと源泉を発見し、ポンプ Lv1 �
 });
 
 describe('TS-015-04・05 発見の境目', () => {
+  it('転生の後の周回では、同じ深さで源泉を発見し直す（SpringFound 1 回・ポンプ Lv1・枠 1・図鑑は重複しない。レビュー PR #10 S-3）', () => {
+    const s = createInitialState(3);
+    oneBlockTo(s, 30);
+    oneBlockTo(s, 80);
+    s.run.springs.simple = { pump: 12 };
+    s.run.maxDepth = 150; // 湯の華が得られる深さ
+    expect(dispatch(s, { type: 'prestige' }).ok).toBe(true);
+    expect(s.run.springs).toEqual({});
+    expect(found(oneBlockTo(s, 29))).toEqual([]);
+    const ev = oneBlockTo(s, 30);
+    expect(found(ev)).toEqual([{ type: 'SpringFound', spring: 'simple', depth: 30 }]);
+    expect(s.run.springs).toEqual({ simple: { pump: 1 } });
+    expect(s.run.bath.slots).toEqual(['simple']);
+    expect(found(oneBlockTo(s, 80))).toEqual([{ type: 'SpringFound', spring: 'co2', depth: 80 }]);
+    expect(s.collection.springsSeen).toEqual(['simple', 'co2']);
+  });
+
   it('TS-015-04 同じ周回でもう一度 30m を越えても 2 回目の発見はない（ポンプの Lv は戻らない・図鑑は重複しない）', () => {
     const s = createInitialState(1);
     reach(s, 30);
@@ -272,11 +289,12 @@ describe('TS-015-08 枠につないでいない源泉の入湯料は 0', () => {
     expect(bathIncomePerSec(s).toString()).toBe(before);
   });
 
-  it('性質: springViews の incomePerSec の合計＝入湯料/秒（丸めの範囲）、つないでいない源泉は 0（fast-check）', () => {
+  it('性質: springViews の incomePerSec の合計＝入湯料/秒（丸めの範囲）、つないでいない源泉は 0。湯の華の累計も動かす（fast-check。レビュー PR #10 S-1）', () => {
     const lv = fc.integer({ min: 0, max: 300 });
     fc.assert(
-      fc.property(fc.tuple(lv, lv, lv, lv, lv), fc.integer({ min: 0, max: 60 }), (lvs, bath) => {
+      fc.property(fc.tuple(lv, lv, lv, lv, lv), fc.integer({ min: 0, max: 60 }), fc.integer({ min: 0, max: 5000 }), (lvs, bath, yunohana) => {
         const s = stateWith({ bath, pumps: Object.fromEntries(SPRING_IDS.map((id, i) => [id, lvs[i] ?? 0])) });
+        s.meta.yunohana.lifetime = num(yunohana);
         const v = springViews(s);
         const sum = v.reduce((a, x) => a + x.incomePerSec.toNumber(), 0);
         const total = bathIncomePerSec(s).toNumber();

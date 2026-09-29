@@ -1,4 +1,5 @@
 // 式と派生値（gdd §5・§7-1）。状態を読むだけで、書き換えない
+import type { Effect } from '../content/effects.ts';
 import { PARAMS } from '../content/params.ts';
 import { SPRINGS, SPRING_BY_ID, type SpringId } from '../content/springs.ts';
 import { GUEST_BY_ID, GUESTS, type GuestDef, type GuestId } from '../content/guests.ts';
@@ -7,7 +8,7 @@ import { ORE_BY_ID, type OreId } from '../content/ores.ts';
 import { STRATA } from '../content/strata.ts';
 import { add, mul, num, ONE, pow, sumGeometric, type Num } from './num.ts';
 import { hash01, hash01Kind } from './rng.ts';
-import type { GameState } from './state.ts';
+import type { GameState, UpgradeId } from './state.ts';
 
 const B = PARAMS.block;
 
@@ -45,37 +46,97 @@ export function guestConditionMet(s: GameState, g: GuestDef): boolean {
 
 export const computeGuests = (s: GameState): GuestId[] => GUESTS.filter((g) => guestConditionMet(s, g)).map((g) => g.id);
 
-/** 枠の源泉とお客さんから決まる倍率を 1 回の走査でまとめて求める（step ごとに呼ぶので配列を作らない） */
+/**
+ * 倍率を集める場所（BL-016）。枠の源泉・来ているお客さん・買った改良（BL-018）の効果（content/effects.ts の共通の語彙）を
+ * applyEffect で 1 つにまとめる。倍率は 1、足し算は 0 から始め、すべて掛け算（足し算）で重なるので順番によらない。
+ * 式の側は、ここの値だけを読む（ドリル威力・自動掘削・ブロックの HP と価値・入湯料・オフライン効率）
+ */
 export interface Modifiers {
+  /** 全源泉の入湯料 */
   incomeAll: number;
+  /** 源泉ごとの入湯料（カピバラ → 塩化物泉 ×2、改良の源泉ごとの ×3） */
+  springIncome: Record<SpringId, number>;
+  /** ドリル威力（すべての打撃） */
   drillPower: number;
-  oreValue: number;
-  hardness: number;
+  /** 自動掘削機の打数/秒 */
   autoDig: number;
+  /** 鉱石の価値 */
+  oreValue: number;
+  /** 地層の硬さ（ブロックの HP） */
+  hardness: number;
+  /** 掘削で得るコイン（ブロックの価値） */
   digCoins: number;
-  /** お客さんによる源泉ごとの倍率（カピバラ → 塩化物泉 ×2） */
-  saltMult: number;
+  /** オフライン効率に足す値（上限は offlineEfficiency で丸める） */
+  offlineEff: number;
 }
 
+/** 効果を 1 つ m に掛ける（足す）。源泉・お客さん・改良・湯の華の木で共通 */
+export function applyEffect(m: Modifiers, e: Effect): void {
+  switch (e.kind) {
+    case 'incomeAll':
+      m.incomeAll *= e.mult;
+      return;
+    case 'springIncome':
+      m.springIncome[e.spring] *= e.mult;
+      return;
+    case 'drillPower':
+      m.drillPower *= e.mult;
+      return;
+    case 'autoDig':
+      m.autoDig *= e.mult;
+      return;
+    case 'oreValue':
+      m.oreValue *= e.mult;
+      return;
+    case 'hardness':
+      m.hardness *= e.mult;
+      return;
+    case 'digCoins':
+      m.digCoins *= e.mult;
+      return;
+    case 'offlineEff':
+      m.offlineEff += e.add;
+      return;
+  }
+}
+
+/**
+ * 改良（BL-018）の効果を引く「口」。BL-016 の時点では改良の定義がないので、何も返さない（知らない ID も効果なし）。
+ * BL-018 で `import { UPGRADE_BY_ID } from '../content/upgrades.ts'` を足し、本体を
+ * `return Object.hasOwn(UPGRADE_BY_ID, id) ? UPGRADE_BY_ID[id]?.effect : undefined;` にする（この 2 か所だけ）
+ */
+export function upgradeEffect(_id: UpgradeId): Effect | undefined {
+  return undefined;
+}
+
+/** 倍率の初期値（どの効果もない状態） */
+export const baseModifiers = (): Modifiers => ({
+  incomeAll: 1,
+  springIncome: { simple: 1, co2: 1, salt: 1, sulfur: 1, iron: 1 },
+  drillPower: 1,
+  autoDig: 1,
+  oreValue: 1,
+  hardness: 1,
+  digCoins: 1,
+  offlineEff: 0,
+});
+
+/** 今の状態の倍率: 買った改良 → 枠につないだ源泉 → 来ているお客さん（step ごとに呼ぶので、配列を作らずに 1 回ずつ走査する） */
 export function modifiers(s: GameState): Modifiers {
-  const m: Modifiers = { incomeAll: 1, drillPower: 1, oreValue: 1, hardness: 1, autoDig: 1, digCoins: 1, saltMult: 1 };
-  for (const id of s.run.bath.slots) {
-    if (id === null) continue;
-    const e = SPRING_BY_ID[id].effect;
-    if (e.kind === 'incomeAll') m.incomeAll *= e.mult;
-    else if (e.kind === 'drillPower') m.drillPower *= e.mult;
-    else if (e.kind === 'oreValue') m.oreValue *= e.mult;
-    else if (e.kind === 'hardness') m.hardness *= e.mult;
+  const m = baseModifiers();
+  for (const id of s.run.upgrades) {
+    const e = upgradeEffect(id);
+    if (e) applyEffect(m, e);
   }
-  for (const gid of s.run.guests) {
-    const e = GUEST_BY_ID[gid].effect;
-    if (e.kind === 'incomeAll') m.incomeAll *= e.mult;
-    else if (e.kind === 'drillPower') m.drillPower *= e.mult;
-    else if (e.kind === 'autoDig') m.autoDig *= e.mult;
-    else if (e.kind === 'digCoins') m.digCoins *= e.mult;
-    else if (e.kind === 'springIncome' && e.spring === 'salt') m.saltMult *= e.mult;
-  }
+  for (const id of s.run.bath.slots) if (id !== null) applyEffect(m, SPRING_BY_ID[id].effect);
+  for (const gid of s.run.guests) applyEffect(m, GUEST_BY_ID[gid].effect);
   return m;
+}
+
+/** オフライン効率（gdd §9）: 基本 50% ＋ 枠の塩化物泉など（+25%）。100% を超えない（S3 の BL-030 の早送りが使う） */
+export function offlineEfficiency(s: GameState, m: Modifiers = modifiers(s)): number {
+  const eff = PARAMS.offline.eff + m.offlineEff;
+  return Number.isFinite(eff) ? Math.min(PARAMS.offline.maxEff, Math.max(0, eff)) : PARAMS.offline.eff;
 }
 
 /** 累計の湯の華 1 つにつき全生産 +2%（gdd §5-8） */
@@ -168,14 +229,21 @@ export function nextPumpMilestone(level: number): number | null {
 function springIncomeRaw(s: GameState, id: SpringId, m: Modifiers): number {
   const lv = s.run.springs[id]?.pump ?? 0;
   if (lv <= 0) return 0;
-  return SPRING_BY_ID[id].flow * lv * pumpMilestoneMult(lv) * (id === 'salt' ? m.saltMult : 1);
+  return SPRING_BY_ID[id].flow * lv * pumpMilestoneMult(lv) * m.springIncome[id];
 }
 
 /** 源泉の基本の入湯料/秒（枠・湯船・全体の倍率の前。未発見は 0。ボットの枠の並べ替えなどに使う） */
 export const springIncome = (s: GameState, id: SpringId, m: Modifiers = modifiers(s)): Num => num(springIncomeRaw(s, id, m));
 
-/** つないだ源泉すべてに掛かる倍率（number）: 湯船（1＋Lv × 5%）× 全入湯料（泉質・お客さん） */
-const bathScale = (s: GameState, m: Modifiers): number => (1 + s.run.bath.level * PARAMS.bath.bonusPerLv) * m.incomeAll;
+/**
+ * 入湯料の基本量（number）に、つないだ源泉すべてに共通の倍率を掛ける（入湯料の式はここ 1 か所。レビュー PR #10 S-1）:
+ * ×（1＋湯船の Lv × 5%）× 全入湯料（泉質・お客さん・改良。modifiers）× 転生（湯の華）。
+ * number の部分は左から順に掛ける（S1 からの `sum * bath * incomeAll` と同じ丸め。リプレイのハッシュを保つ）
+ */
+function scaleBathIncome(raw: number, s: GameState, m: Modifiers): Num {
+  if (!(raw > 0)) return num(0);
+  return mul(num(raw * (1 + s.run.bath.level * PARAMS.bath.bonusPerLv) * m.incomeAll), yunohanaMult(s));
+}
 
 /**
  * 入湯料/秒（gdd §5-4。BL-015）＝ Σ（枠につないだ源泉の基本の入湯料）×（1＋湯船の Lv × 5%）× 全入湯料の倍率 × 転生の倍率。
@@ -185,25 +253,29 @@ export function bathIncomePerSec(s: GameState, m: Modifiers = modifiers(s)): Num
   // 源泉ごとの基本量は number の範囲（MVP では最大でも 1e12 程度）なので、合計してから Decimal にする
   let sum = 0;
   for (const id of s.run.bath.slots) if (id !== null) sum += springIncomeRaw(s, id, m);
-  if (sum <= 0) return num(0);
-  const bath = 1 + s.run.bath.level * PARAMS.bath.bonusPerLv;
-  return mul(num(sum * bath * m.incomeAll), yunohanaMult(s));
+  return scaleBathIncome(sum, s, m);
 }
 
 /**
- * 1 つの源泉をつないだときの入湯料/秒（表示用。今の倍率のまま。その源泉自身の効果〔単純温泉の ×1.2 など〕の変化は含めない）。
- * つないでいる源泉なら、入湯料/秒の合計のうちその源泉の分（合計との差は丸めの範囲）
+ * 1 つの源泉の入湯料/秒（表示用）。つないでいる源泉なら、入湯料/秒の合計のうちその源泉の分（合計との差は丸めの範囲）。
+ * つないでいない源泉は「今の倍率のまま」の目安で、その源泉をつなぐことで変わる泉質の効果（単純温泉の ×1.2 など）・
+ * 来る／帰るお客さん（タヌキ・カピバラなど）の効果と、空きがなければ外す源泉の分は含めない（レビュー PR #10 N-2）
  */
 export function springIncomeIfSlotted(s: GameState, id: SpringId, m: Modifiers = modifiers(s)): Num {
-  const raw = springIncomeRaw(s, id, m);
-  if (raw <= 0) return num(0);
-  return mul(num(raw * bathScale(s, m)), yunohanaMult(s));
+  return scaleBathIncome(springIncomeRaw(s, id, m), s, m);
 }
 
+/** 湯船の Lv に対する枠の数（Lv0・5・15・35 で 1・2・3・4。gdd §5-5） */
 export function slotsForBathLevel(level: number): number {
   let n = 0;
   for (const at of PARAMS.bath.slotsAtLevel) if (level >= at) n++;
   return n;
+}
+
+/** 次の枠が増える湯船の Lv（最大の 4 枠なら null。UI の「Lv15 で枠 3」） */
+export function nextSlotLevel(level: number): number | null {
+  for (const at of PARAMS.bath.slotsAtLevel) if (level < at) return at;
+  return null;
 }
 
 export const drillCost = (level: number): Num => sumGeometric(1, PARAMS.drill.c0, PARAMS.drill.r, level);

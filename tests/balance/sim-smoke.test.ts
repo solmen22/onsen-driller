@@ -21,5 +21,8 @@ describe('sim (短縮版)', () => {
     expect(typeof m.slot2).toBe('number');
     expect(typeof m.lv10Guest).toBe('number');
     expect(r.bathShare).toBeGreaterThan(0.5);
+    expect(r.bathShare).toBeLessThanOrEqual(1); // 数え方の検査（頭打ちにしていない。レビュー PR #10 N-3）
+    expect(typeof m.recommend).toBe('number');
+    expect(m.recommend).toBeLessThan(m.prestige ?? Infinity);
   });
 });

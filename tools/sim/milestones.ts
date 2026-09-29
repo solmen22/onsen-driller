@@ -1,13 +1,16 @@
 // 目標表（gdd §8-3）の「何分で何が起きるか」の記録（BL-015〜017 の PR のバランスのレポート用）。
 // 判定（範囲外で失敗にする）と 24 項目の全体は BL-031・BL-033 の targets.ts で行う。ここでは初めて起きた時刻を集めるだけ
 import type { GuestId } from '../../src/content/guests.ts';
-import type { GameEvent } from '../../src/core/index.ts';
+import { yunohanaGain, type GameEvent, type GameState } from '../../src/core/index.ts';
 
-export type MilestoneId = 'firstUpgrade' | 'simple' | 'co2' | 'lv10Guest' | 'slot2' | 'salt' | 'sulfur' | 'iron' | 'prestige';
+/** 転生の推奨（#10）の湯の華（gdd §8-3。「湯の華 30 以上」） */
+export const RECOMMEND_YUNOHANA = 30;
+
+export type MilestoneId = 'firstUpgrade' | 'simple' | 'co2' | 'lv10Guest' | 'slot2' | 'salt' | 'sulfur' | 'recommend' | 'iron' | 'prestige';
 
 export interface MilestoneDef {
   id: MilestoneId;
-  /** gdd §8-3 の番号（転生は #10 の目安） */
+  /** gdd §8-3 の番号（0 は目標表の外の参考） */
   no: number;
   label: string;
   /** 目標の範囲（秒。[下限, 上限]）。範囲のない項目は null */
@@ -22,8 +25,9 @@ export const MILESTONES: readonly MilestoneDef[] = [
   { id: 'slot2', no: 6, label: '湯船の枠 2', rangeSec: [240, 480] },
   { id: 'salt', no: 7, label: '150m・塩化物泉', rangeSec: [420, 720] },
   { id: 'sulfur', no: 8, label: '250m・硫黄泉', rangeSec: [840, 1200] },
+  { id: 'recommend', no: 10, label: '転生の推奨（今転生すると湯の華 30 以上）', rangeSec: [1500, 2400] },
   { id: 'iron', no: 12, label: '400m・含鉄泉（累計）', rangeSec: [3000, 5400] },
-  { id: 'prestige', no: 10, label: '最初の転生（ボットの規則。#10 は推奨の表示 25〜40 分）', rangeSec: null },
+  { id: 'prestige', no: 0, label: '（参考）最初の転生（ボットの規則: 湯の華 30 以上か前回の 1.5 倍、または最深が 2 分止まる）', rangeSec: null },
 ];
 
 /** Lv10 で来るお客さん（gdd §5-6 の「〇〇泉をつなぎ、Lv10」） */
@@ -35,6 +39,11 @@ export class MilestoneRecorder {
 
   private mark(id: MilestoneId, ms: number): void {
     if (this.at[id] === undefined) this.at[id] = ms;
+  }
+
+  /** 状態から判定する出来事（#10: 今転生すると得られる湯の華が初めて 30 以上になった） */
+  observeState(s: GameState): void {
+    if (this.at.recommend === undefined && yunohanaGain(s).gte(RECOMMEND_YUNOHANA)) this.mark('recommend', s.clock.playedMs);
   }
 
   observe(events: readonly GameEvent[], playedMs: number): void {
