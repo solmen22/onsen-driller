@@ -1,12 +1,12 @@
 // 共通の検査（e2e_common_privacy-checks.md）。
 // TS-COM-01〜04 はすべての E2E の終わりに harness（e2e/support/fixtures.ts）が自動で行う。
 // このファイルでは、代表の遊び方の後に同じ検査を目に見える形で行い、検査そのものが効くこと（偽の緑でないこと。TS-COM-08）を確かめる。
-// PR: TS-COM-01〜04・08（S1）。毎晩: TS-COM-05（BL-089）。保留: TS-COM-07・09（S4）。
+// PR: TS-COM-01〜04・08（S1。08 の (d)(e) は BL-094〔S2〕）。毎晩: TS-COM-05（BL-089）。保留: TS-COM-07・09（S4）。
 // 欠番: TS-COM-06（BL-007 の TS-007-10 の静的検査に統合）、TS-073-08（TS-COM-08 に統合）。
-import { test, expect, ExpectedViolationMissingError } from './support/fixtures.ts';
+import { test, expect, ExpectedViolationMissingError, teardownChecks, type TeardownCheckRecord } from './support/fixtures.ts';
 import { bootGame, reloadGame, tapUnderground, triggerAutosave } from './support/boot.ts';
 import { later } from './support/gaps.ts';
-import { CommonCheckError, localStorageKeys, NET_JOURNAL_KEY } from './support/privacy.ts';
+import { CommonCheckError, localStorageKeys, NET_JOURNAL_KEY, type CheckId } from './support/privacy.ts';
 
 /** 代表の遊び方: 叩く → タブを一巡 → 自動保存 → 再読み込み（画面の操作だけ。フックの不足に左右されない） */
 async function playTypicalSession(page: import('@playwright/test').Page): Promise<void> {
@@ -59,7 +59,13 @@ test.describe('共通の検査（通信・Cookie・キー名）', () => {
 // (a)(b)(c) は、テストの終わりの共通の検査（harness の後片付け。すべての E2E と同じ経路）が、指定した ID の違反を検出したときだけ通る
 // （test.use の expectViolations。検出されなければ「期待した違反が検出されなかった」で失敗し、ほかの ID の違反や、
 // 本体の別の例外でも失敗する。以前の test.fail は理由を問わず「期待どおりの失敗」にしていた。PR #4 のレビュー S-1）
+// (d)(e) は、その後片付けの検査が実際に行われていること自体を見張る（PR #4 の再レビュー R-S1。BL-094）:
+// 後片付けから検査の呼び出しを消す・期待した違反のあるテストだけに絞る・例外を握りつぶす、のどれでも (d) か (e) が赤になる。
+// fixtures.ts の teardownChecks（ワーカーごとの記録）を読むので、この describe は serial（同じワーカーで宣言の順に流す）にする。
+// fullyParallel のままだと (d) が別のワーカーに分かれ、記録が見えない
 test.describe('TS-COM-08 偽の緑を防ぐ自己テスト（共通の検査が違反を検出することの確認）', () => {
+  test.describe.configure({ mode: 'serial' });
+
   test.describe('(a)', () => {
     test.use({ expectViolations: ['TS-COM-01'] });
     test('TS-COM-08 (a) 外部への fetch を入れると、テストの終わりの検査が TS-COM-01 の違反を検出する', async ({ page }) => {
@@ -138,5 +144,36 @@ test.describe('TS-COM-08 偽の緑を防ぐ自己テスト（共通の検査が�
     await expect(harness.assertCommonChecks()).resolves.toBeUndefined();
     // expectViolations（S-1）: 期待した違反が検出されなければ失敗する（違反 0 件の context で TS-COM-01 を期待する）
     await expect(harness.assertCommonChecks(['TS-COM-01'])).rejects.toThrow(ExpectedViolationMissingError);
+  });
+
+  test('TS-COM-08 (e) ふつうのテスト（expectViolations なし）で外部へ fetch すると、テストの終わりの検査がそのテストを失敗にする（R-S1。test.fail: 一覧の ✘ が合格）', async ({
+    page,
+  }) => {
+    // 失敗するのが合格（test.fail）。失敗の理由が共通の検査（CommonCheckError）であることは、(d) が後片付けの記録で確かめる
+    // （ほかの理由の失敗では (d) が赤になる。test.fail だけでは理由を問わない〔PR #4 のレビュー S-1〕ので、(d) と組にする）。
+    // 後片付けが検査の例外を握りつぶす・呼び出しを消すと、このテストが「失敗するはずが通った」で赤になる
+    test.fail(true, '共通の検査が期待していない違反（TS-COM-01）でこのテストを失敗にすること自体を確かめる自己テスト');
+    await bootGame(page);
+    await page.evaluate(() => fetch('https://example.com/e').catch(() => {}));
+  });
+
+  test('TS-COM-08 (d) (a)(b)(c)(e)・補助の共通の検査が、すべての E2E と同じ後片付けの経路で実際に行われた（R-S1）', () => {
+    // serial なので、このワーカーで先に流れた (a)(b)(c)・補助・(e) の後片付けは、このテストの前に終わっている
+    const last = (prefix: string): TeardownCheckRecord | undefined => teardownChecks.filter((r) => r.title.startsWith(prefix)).at(-1);
+    const seen = teardownChecks.map((r) => `${r.title.slice(0, 16)}… ${r.outcome}`).join(' / ') || 'なし';
+    const cases: [string, CheckId[], string][] = [
+      ['TS-COM-08 (a)', ['TS-COM-01'], 'passed'],
+      ['TS-COM-08 (b)', ['TS-COM-02'], 'passed'],
+      ['TS-COM-08 (c)', ['TS-COM-01', 'TS-COM-02'], 'passed'],
+      // ふつうのテスト（expectViolations なし）も後片付けで検査している（期待した違反のあるテストだけに絞られていない）
+      ['TS-COM-08 補助', [], 'passed'],
+      // 期待していない違反で、後片付けの検査が CommonCheckError を投げた（(e) の失敗の理由）
+      ['TS-COM-08 (e)', [], 'CommonCheckError'],
+    ];
+    for (const [prefix, expected, outcome] of cases) {
+      const r = last(prefix);
+      expect(r, `${prefix} の後片付けの検査の記録がない（harness の後片付けから共通の検査が外れた？ 記録: ${seen}）`).toBeDefined();
+      expect({ expected: r?.expected, outcome: r?.outcome }, `${prefix} の後片付けの検査`).toEqual({ expected, outcome });
+    }
   });
 });

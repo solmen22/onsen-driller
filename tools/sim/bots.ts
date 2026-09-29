@@ -11,6 +11,7 @@ import {
   buyQuote,
   springIncome,
   yunohanaGain,
+  type GameEvent,
   type GameState,
   type LevelItem,
   type Num,
@@ -85,15 +86,22 @@ function candidates(s: GameState): LevelItem[] {
   return items;
 }
 
+/** アクションを実行し、起きたイベントを out に足す（マイルストーンの記録のため。sim.ts） */
+function act(s: GameState, a: unknown, out: GameEvent[] | undefined): ReturnType<typeof dispatch> {
+  const res = dispatch(s, a);
+  if (out) for (const e of res.events) out.push(e);
+  return res;
+}
+
 /** 発見済みの源泉のうち、入湯料が大きい順に枠へつなぐ */
-function arrangeSlots(s: GameState): void {
+function arrangeSlots(s: GameState, out?: GameEvent[]): void {
   const found = Object.keys(s.run.springs) as SpringId[];
   const n = s.run.bath.slots.length;
   if (found.length <= n) {
     for (const id of found) {
       if (!s.run.bath.slots.includes(id)) {
         const empty = s.run.bath.slots.indexOf(null);
-        if (empty >= 0) dispatch(s, { type: 'assignSlot', slot: empty, spring: id });
+        if (empty >= 0) act(s, { type: 'assignSlot', slot: empty, spring: id }, out);
       }
     }
     return;
@@ -101,15 +109,15 @@ function arrangeSlots(s: GameState): void {
   const ranked = [...found].sort((a, b) => springIncome(s, b).cmp(springIncome(s, a)));
   const want = ranked.slice(0, n);
   want.forEach((id, i) => {
-    if (s.run.bath.slots[i] !== id) dispatch(s, { type: 'assignSlot', slot: i, spring: id });
+    if (s.run.bath.slots[i] !== id) act(s, { type: 'assignSlot', slot: i, spring: id }, out);
   });
 }
 
-/** ボットの 1 回の判断（買い物・枠・転生）。時刻は s.clock.playedMs だけを見る */
-export function botAct(s: GameState, bot: BotDef, mem: BotMemory): void {
+/** ボットの 1 回の判断（買い物・枠・転生）。時刻は s.clock.playedMs だけを見る。起きたイベントは out に足す（省略可） */
+export function botAct(s: GameState, bot: BotDef, mem: BotMemory, out?: GameEvent[]): void {
   const r = s.run;
-  if (s.input.hold !== bot.hold) dispatch(s, { type: 'hold', on: bot.hold });
-  if (r.autoDig.on !== bot.autoDig && (!bot.autoDig || autoDigUnlocked(s))) dispatch(s, { type: 'setAutoDig', on: bot.autoDig });
+  if (s.input.hold !== bot.hold) act(s, { type: 'hold', on: bot.hold }, out);
+  if (r.autoDig.on !== bot.autoDig && (!bot.autoDig || autoDigUnlocked(s))) act(s, { type: 'setAutoDig', on: bot.autoDig }, out);
 
   if (r.maxDepth !== mem.lastMaxDepth) {
     mem.lastMaxDepth = r.maxDepth;
@@ -121,7 +129,7 @@ export function botAct(s: GameState, bot: BotDef, mem: BotMemory): void {
     const target = Math.max(30, mem.lastGain * 1.5);
     const stalled = s.clock.playedMs - mem.lastDepthChangeMs >= 120_000;
     if (gain >= target || (stalled && gain >= Math.max(9, mem.lastGain))) {
-      dispatch(s, { type: 'prestige' });
+      act(s, { type: 'prestige' }, out);
       mem.lastGain = gain;
       mem.lastMaxDepth = 0;
       mem.lastDepthChangeMs = s.clock.playedMs;
@@ -132,10 +140,10 @@ export function botAct(s: GameState, bot: BotDef, mem: BotMemory): void {
   for (let i = 0; i < 40; i++) {
     const t = nextTool(s);
     if (t && r.coins.gte(t.cost)) {
-      dispatch(s, { type: 'buy', item: 'tool', qty: 1 });
+      act(s, { type: 'buy', item: 'tool', qty: 1 }, out);
       continue;
     }
-    arrangeSlots(s);
+    arrangeSlots(s, out);
     // 投資効率（増える収入 ÷ コスト）が最大のもの。最良が買えなければ、最良の 50% 以上で買えるもの
     const base = totalRate(s);
     let best: { item: LevelItem; score: number; affordable: boolean } | null = null;
@@ -151,7 +159,7 @@ export function botAct(s: GameState, bot: BotDef, mem: BotMemory): void {
     }
     if (!best || !bestAffordable) break;
     if (!best.affordable && bestAffordable.score < best.score * 0.5) break;
-    const res = dispatch(s, { type: 'buy', item: bestAffordable.item, qty: 1 });
+    const res = act(s, { type: 'buy', item: bestAffordable.item, qty: 1 }, out);
     if (!res.ok) break;
   }
 }
