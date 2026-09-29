@@ -20,7 +20,7 @@ import {
   type Num,
   type Qty,
 } from '../../core/index.ts';
-import { t, type Lang, type TextKey } from '../../i18n/index.ts';
+import { t, tn, type Lang, type TextKey } from '../../i18n/index.ts';
 import { etaParts, formatCost } from '../format.ts';
 
 export interface BuyEta {
@@ -66,10 +66,16 @@ const ratioText = (r: number): string => String(Math.round(r * 100) / 100);
 export function etaOf(s: GameState, cost: Num, lang: Lang): BuyEta {
   const lack = sub(cost, s.run.coins);
   const seconds = secondsUntil(s, cost);
-  if (seconds === null) return { seconds: null, lack: toStr(lack), text: t('eta.coins', { n: formatCost(lack, lang) }) };
+  if (seconds === null) {
+    const n = formatCost(lack, lang);
+    return { seconds: null, lack: toStr(lack), text: tn('eta.coins', n, { n }) }; // 英語の単数「1 coin short」（B-N7）
+  }
   const p = etaParts(seconds);
-  return { seconds, lack: toStr(lack), text: t(`eta.${p.unit}` as TextKey, { n: p.n }) };
+  return { seconds, lack: toStr(lack), text: t(`eta.${p.unit}`, { n: p.n }) };
 }
+
+/** 「5 coins」「1 coin」（英語の単数。B-N7） */
+const costText = (cost: string): string => tn('buy.cost', cost, { cost });
 
 /** 買った後の仮の状態（読むだけ。元の状態は書き換えない） */
 function withLevels(s: GameState, drill: number, digger: number): GameState {
@@ -86,7 +92,8 @@ function effectOf(s: GameState, item: ItemId, k: number): string {
     }
     case 'autoDigger': {
       const d = autoDiggerHitsPerSec(withLevels(s, r.drill.level, r.autoDig.level + k)) - autoDiggerHitsPerSec(s);
-      return t('effect.hits', { n: ratioText(d) });
+      const n = ratioText(d);
+      return tn('effect.hits', n, { n });
     }
     case 'tool': {
       const next = TOOLS[r.drill.tool + 1];
@@ -126,7 +133,7 @@ export function buyView(s: GameState, item: ItemId, qty: Qty, lang: Lang): BuyVi
     n: q.n,
     showQty: item !== 'tool' && qty !== 1 && q.n > 0,
     cost: toStr(shown),
-    costText: t('buy.cost', { cost: formatCost(shown, lang) }),
+    costText: costText(formatCost(shown, lang)),
     level: q.level,
     levelText,
     name,
