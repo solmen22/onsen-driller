@@ -72,6 +72,9 @@ body {
   min-width: 0;
   min-height: 0;
   touch-action: none;
+  /* user-select は継承されないので、#app の none に頼らずステージにも書く（BL-107。WebKit・Firefox は計算済みの値が auto になり TS-042-09 が落ちた） */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 #stage canvas {
