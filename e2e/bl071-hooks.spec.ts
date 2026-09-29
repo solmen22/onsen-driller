@@ -1,4 +1,5 @@
-// E2E: BL-071 テスト用フック window.__game（BL-071_test-hooks.md）の S1 の e2e — TS-071-01・04〜06・08・09・13・14・22
+// E2E: BL-071 テスト用フック window.__game（BL-071_test-hooks.md）の S1 の e2e — TS-071-01・04〜06・08・09・13・14・22、
+// S2 の BL-089（繰り延べ）— TS-071-11・19・21。TS-071-10・12・16・18・20 は integration（QA リードの判断。traceability §6-4）
 // - TS-071-03（本番に __game がない）の実行時の部分は e2e/bl007-prod-builds.spec.ts（TS-007-09 と共用。文字列の検査は check:size）
 // - TS-071-07（advance の決定論と Node の期待値）は e2e/bl036-render.spec.ts の TS-036-08 と同じテスト（期待値は tests/replays/hook-seed42-60s.json）
 // - シナリオの「実装のまとめ方」はページの読み込み 3 回程度を勧めているが、E1 と同じく ID ごとにテストを分けた
@@ -7,9 +8,10 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test, expect } from './support/fixtures.ts';
-import { bootGame, centerOf, pageNow } from './support/boot.ts';
+import { bootGame, centerOf, pageNow, setHidden } from './support/boot.ts';
 import { stateHashOracle, fnv1aOracle } from './support/hash.ts';
 import { coinsOf, HOOK_MEMBERS, hitsOf, presentHookMembers, type GameEvent, type Hooks } from './support/hooks.ts';
+import { newerOlder, readSlots } from './support/storage.ts';
 import { zoomFor } from '../src/view/layout.ts';
 import { SEED_A } from '../tests/helpers/seeds.ts';
 
@@ -294,5 +296,81 @@ test.describe('BL-071 テスト用フック', () => {
       expect(st.tileSprites).toBeGreaterThan(0);
       expect(st.popups).toBeLessThanOrEqual(20);
     });
+  });
+});
+
+// BL-089（S1 から繰り延べた中の e2e。QA §2-3 の TS-071-11・21、QA リードの判断で e2e に残した TS-071-19 の 1 件。traceability §6-3・§6-4）
+test.describe('BL-071 テスト用フック（BL-089）', () => {
+  test('TS-071-11 setClock(T) の後に保存を起こすと、封筒の savedAt が T（アプリの壁時計が差し替わる）', async ({ page, harness }) => {
+    const g = await bootGame(page, { seed: SEED_A }); // Clock API の時計は止まっている（単調時計も進まない）
+    await g.pause();
+    // 対照: 差し替える前の保存の savedAt はページの時計（Date.now()）。差し替えが効いていないのに T と一致する偽の緑を防ぐ
+    const wall = await pageNow(page);
+    await setHidden(page, true); // hidden への visibilitychange で保存（時計を進めない契機）
+    await setHidden(page, false);
+    const before = await readSlots(page.context(), harness.origin);
+    const first = before[newerOlder(before).newer].env;
+    expect(first, '1 回目の保存がある').not.toBeNull();
+    expect(first!.savedAt).toBe(wall);
+
+    const T = Date.UTC(2031, 4, 6, 7, 8, 9); // ページの時計（2026-10-01 付近）から遠い時刻
+    expect(T).not.toBe(wall);
+    await g.setClock(T);
+    await setHidden(page, true);
+    await setHidden(page, false);
+    const after = await readSlots(page.context(), harness.origin);
+    const second = after[newerOlder(after).newer].env;
+    expect(second!.seq, '2 回目の保存').toBe(first!.seq + 1);
+    expect(second!.savedAt).toBe(T);
+    // ページの時計は差し替えていない（アプリの壁時計だけが変わる）
+    expect(await pageNow(page)).toBe(wall);
+  });
+
+  test('TS-071-19 本物のページで setTimeout の中の例外（x1）と処理されない reject（x2）が errors() に入る（main.ts の結線）', async ({ page, harness }) => {
+    // 「25 件の後は直近 20 件」は unit（tests/unit/errors.test.ts）・integration（test-hooks.test.ts）で実施済み（traceability §6-4）
+    // Playwright の Clock API を入れない（ブラウザ本来のタイマー）。Clock API の偽の setTimeout は、中の例外を window の
+    // error にせず clock.runFor の呼び出し元に投げ返す（2026-09-29 の実測: runFor が「Error: x1」で失敗）ので、main.ts が
+    // window に付けた error の購読（captureErrors）を通らない
+    const g = await bootGame(page, { skipClockInstall: true, pauseClock: false });
+    const before = await g.errors();
+    expect(before.filter((e) => /\bx[12]\b/.test(e))).toEqual([]);
+    await page.evaluate(() => {
+      setTimeout(() => {
+        throw new Error('x1');
+      }, 0);
+      void Promise.reject(new Error('x2'));
+    });
+    await expect.poll(async () => (await g.errors()).slice(before.length)).toEqual(expect.arrayContaining(['Error: x1', 'Error: x2']));
+    // ブラウザも同じ 2 件を捕まえていない例外として出している（ページの例外の見張り。わざと起こしたものだけ）
+    expect(harness.pageErrors).toEqual(expect.arrayContaining(['Error: x1', 'Error: x2']));
+    expect(harness.pageErrors.filter((e) => !/\bx[12]\b/.test(e))).toEqual([]);
+  });
+
+  test('TS-071-21 Clock API で時計を止めたまま（__game.pause() なし）advance を使うと、advance の分だけロジックが進み、実時間のループは止まったまま', async ({ page }) => {
+    const g = await bootGame(page, { seed: SEED_A }); // page.clock.install → 起動 → pauseAt（__game.pause() は呼ばない）
+    await autoDigOn(g); // ループが動けば打撃が増える状態にする
+    const s0 = await g.getState();
+    const wall0 = await pageNow(page);
+    // 実時間が過ぎても、Clock API の時計が止まっているので実時間のループは進まない
+    await page.waitForTimeout(500);
+    const s1 = await g.getState();
+    expect(s1.clock.playedMs).toBe(s0.clock.playedMs);
+    expect(hitsOf(s1)).toBe(hitsOf(s0));
+    // advance はロジックだけを ms 進める（自動掘りの 10 秒分の打撃が入る）
+    const evs = await g.advance(10_000);
+    const s2 = await g.getState();
+    expect(s2.clock.playedMs - s1.clock.playedMs).toBe(10_000);
+    expect(hitsOf(s2) - hitsOf(s1)).toBeGreaterThanOrEqual(10);
+    expect(Array.isArray(evs)).toBe(true);
+    expect(await pageNow(page)).toBe(wall0);
+    // advance の後もループは止まったまま（勝手に追いつかない）
+    await page.waitForTimeout(300);
+    expect((await g.getState()).clock.playedMs).toBe(s2.clock.playedMs);
+    // 対照: Clock API で時計を進めると、止めていないループが動いてロジックが進む（ループ自体は生きている）
+    await page.clock.runFor(1_000);
+    const s3 = await g.getState();
+    test.info().annotations.push({ type: 'runFor(1000) で進んだロジックの時間(ms)', description: String(s3.clock.playedMs - s2.clock.playedMs) });
+    expect(s3.clock.playedMs).toBeGreaterThan(s2.clock.playedMs);
+    expect(hitsOf(s3)).toBeGreaterThan(hitsOf(s2));
   });
 });
