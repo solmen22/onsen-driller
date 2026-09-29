@@ -8,7 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, describe, test } from 'node:test';
-import { BUDGET, E2E_JOB_TARGETS, FAKE_AD, MB, PRODUCTION_TARGETS, transferSize } from './check-lib.mjs';
+import { BUDGET, E2E_JOB_TARGETS, EXTERNAL_URL_ALLOW, FAKE_AD, MB, PRODUCTION_TARGETS, SDK, TARGETS, transferSize } from './check-lib.mjs';
 import { readZip } from './package-zip.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -343,6 +343,102 @@ describe('check:size', () => {
     const r = size(d, 'newportal');
     assertFail(r, /\[mix\.crazygames\]/);
     assert.match(r.out, /\[target\.unknown\]/);
+  });
+
+  // ---- 外部への送信と Service Worker（BL-096。コードレビュー PR #4 の M-1・N-10、TS-007-10） ----
+  const SIX = ['web', 'crazygames', 'itch', 'poki', 'e2e-web', 'e2e-crazygames'];
+
+  test('BL-096 sendBeacon・keepalive・preconnect・dns-prefetch は、6 ターゲットのどれの JS・HTML に 1 つあっても失敗する（24 件）', () => {
+    const cases = [
+      ['net.beacon', 'js', 'addEventListener("pagehide",()=>navigator.sendBeacon(u,d))'],
+      ['net.keepalive', 'js', 'fetch(u,{method:"POST",body:d,keepalive:!0})'],
+      ['net.preconnect', 'html', '<link rel="preconnect" href="./">'],
+      ['net.preconnect', 'html', '<link rel="DNS-Prefetch" href="./">'],
+    ];
+    let n = 0;
+    for (const t of SIX)
+      for (const [rule, kind, snippet] of cases) {
+        const d = newDist();
+        const dir = makeTarget(d, t);
+        if (kind === 'js') write(join(dir, 'assets', 'x-abcd1234.js'), snippet);
+        else write(join(dir, 'index.html'), html(t, snippet));
+        assertFail(size(d, t), new RegExp(`FAIL ${escRe(t)}: \\[${escRe(rule)}\\] (assets/x-abcd1234\\.js|index\\.html): `));
+        n++;
+      }
+    assert.equal(n, 24);
+  });
+
+  test('BL-096 許可リストにない外部の絶対 URL（http・https・ws・wss）は失敗。似た名前・パス違いも失敗', () => {
+    for (const url of [
+      'https://www.google-analytics.com/g/collect',
+      'http://example.com/pixel.gif',
+      'wss://example.com/socket',
+      'https://phaser.io.example.com/',
+      'https://phaser.io/x',
+      'http://www.w3.org/2000/svg2',
+      'HTTPS://example.com/',
+    ]) {
+      const d = newDist();
+      write(join(makeTarget(d, 'web'), 'assets', 'x-abcd1234.js'), `const u="${url}";`);
+      assertFail(size(d, 'web'), new RegExp(`\\[net\\.url\\] assets/x-abcd1234\\.js: 許可リストにない外部の URL ${escRe(url)}`));
+    }
+    // HTML・CSS の中も見る
+    const d = newDist();
+    const dir = makeTarget(d, 'itch');
+    write(join(dir, 'assets', 'index-abcd1234.css'), 'body{background:url("https://example.com/bg.png")}');
+    assertFail(size(d, 'itch'), /\[net\.url\] assets\/index-abcd1234\.css: 許可リストにない外部の URL https:\/\/example\.com\/bg\.png/);
+  });
+
+  test('BL-096 許可リストの URL はそのターゲットでだけ通る（XML 名前空間・Phaser の文字列は全部、SDK は SDK を持つターゲットだけ）', () => {
+    const common = EXTERNAL_URL_ALLOW.filter((a) => a.targets === 'all').map((a) => a.url);
+    for (const t of SIX) {
+      const d = newDist();
+      write(join(makeTarget(d, t), 'assets', 'x-abcd1234.js'), common.map((u) => `a("${u}");`).join(''));
+      assertPass(size(d, t));
+    }
+    // SDK の URL を SDK のないターゲットに書くと、mix の検査に加えて net.url でも失敗する
+    const d = newDist();
+    write(join(makeTarget(d, 'itch'), 'assets', 'x-abcd1234.js'), `load("${CG}");load("${POKI}")`);
+    const r = size(d, 'itch');
+    assertFail(r, new RegExp(`\\[net\\.url\\] assets/x-abcd1234\\.js: 許可リストにない外部の URL ${escRe(CG)}・${escRe(POKI)}`));
+  });
+
+  test('BL-096 許可リストは各行に理由があり、SDK の URL は SDK を持つターゲット（check-lib の TARGETS）だけに許す', () => {
+    for (const a of EXTERNAL_URL_ALLOW) {
+      assert.match(a.url, /^(?:https?|wss?):\/\/[^\s"'`<>()\\,;{}[\]]+$/, `許可リストの URL の形: ${a.url}`);
+      assert.ok(a.why && a.why.length >= 10, `理由がない: ${a.url}`);
+      assert.ok(a.targets === 'all' || (Array.isArray(a.targets) && a.targets.length > 0), `targets: ${a.url}`);
+      for (const [key, host] of [['cg', SDK.crazygames], ['poki', SDK.poki]])
+        if (a.url.includes(host)) {
+          assert.notEqual(a.targets, 'all', `${a.url} を全ターゲットに許している`);
+          for (const t of a.targets) assert.ok(TARGETS[t]?.[key], `${a.url} を SDK のないターゲット ${t} に許している`);
+        }
+    }
+  });
+
+  test('TS-007-10 Service Worker: serviceWorker の API 名と、sw.js・service-worker.js・workbox の名前のファイルは失敗する', () => {
+    for (const t of SIX) {
+      const d = newDist();
+      write(join(makeTarget(d, t), 'assets', 'x-abcd1234.js'), 'navigator.serviceWorker.register("./sw.js")');
+      assertFail(size(d, t), /\[sw\] assets\/x-abcd1234\.js: serviceWorker/);
+    }
+    for (const name of ['sw.js', 'service-worker.js', 'serviceworker.js', 'workbox-abcd1234.js', 'assets/sw-abcd1234.js']) {
+      const d = newDist();
+      write(join(makeTarget(d, 'web'), name), 'console.log(1)');
+      assertFail(size(d, 'web'), new RegExp(`\\[sw\\] Service Worker らしい名前のファイル: ${escRe(name)}`));
+    }
+    // 名前が似ているだけのものは通す
+    const d = newDist();
+    write(join(makeTarget(d, 'web'), 'assets', 'swing-abcd1234.js'), 'console.log(1)');
+    assertPass(size(d, 'web'));
+  });
+
+  test('BL-096 ソースマップ（.map。e2e 系だけにありうる）の中の語・URL は見ない。画像などのバイナリも見ない', () => {
+    const d = newDist();
+    const dir = makeTarget(d, 'e2e-web');
+    write(join(dir, 'assets', 'index-abcd1234.js.map'), JSON.stringify({ sourcesContent: ['// https://github.com/x/y sendBeacon keepalive preconnect serviceWorker'] }));
+    write(join(dir, 'assets', 'atlas-abcd1234.png'), Buffer.from('\x89PNG https://example.com/ sendBeacon', 'latin1'));
+    assertPass(size(d, 'e2e-web'));
   });
 
   test('dist がないと失敗', () => {
