@@ -3,6 +3,7 @@
 import { performance } from 'node:perf_hooks';
 import { advance, cloneState, stateHash } from '../../src/core/index.ts';
 import { BOTS } from './bots.ts';
+import { fmtClock, judge, MILESTONES } from './milestones.ts';
 import { relDiff, runBot } from './sim.ts';
 
 const arg = (name: string, def: number): number => {
@@ -27,6 +28,20 @@ for (const r of results) {
   );
 }
 console.log(`TOTAL wall ms (3 bots): ${total.toFixed(0)}`);
+
+// 目標表（gdd §8-3）の出来事が初めて起きた時刻（ロジックの時間）。判定は標準ボット（BL-033 で CI の判定にする。ここは表示だけ）
+console.log('');
+console.log(`| # | 出来事 | 目標の範囲 | ${results.map((r) => r.bot).join(' | ')} | 標準の判定 |`);
+console.log(`|---|---|---|${results.map(() => '---|').join('')}---|`);
+const standard = results.find((r) => r.bot === 'standard');
+for (const m of MILESTONES) {
+  const range = m.rangeSec ? `${fmtClock(m.rangeSec[0] * 1000)}〜${fmtClock(m.rangeSec[1] * 1000)}` : '—';
+  console.log(`| ${m.no} | ${m.label} | ${range} | ${results.map((r) => fmtClock(r.milestones[m.id])).join(' | ')} | ${judge(m, standard?.milestones[m.id])} |`);
+}
+const share = (x: number): string => (Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : '—');
+const shareOk = standard && Number.isFinite(standard.bathShare) ? (standard.bathShare > 0.5 ? '○' : '×') : '—';
+console.log(`| 18 | 5〜60 分の収入のうち入湯料の割合 | 50% 超 | ${results.map((r) => share(r.bathShare)).join(' | ')} | ${shareOk} |`);
+console.log('');
 
 // 同じシードで同じハッシュ（標準ボットをもう一度）
 const again = runBot(BOTS.standard, { hours, stepMs, seed });
@@ -56,8 +71,8 @@ console.log(
   `timestep with bot (standard 1h): 100ms totalCoins=${b100.totalCoins} depth=${b100.bestDepth} / 1000ms totalCoins=${b1000.totalCoins} depth=${b1000.bestDepth} diffCoins=${(relDiff(Number(b100.totalCoins), Number(b1000.totalCoins)) * 100).toFixed(4)}% diffDepth=${(relDiff(b100.bestDepth, b1000.bestDepth) * 100).toFixed(4)}%`,
 );
 
-// step の処理時間（目標表 #23）: 序盤（1 分後）と 20 時間後の状態。ウォームアップは別の複製で行い、
-// 各 20,000 回を交互に 5 回測って中央値をとる
+// step の処理時間（目標表 #23。決定 0006-3）: 20 時間後の状態で中央値 50µs 未満（かつ 1ms 未満）。序盤（1 分後）との比は記録だけ。
+// ウォームアップは別の複製で行い、各 20,000 回を交互に 5 回測って中央値をとる
 type St = ReturnType<typeof runBot>['state'];
 const ev: Parameters<typeof advance>[3] = [];
 const timeSteps = (src: St, n: number): number => {
@@ -82,4 +97,5 @@ for (let k = 0; k < 5; k++) {
 const med = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? NaN;
 console.log(`step bench early (standard, 1 min): median ${med(e).toFixed(2)} µs/step [${e.map((x) => x.toFixed(2)).join(', ')}]`);
 console.log(`step bench late (standard, ${hours} h): median ${med(l).toFixed(2)} µs/step [${l.map((x) => x.toFixed(2)).join(', ')}]`);
-console.log(`step late/early = ${(med(l) / med(e)).toFixed(2)} (target <= 2, and < 1000 µs)`);
+console.log(`#23 step late median ${med(l).toFixed(2)} µs -> ${med(l) < 50 ? 'OK' : 'NG'} (target: median < 50 µs, and < 1000 µs)`);
+console.log(`step late/early = ${(med(l) / med(e)).toFixed(2)} (recorded only; decision 0006-3)`);

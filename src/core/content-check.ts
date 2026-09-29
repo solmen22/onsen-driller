@@ -2,6 +2,7 @@
 // （dev の起動での検査は main.ts に足していない。定義を変えると unit テストが落ちるので、それで代える。レビュー N-9）。
 // 問題の一覧（文字列）を返す。空なら問題なし。i18n のキーの有無は i18n を import できない core の外（テスト）で確かめる
 import { GUESTS } from '../content/guests.ts';
+import { PARAMS } from '../content/params.ts';
 import { ORE_BY_ID, ORES } from '../content/ores.ts';
 import { SPRING_BY_ID, SPRINGS } from '../content/springs.ts';
 import { STRATA } from '../content/strata.ts';
@@ -38,12 +39,21 @@ export function contentProblems(): string[] {
     if (!(t.mult > 1)) p.push(`tools: ${t.id} の倍率が 1 以下`);
   });
   for (const d of dupes(TOOLS.map((t) => t.id))) p.push(`tools: id ${d} が重複`);
-  // 源泉: 深さが増え、コストの初期値も増える。お客さんの条件の源泉が存在する
+  // 源泉: 深さ・コストの初期値・基本湧出が前より大きい。コストは Lv に対して単調に増える（r > 1）。名前のキーは spring.<id>（BL-015）
   SPRINGS.forEach((s, i) => {
     const prev = SPRINGS[i - 1];
     if (prev && !(s.depth > prev.depth && s.pumpC0 > prev.pumpC0)) p.push(`springs: ${s.id} の深さかコストが前より大きくない`);
+    if (prev && !(s.flow > prev.flow)) p.push(`springs: ${s.id} の基本湧出が前より大きくない`);
+    if (!(s.pumpC0 > 0 && s.pumpR > 1 && s.flow > 0)) p.push(`springs: ${s.id} のコスト・成長率・基本湧出が正でない（成長率は 1 より大きい）`);
+    if (!(s.depth > 0 && Number.isInteger(s.depth))) p.push(`springs: ${s.id} の深さが正の整数でない`);
+    if (s.nameKey !== `spring.${s.id}`) p.push(`springs: ${s.id} の名前のキーが spring.${s.id} でない`);
   });
   for (const d of dupes(SPRINGS.map((s) => s.id))) p.push(`springs: id ${d} が重複`);
+  // ポンプのマイルストーン（Lv10・25・50・100）は 1 より大きく、増えていく
+  PARAMS.pumpMilestones.forEach((lv, i) => {
+    const prev = PARAMS.pumpMilestones[i - 1];
+    if (!(lv > 1 && (prev === undefined || lv > prev))) p.push(`params: pumpMilestones の ${lv} が前より大きくない`);
+  });
   for (const g of GUESTS) {
     const c = g.condition;
     if (c.kind === 'slottedLevel' && !Object.hasOwn(SPRING_BY_ID, c.spring)) p.push(`guests: ${g.id} の条件の源泉 ${c.spring} がない`);
