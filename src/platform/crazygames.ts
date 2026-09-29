@@ -57,7 +57,9 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
   let adblock = false;
   let muted = false;
   let inFlight: Promise<RewardResult> | null = null;
-  let storage: KeyValueStore = localStore();
+  const local = localStore();
+  let storage: KeyValueStore = local;
+  let legacy: KeyValueStore | undefined;
   const safe = (name: string, fn: (s: CrazySdk) => void): void => {
     log.push(name);
     if (!sdk) return;
@@ -126,8 +128,12 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
         const d = s.data;
         storage = {
           kind: 'sdk',
-          // 読めないときは例外をそのまま投げる（「ない」＝null と区別する。KeyValueStore.get の約束。レビュー S-1）
-          get: (k) => d.getItem(k),
+          // 読めないときは例外をそのまま投げる（「ない」＝null と区別する。KeyValueStore.get の約束。レビュー S-1）。
+          // 「ない」を undefined で返す実装もあるので、文字列以外は null にそろえる（S1 再レビュー A-N1）
+          get: (k) => {
+            const v: unknown = d.getItem(k);
+            return typeof v === 'string' ? v : null;
+          },
           set: (k, v) => {
             try {
               d.setItem(k, v);
@@ -144,6 +150,8 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
             }
           },
         };
+        // SDK が読めなかった起動で localStorage に保存した枠を、main.ts が最初に移す（メモリに落ちていたら移すものはない）
+        if (local.kind === 'local') legacy = local;
       }
       muted = !!s.game.settings?.muteAudio;
       s.game.addSettingsChangeListener?.((st) => {
@@ -183,6 +191,9 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
     },
     get storage() {
       return storage;
+    },
+    get legacyStorage() {
+      return legacy;
     },
     locale: () => sdk?.user?.systemInfo?.locale ?? browserLocale(),
     isMuted: () => muted,

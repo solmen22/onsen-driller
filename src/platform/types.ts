@@ -47,6 +47,11 @@ export interface Platform {
     onPlaying(cb: (playing: boolean) => void): void;
   };
   storage: KeyValueStore;
+  /**
+   * 以前の保存先（今の storage に移す前のもの）。CrazyGames で data モジュールを使うときの localStorage だけ（arch §11 の
+   * 「CrazyGames の移行」。SDK が読めなかった起動では localStorage に保存しているので、最初に SDK が使えた起動で移す。BL-057）
+   */
+  readonly legacyStorage?: KeyValueStore;
   locale(): string | null;
   isMuted(): boolean;
   onMutedChange(cb: (m: boolean) => void): void;
