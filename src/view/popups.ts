@@ -1,7 +1,9 @@
 // 数字のポップ（arch §14・Q-19。BL-036）。Phaser に依存しない
 // - 同時に表示するのは 20 まで。21 個目は最も古いポップを消して使い回す（新しい破壊の数字を優先する）
 // - 1 フレームに届いた破壊が 4 個以上なら、まとめて 1 つのポップ（合計のコイン）にする
-import { add, num, toNumber, toStr } from '../core/num.ts';
+import { add, num, toStr } from '../core/num.ts';
+import { getLang, type Lang } from '../i18n/index.ts';
+import { formatRate, getNotation, type Notation } from '../i18n/number-format.ts';
 
 export const POPUP_MAX = 20;
 export const POPUP_TTL_MS = 700;
@@ -86,19 +88,13 @@ export function mergeBreaks(items: readonly BreakPop[]): BreakPop {
   return { depth: last?.depth ?? 0, coins: toStr(sum), ore: null, count: items.reduce((a, b) => a + b.count, 0) };
 }
 
-/** 数字の短い表記（S1 の仮。本来の 3 種の表記は S2 の BL-011 の ui/format.ts）: 10 未満は小数 1 桁、1 万未満は整数、それ以上は 1.2e5 */
-export function shortNumber(v: number): string {
-  if (!Number.isFinite(v) || v < 0) return '0';
-  if (v < 10) return v.toFixed(1).replace(/\.0$/, '');
-  if (v < 1e4) return String(Math.round(v));
-  const e = Math.floor(Math.log10(v));
-  const m = v / 10 ** e;
-  return `${m.toFixed(1)}e${e}`;
-}
-
-/** ポップの文字: 普通のブロックは「+12」、鉱石は「石英 +96」（名前は呼び出し側が言語に合わせて渡す）、まとめたものは「+120 ×5」 */
-export function popupText(p: BreakPop, oreName: string | null): string {
-  const coins = `+${shortNumber(toNumber(num(p.coins)))}`;
+/**
+ * ポップの文字: 普通のブロックは「+12」、鉱石は「石英 +96」（名前は呼び出し側が言語に合わせて渡す）、まとめたものは「+120 ×5」。
+ * 数は HUD と同じ表記の関数（src/i18n/number-format.ts。BL-011・Q-32 ⑥）で、言語と数値表記の設定に従う（「+1.23万」「+12.3K」）。
+ * 獲得したコインは序盤に 1 未満のことがあるので、毎秒の量と同じ形（100 未満は小数 2 桁まで切り捨て。100 以上は所持コインと同じ）
+ */
+export function popupText(p: BreakPop, oreName: string | null, lang: Lang = getLang(), notation: Notation = getNotation()): string {
+  const coins = `+${formatRate(num(p.coins), lang, notation).text}`;
   if (p.count > 1) return `${coins} ×${p.count}`;
   return oreName ? `${oreName} ${coins}` : coins;
 }

@@ -21,7 +21,7 @@ import {
   type Qty,
 } from '../../core/index.ts';
 import { t, tn, type Lang, type TextKey } from '../../i18n/index.ts';
-import { etaParts, formatCost } from '../format.ts';
+import { etaParts, formatNum, formatShortfall } from '../format.ts';
 
 export interface BuyEta {
   /** 「あと N 秒」の秒（収入 0 なら null） */
@@ -67,7 +67,7 @@ export function etaOf(s: GameState, cost: Num, lang: Lang): BuyEta {
   const lack = sub(cost, s.run.coins);
   const seconds = secondsUntil(s, cost);
   if (seconds === null) {
-    const n = formatCost(lack, lang);
+    const n = formatShortfall(lack, lang); // 不足額だけ切り上げ（足りないのに「あと 0 コイン」と見せない。BL-011）
     return { seconds: null, lack: toStr(lack), text: tn('eta.coins', n, { n }) }; // 英語の単数「1 coin short」（B-N7）
   }
   const p = etaParts(seconds);
@@ -133,7 +133,7 @@ export function buyView(s: GameState, item: ItemId, qty: Qty, lang: Lang): BuyVi
     n: q.n,
     showQty: item !== 'tool' && qty !== 1 && q.n > 0,
     cost: toStr(shown),
-    costText: costText(formatCost(shown, lang)),
+    costText: costText(formatNum(shown, lang)), // 所持コインと同じ切り捨て（等しい値は同じ表記。Q-33）
     level: q.level,
     levelText,
     name,
