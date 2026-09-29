@@ -2,7 +2,7 @@
 // - buyQuote: 表示と購入で同じ関数を使う（「買えるように見えて買えない」を防ぐ。arch §6-2・Q-09）
 // - incomePerSec: HUD の「毎秒の収入」と「あと N 秒」の共通の値（入湯料/秒＋自動の掘削のコイン/秒。手動は含めない）
 import { PARAMS } from '../content/params.ts';
-import { SPRING_BY_ID, type SpringId } from '../content/springs.ts';
+import { SPRING_BY_ID, SPRINGS, type SpringEffect, type SpringId } from '../content/springs.ts';
 import { TOOLS } from '../content/tools.ts';
 import {
   autoDiggerHitsPerSec,
@@ -11,6 +11,8 @@ import {
   blockValue,
   drillPower,
   modifiers,
+  nextPumpMilestone,
+  springIncomeIfSlotted,
   temperatureAt,
   type Modifiers,
 } from './formulas.ts';
@@ -170,6 +172,47 @@ export function secondsUntil(s: Readonly<GameState>, cost: Num): number | null {
   if (inc.eq(0)) return null;
   // 割り切れる値が浮動小数の誤差で 8.000000001 になっても 9 にしないよう、ごく小さな許容を引いてから切り上げる（足りない間は 1 以上）
   return Math.max(1, Math.ceil(toNumber(div(lack, inc)) - 1e-9));
+}
+
+/** 源泉 1 つの表示用の値（湯宿タブ T2 の「発見済みの源泉とポンプ」。BL-015） */
+export interface SpringView {
+  id: SpringId;
+  /** 発見の深さ（未発見のとき「〇m で発見」） */
+  depth: number;
+  found: boolean;
+  /** ポンプの Lv（未発見は 0。発見時に Lv1） */
+  pump: number;
+  /** つないでいる枠（0 始まり）。つないでいなければ null */
+  slot: number | null;
+  /** 今この源泉から入っている入湯料/秒（つないでいなければ 0。合計は incomePerSec の入湯料の分と丸めの範囲で一致） */
+  incomePerSec: Num;
+  /** つないだときの入湯料/秒の目安（今の倍率のまま。この源泉自身の効果の変化は含めない。未発見は 0） */
+  potentialPerSec: Num;
+  /** 次に ×2 になるポンプの Lv（10・25・50・100。すべて越えたら null。未発見は 10） */
+  nextMilestone: number | null;
+  /** 枠につないでいる間だけ効く効果（content/springs.ts の定義そのまま） */
+  effect: SpringEffect;
+}
+
+/** 源泉 5 種の表示用の値（content/springs.ts の順。未発見も含む） */
+export function springViews(s: Readonly<GameState>): SpringView[] {
+  const m = modifiers(s);
+  return SPRINGS.map((def) => {
+    const pump = s.run.springs[def.id]?.pump ?? 0;
+    const slotIdx = s.run.bath.slots.indexOf(def.id);
+    const potential = springIncomeIfSlotted(s, def.id, m);
+    return {
+      id: def.id,
+      depth: def.depth,
+      found: pump > 0,
+      pump,
+      slot: slotIdx >= 0 ? slotIdx : null,
+      incomePerSec: slotIdx >= 0 ? potential : ZERO,
+      potentialPerSec: potential,
+      nextMilestone: nextPumpMilestone(pump),
+      effect: def.effect,
+    };
+  });
 }
 
 /** 今の深さの地温（表示用の ℃ の整数。HUD の深さの横） */
