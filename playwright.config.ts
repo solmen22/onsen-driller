@@ -79,8 +79,10 @@ export default defineConfig({
   use: {
     baseURL: `http://${HOST}:${PORT}`,
     headless: process.env.PW_HEADED !== '1',
-    // 失敗したときにトレースとスクリーンショットを残す（TS-073-02）
-    trace: 'retain-on-failure',
+    // 失敗したときにトレースとスクリーンショットを残す（TS-073-02）。トレースは最初の実行の分だけ（retries の再実行では取らない）。
+    // flaky の分析に要るのは最初の失敗で、再実行の分を減らして失敗したときの成果物を小さくする（BL-099。実行・修復エンジニアの意見、
+    // QA リードの同意、決定 0006-4）
+    trace: 'retain-on-first-failure',
     screenshot: 'only-on-failure',
     video: 'off',
     serviceWorkers: 'allow',

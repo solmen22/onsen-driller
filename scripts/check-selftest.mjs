@@ -734,3 +734,84 @@ describe('ci.yml', () => {
     }
   });
 });
+
+// ---- 毎晩のジョブ（BL-084）と、失敗したときの E2E の記録（BL-099 と同じ方針。決定 0006-2・4、QA 判定書 S1 §6-2・§6-3） ----
+/** ワークフローの jobs: の下の 1 つのジョブの本文 */
+function jobOf(text, name) {
+  const m = new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  [a-z][\\w-]*:\\n|(?![\\s\\S]))`, 'm').exec(text);
+  assert.ok(m, `ジョブ ${name} がない`);
+  return m[1];
+}
+/** ジョブの本文を step ごとに分ける */
+const stepsOf = (body) => body.split(/\n(?= {6}- )/);
+/** コメント行を除いた本文 */
+const codeOf = (body) => body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+const HTML_REPORT = "hashFiles('playwright-report/index.html')";
+
+/**
+ * 失敗したときの記録の方針: playwright-report/ だけを 3 日。test-results/ は HTML レポートができなかったとき
+ * （index.html がないとき）だけ。成功した回には何も残さない。failure()・always() を使うのはこの 2 つの step だけ。
+ * テストの step には、ジョブより短い timeout-minutes（ジョブのタイムアウトで止まると failure() の step も動かず、何も残らない）
+ */
+function assertFailureReportPolicy(body, label, testRuns) {
+  const ss = stepsOf(body);
+  const uploads = ss.filter((s) => /uses: actions\/upload-artifact@/.test(s));
+  const report = uploads.filter((s) => /^ {10}path: playwright-report\/$/m.test(s));
+  const results = uploads.filter((s) => /^ {10}path: test-results\/$/m.test(s));
+  assert.equal(report.length, 1, `${label}: playwright-report/ を保存する step が 1 つでない（${report.length}）`);
+  assert.equal(results.length, 1, `${label}: test-results/ を保存する step が 1 つでない（${results.length}）`);
+  assert.match(report[0], new RegExp(`^ {8}if: failure\\(\\) && ${escRe(HTML_REPORT)} != ''$`, 'm'), `${label}: HTML レポートは失敗したときで index.html があるときだけ`);
+  assert.match(results[0], new RegExp(`^ {8}if: failure\\(\\) && ${escRe(HTML_REPORT)} == ''$`, 'm'), `${label}: test-results/ は HTML レポートができなかったときだけ`);
+  for (const s of [report[0], results[0]]) {
+    assert.match(s, /^ {10}retention-days: 3$/m, `${label}: 失敗したときの記録の保存は 3 日（500MB の枠。BL-099）`);
+    assert.doesNotMatch(s, /^ {10}path: \|/m, `${label}: 1 つの成果物に playwright-report/ と test-results/ を一緒に入れない`);
+  }
+  for (const s of ss) {
+    if (/^ {8}if: .*(always|failure|cancelled)\(\)/m.test(s))
+      assert.ok(s === report[0] || s === results[0], `${label}: failure()・always() を記録を残す step 以外に使っている:\n${s}`);
+    assert.doesNotMatch(s, /continue-on-error:\s*true/, `${label}: continue-on-error`);
+  }
+  const job = /^ {4}timeout-minutes: (\d+)$/m.exec(body);
+  assert.ok(job, `${label}: ジョブに timeout-minutes がない`);
+  for (const run of testRuns) {
+    const st = ss.find((s) => new RegExp(`^ {8}run: ${escRe(run)}$`, 'm').test(s));
+    assert.ok(st, `${label}: run: ${run} の step がない`);
+    const t = /^ {8}timeout-minutes: (\d+)$/m.exec(st);
+    assert.ok(t, `${label}: ${run} に timeout-minutes がない（ジョブのタイムアウトで止まると記録が残らない）`);
+    assert.ok(Number(t[1]) < Number(job[1]), `${label}: ${run} の timeout-minutes（${t[1]}）がジョブ（${job[1]}）より短くない`);
+  }
+}
+
+describe('失敗したときの E2E の記録（BL-099。決定 0006-4・QA 判定書 S1 §6-3。500MB の保存量の枠）', () => {
+  const ci = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8').replaceAll('\r\n', '\n');
+  const pw = readFileSync(join(root, 'playwright.config.ts'), 'utf8');
+
+  test('ci.yml の e2e ジョブ: playwright-report/ だけを 3 日、HTML レポートができなかったときだけ test-results/。failure() はこの 2 つだけ', () => {
+    assertFailureReportPolicy(jobOf(ci, 'e2e'), 'ci.yml の e2e', ['npm run test:e2e']);
+  });
+
+  test('ci.yml の成果物の名前: HTML レポートは e2e-report、test-results/ は e2e-test-results（手順書・実行記録の名前と合わせる）', () => {
+    const ss = stepsOf(jobOf(ci, 'e2e'));
+    const nameOf = (path) => {
+      const st = ss.find((s) => new RegExp(`^ {10}path: ${escRe(path)}$`, 'm').test(s));
+      assert.ok(st, `${path} の upload がない`);
+      return /^ {10}name: (\S+)$/m.exec(st)?.[1];
+    };
+    assert.equal(nameOf('playwright-report/'), 'e2e-report');
+    assert.equal(nameOf('test-results/'), 'e2e-test-results');
+    // ほかのジョブ・複数行の path で同じものを保存し直していない（コメント行は除く）
+    const c = codeOf(ci);
+    // path の値（1 行の `path: x` と、`path: |` の下の一覧の行）だけを数える
+    assert.equal((c.match(/^\s+(?:path: )?playwright-report\/?$/gm) ?? []).length, 1, 'ci.yml で playwright-report/ を保存する場所が 1 つでない');
+    assert.equal((c.match(/^\s+(?:path: )?test-results\/?$/gm) ?? []).length, 1, 'ci.yml で test-results/ を保存する場所が 1 つでない');
+  });
+
+  test('playwright.config.ts: トレースは最初の実行の失敗だけ（retain-on-first-failure）、スクリーンショットは失敗したときだけ、動画なし（TS-073-02 を保ったまま小さく）', () => {
+    const code = pw.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    assert.match(code, /^\s+trace: 'retain-on-first-failure',$/m);
+    assert.match(code, /^\s+screenshot: 'only-on-failure',$/m);
+    assert.match(code, /^\s+video: 'off',$/m);
+    assert.equal((code.match(/\btrace:/g) ?? []).length, 1, 'trace の設定が 2 か所以上ある（project ごとの上書きを含む）');
+    assert.match(code, /\['html', \{ open: 'never', outputFolder: 'playwright-report' \}\]/, 'HTML レポートの出力先が playwright-report/ でない（ci.yml の hashFiles と合わない）');
+  });
+});
