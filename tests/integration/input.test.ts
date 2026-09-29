@@ -381,7 +381,9 @@ describe('BUG-1 ステージを押すと、押した枠（ポータルの iframe
     });
     const bad = setupInput({ stage: s3, win: badWin, doc: badDoc }, store);
     const down = ev('pointerdown', { isPrimary: true });
-    expect(() => s3.dispatchEvent(down)).not.toThrow();
+    // dispatchEvent はリスナーの例外を呼び出し元に投げない。例外が漏れると打撃が入らず hits が 1 のままになり、
+    // Vitest も未処理のエラーで落ちる（それで確かめる。PR #7 のレビュー N-2）
+    s3.dispatchEvent(down);
     expect(down.defaultPrevented).toBe(true);
     bad.dispose();
     expect(hits()).toBe(2);

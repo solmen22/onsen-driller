@@ -88,7 +88,9 @@ const isHidden = (doc: InputEnv['doc']): boolean => doc.hidden === true || doc.v
 /**
  * ステージを押したときに、ブラウザの mousedown の既定の動作と同じフォーカスの移動を行う（BUG-1）。
  * 1. window.focus(): 押した枠（ポータルの iframe）にフォーカスを移す。以後のキーはゲームに届き、preventDefault できる。
- *    利用者の操作（pointerdown）の中で呼ぶので、別オリジンの iframe でも許される。Phaser の autoFocus と同じ
+ *    今のエンジン（Chromium・WebKit・Firefox）は、自分の枠の window.focus() を利用者の操作で制限しない（PR #7 で別オリジン・
+ *    マウスとタッチで確認）。なお仕様上、タッチの pointerdown は利用者の活性化を生まない（マウスの pointerdown だけ）。
+ *    Phaser の autoFocus と同じ
  *    （Phaser は mousedown・touchstart で window.focus() を呼ぶ。本作は Phaser の入力を使わない）
  * 2. フォーカスのある要素（HUD のボタンなど。body 以外）からフォーカスを外す（押した後の Enter でボタンを押さない。
  *    読み込みのテキスト欄〔S3 の BL-029〕にフォーカスがあっても、ステージを押せば Space で掘れる）
