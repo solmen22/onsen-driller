@@ -88,7 +88,9 @@ async function boot(): Promise<void> {
   // （リスナーを付けた順。長押しの終わりで端数が変わった後の状態を保存する。以前の順番と同じ）
   const input = setupInput({ stage, win: window, doc: document }, store, {
     onFirstInput: () => {
-      void unlockAudio(); // 拒否しない（音が使えない環境では音なしで続ける。BL-102）
+      // 拒否しない（音が使えないときは音なしで続ける。BL-102）。AudioContext がない環境は黙る。ZzFX のチャンクが届かない等の
+      // 失敗は errors() に残す（描画のチャンクの失敗と同じ。console には出さない）
+      void unlockAudio((e) => errorLog.push(e));
       platform.gameplayStart(); // Poki の要件: 最初の入力で gameplayStart
     },
     onPress: (ts) => perf?.markInput(ts),
