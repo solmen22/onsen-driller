@@ -617,7 +617,19 @@ describe('ci.yml', () => {
     assert.doesNotMatch(v, /if:.*(always|failure|cancelled)\(\)/);
     assert.match(job('e2e'), /needs:\s*verify/);
     assert.match(job('deploy-preview'), /needs:\s*\[verify, e2e\]/);
-    assert.match(job('deploy-staging'), /needs:\s*verify/);
+    assert.match(job('deploy-staging'), /needs:\s*\[verify, e2e\]/);
+  });
+
+  test('決定 0007（QA の条件 1）: main への push でも e2e が PR と同じ npm run test:e2e で動き、deploy-staging は e2e の緑を待つ', () => {
+    const e = job('e2e');
+    // ジョブの if: で push（や main）を外していない。e2e に if: を足すなら、push で動くことをこの検査で確かめ直す
+    const jobIf = /^ {4}if: (.*)$/m.exec(e)?.[1] ?? '';
+    assert.doesNotMatch(jobIf, /push|refs\/heads\/main|github\.ref/, `e2e ジョブの if: が main への push を外している: ${jobIf}`);
+    assert.match(ci, /^on:\n(?: {2}.*\n| {4}.*\n)*? {2}push:\n {4}branches: \[main\]\n/m, 'main への push で ci.yml が動かない');
+    assert.match(e, /^ +run: npm run test:e2e$/m, 'e2e ジョブが PR と同じ npm run test:e2e を流さない');
+    const staging = job('deploy-staging');
+    assert.match(staging, /^ {4}needs: \[verify, e2e\](?:\s+#.*)?$/m, 'deploy-staging が e2e を待たない');
+    assert.doesNotMatch(staging, /^ {4}if: .*(always|failure|cancelled)\(\)/m, 'deploy-staging が e2e の失敗でも動く');
   });
 
   test('npm に統一（npm ci・cache: npm・npx playwright・PW_CHANNEL=chromium、pnpm なし）', () => {
