@@ -734,3 +734,101 @@ describe('ci.yml', () => {
     }
   });
 });
+
+// ---- 毎晩のジョブ（BL-084）と、失敗したときの E2E の記録（BL-099 と同じ方針。決定 0006-2・4、QA 判定書 S1 §6-2・§6-3） ----
+/** ワークフローの jobs: の下の 1 つのジョブの本文 */
+function jobOf(text, name) {
+  const m = new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  [a-z][\\w-]*:\\n|(?![\\s\\S]))`, 'm').exec(text);
+  assert.ok(m, `ジョブ ${name} がない`);
+  return m[1];
+}
+/** ジョブの本文を step ごとに分ける */
+const stepsOf = (body) => body.split(/\n(?= {6}- )/);
+/** コメント行を除いた本文 */
+const codeOf = (body) => body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+const HTML_REPORT = "hashFiles('playwright-report/index.html')";
+
+/**
+ * 失敗したときの記録の方針: playwright-report/ だけを 3 日。test-results/ は HTML レポートができなかったとき
+ * （index.html がないとき）だけ。成功した回には何も残さない。failure()・always() を使うのはこの 2 つの step だけ。
+ * テストの step には、ジョブより短い timeout-minutes（ジョブのタイムアウトで止まると failure() の step も動かず、何も残らない）
+ */
+function assertFailureReportPolicy(body, label, testRuns) {
+  const ss = stepsOf(body);
+  const uploads = ss.filter((s) => /uses: actions\/upload-artifact@/.test(s));
+  const report = uploads.filter((s) => /^ {10}path: playwright-report\/$/m.test(s));
+  const results = uploads.filter((s) => /^ {10}path: test-results\/$/m.test(s));
+  assert.equal(report.length, 1, `${label}: playwright-report/ を保存する step が 1 つでない（${report.length}）`);
+  assert.equal(results.length, 1, `${label}: test-results/ を保存する step が 1 つでない（${results.length}）`);
+  assert.match(report[0], new RegExp(`^ {8}if: failure\\(\\) && ${escRe(HTML_REPORT)} != ''$`, 'm'), `${label}: HTML レポートは失敗したときで index.html があるときだけ`);
+  assert.match(results[0], new RegExp(`^ {8}if: failure\\(\\) && ${escRe(HTML_REPORT)} == ''$`, 'm'), `${label}: test-results/ は HTML レポートができなかったときだけ`);
+  for (const s of [report[0], results[0]]) {
+    assert.match(s, /^ {10}retention-days: 3$/m, `${label}: 失敗したときの記録の保存は 3 日（500MB の枠。BL-099）`);
+    assert.doesNotMatch(s, /^ {10}path: \|/m, `${label}: 1 つの成果物に playwright-report/ と test-results/ を一緒に入れない`);
+  }
+  for (const s of ss) {
+    if (/^ {8}if: .*(always|failure|cancelled)\(\)/m.test(s))
+      assert.ok(s === report[0] || s === results[0], `${label}: failure()・always() を記録を残す step 以外に使っている:\n${s}`);
+    assert.doesNotMatch(s, /continue-on-error:\s*true/, `${label}: continue-on-error`);
+  }
+  const job = /^ {4}timeout-minutes: (\d+)$/m.exec(body);
+  assert.ok(job, `${label}: ジョブに timeout-minutes がない`);
+  for (const run of testRuns) {
+    const st = ss.find((s) => new RegExp(`^ {8}run: ${escRe(run)}$`, 'm').test(s));
+    assert.ok(st, `${label}: run: ${run} の step がない`);
+    const t = /^ {8}timeout-minutes: (\d+)$/m.exec(st);
+    assert.ok(t, `${label}: ${run} に timeout-minutes がない（ジョブのタイムアウトで止まると記録が残らない）`);
+    assert.ok(Number(t[1]) < Number(job[1]), `${label}: ${run} の timeout-minutes（${t[1]}）がジョブ（${job[1]}）より短くない`);
+  }
+}
+
+describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別のジョブ。決定 0006-2）', () => {
+  const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
+  const e = jobOf(nightly, 'e2e');
+
+  test('E2E のジョブは balance・property を呼ばず、ほかのジョブを待たない（BL-090 がそろう前から動く）', () => {
+    const c = codeOf(e);
+    assert.doesNotMatch(c, /test:balance|test:property/);
+    assert.doesNotMatch(c, /^ {4}needs:/m);
+  });
+
+  test('npm ci → build:all → build:e2e → Playwright（chromium・webkit・firefox）→ mode ごとに test:e2e:nightly／test:e2e:full（PR #6 のレビュー S-3）', () => {
+    const ss = stepsOf(e);
+    const at = (re, what) => {
+      const i = ss.findIndex((s) => re.test(s));
+      assert.ok(i >= 0, `nightly.yml の e2e に ${what} がない`);
+      return i;
+    };
+    const order = [
+      at(/^ {8}run: npm ci$/m, 'npm ci'),
+      at(/^ {8}run: npm run build:all$/m, 'build:all（e2e-full の prod-builds が本番 4 種を使う）'),
+      at(/^ {8}run: npm run build:e2e$/m, 'build:e2e'),
+      at(/^ {8}run: npx playwright install --with-deps chromium webkit firefox$/m, 'Playwright の 3 ブラウザの導入'),
+    ];
+    const nightlyRun = at(/^ {8}run: npm run test:e2e:nightly$/m, 'test:e2e:nightly');
+    const fullRun = at(/^ {8}run: npm run test:e2e:full$/m, 'test:e2e:full');
+    for (let i = 1; i < order.length; i++) assert.ok(order[i - 1] < order[i], `nightly.yml の e2e の step の順番が違う（${i} 番目）`);
+    assert.ok(order.at(-1) < nightlyRun && order.at(-1) < fullRun, 'テストがビルドと Playwright の導入より前にある');
+    assert.match(ss[nightlyRun], /^ {8}if: .*inputs\.mode != 'full'$/m);
+    assert.match(ss[fullRun], /^ {8}if: .*inputs\.mode == 'full'$/m);
+    const c = codeOf(e);
+    assert.doesNotMatch(c, /^ {8}run: npm run test:e2e$/m, 'test:e2e（--project=chromium。PR ごとに流している）は毎晩に使わない');
+    assert.doesNotMatch(c, /PW_DIST/, 'PW_DIST を渡さない（serve.mjs で mode の outDir より優先される）');
+  });
+
+  test('package.json の test:e2e:nightly は WebKit・Firefox を含み、PR ごとの chromium を重ねない', () => {
+    const projects = [...pkg.scripts['test:e2e:nightly'].matchAll(/--project=([\w-]+)/g)].map((m) => m[1]);
+    for (const p of ['webkit', 'firefox']) assert.ok(projects.includes(p), `test:e2e:nightly に ${p} がない`);
+    assert.ok(!projects.includes('chromium'), 'test:e2e:nightly に chromium（PR ごとの test:e2e と同じ）がある');
+  });
+
+  test('失敗したときの記録: playwright-report/ だけを 3 日、HTML レポートができなかったときだけ test-results/（BL-099 と同じ方針）', () => {
+    assertFailureReportPolicy(e, 'nightly.yml の e2e', ['npm run test:e2e:nightly', 'npm run test:e2e:full']);
+  });
+
+  test('schedule は週 2 回（月・木の 03:00 JST＝UTC の日・水 18:00。CEO 決定）。コメントのままでも値を固定する', () => {
+    const crons = [...nightly.matchAll(/cron: '([^']+)'/g)].map((m) => m[1]);
+    assert.ok(crons.length >= 1, 'cron の行がない');
+    for (const c of crons) assert.equal(c, '0 18 * * 0,3');
+  });
+});
