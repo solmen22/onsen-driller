@@ -767,30 +767,42 @@ const HTML_REPORT = "hashFiles('playwright-report/index.html')";
  */
 function assertFailureReportPolicy(body, label, testRuns) {
   const ss = stepsOf(body);
+  // step の最初の行が `- if:` の形でも `- name:` の下の `if:` でも捕まえる（PR #9 のレビュー S-2 (1)）
+  const ifOf = (s) => /^ {6}(?:- | {2})if: (.*)$/m.exec(s)?.[1] ?? '';
   const uploads = ss.filter((s) => /uses: actions\/upload-artifact@/.test(s));
+  // このジョブの保存は記録の 2 つだけ（3 つ目を足すなら、この検査を明示的に変える。S-2 (2)）
+  assert.equal(uploads.length, 2, `${label}: upload-artifact の step が 2 つでない（${uploads.length}）。失敗したときの記録の 2 つ以外に保存を足していないか`);
   const report = uploads.filter((s) => /^ {10}path: playwright-report\/$/m.test(s));
   const results = uploads.filter((s) => /^ {10}path: test-results\/$/m.test(s));
   assert.equal(report.length, 1, `${label}: playwright-report/ を保存する step が 1 つでない（${report.length}）`);
   assert.equal(results.length, 1, `${label}: test-results/ を保存する step が 1 つでない（${results.length}）`);
-  assert.match(report[0], new RegExp(`^ {8}if: failure\\(\\) && ${escRe(HTML_REPORT)} != ''$`, 'm'), `${label}: HTML レポートは失敗したときで index.html があるときだけ`);
-  assert.match(results[0], new RegExp(`^ {8}if: failure\\(\\) && ${escRe(HTML_REPORT)} == ''$`, 'm'), `${label}: test-results/ は HTML レポートができなかったときだけ`);
+  assert.equal(ifOf(report[0]), `failure() && ${HTML_REPORT} != ''`, `${label}: HTML レポートは失敗したときで index.html があるときだけ`);
+  assert.equal(ifOf(results[0]), `failure() && ${HTML_REPORT} == ''`, `${label}: test-results/ は HTML レポートができなかったときだけ`);
   for (const s of [report[0], results[0]]) {
     assert.match(s, /^ {10}retention-days: 3$/m, `${label}: 失敗したときの記録の保存は 3 日（500MB の枠。BL-099）`);
     assert.doesNotMatch(s, /^ {10}path: \|/m, `${label}: 1 つの成果物に playwright-report/ と test-results/ を一緒に入れない`);
   }
   for (const s of ss) {
-    if (/^ {8}if: .*(always|failure|cancelled)\(\)/m.test(s))
+    if (/(?:always|failure|cancelled)\(\)/.test(ifOf(s)))
       assert.ok(s === report[0] || s === results[0], `${label}: failure()・always() を記録を残す step 以外に使っている:\n${s}`);
-    assert.doesNotMatch(s, /continue-on-error:\s*true/, `${label}: continue-on-error`);
+    // `if:` をブロックスカラー（> や |）で書くと ifOf が読めない。1 行で書き、`${{ }}` で包まない（PR #19 のレビュー N-2）
+    assert.doesNotMatch(s, /^ {6}(?:- | {2})if:\s*[>|]/m, `${label}: if: をブロックスカラーで書いている:\n${s}`);
+    // continue-on-error は false 以外の値（true・`${{ true }}` など）をすべて拒む（N-2）
+    assert.doesNotMatch(s, /continue-on-error:\s*(?!false\s*(?:#.*)?$)\S/m, `${label}: continue-on-error`);
   }
-  const job = /^ {4}timeout-minutes: (\d+)$/m.exec(body);
+  assert.doesNotMatch(body, /^ {4}continue-on-error:\s*(?!false\s*(?:#.*)?$)\S/m, `${label}: ジョブ単位の continue-on-error`);
+  const job = /^ {4}timeout-minutes: (\d+)(?:\s+#.*)?$/m.exec(body);
   assert.ok(job, `${label}: ジョブに timeout-minutes がない`);
+  const lastRecord = Math.min(ss.indexOf(report[0]), ss.indexOf(results[0]));
   for (const run of testRuns) {
-    const st = ss.find((s) => new RegExp(`^ {8}run: ${escRe(run)}$`, 'm').test(s));
-    assert.ok(st, `${label}: run: ${run} の step がない`);
-    const t = /^ {8}timeout-minutes: (\d+)$/m.exec(st);
+    const i = ss.findIndex((s) => new RegExp(`^ {8}run: ${escRe(run)}$`, 'm').test(s));
+    assert.ok(i >= 0, `${label}: run: ${run} の step がない`);
+    // 記録の step はテストの後（前にあると、テストが落ちても何も保存されない。S-2 (3)）
+    assert.ok(i < lastRecord, `${label}: 失敗したときの記録の step が ${run} より前にある`);
+    const t = /^ {8}timeout-minutes: (\d+)(?:\s+#.*)?$/m.exec(ss[i]);
     assert.ok(t, `${label}: ${run} に timeout-minutes がない（ジョブのタイムアウトで止まると記録が残らない）`);
-    assert.ok(Number(t[1]) < Number(job[1]), `${label}: ${run} の timeout-minutes（${t[1]}）がジョブ（${job[1]}）より短くない`);
+    // 準備（npm ci・ブラウザの導入など）と記録の保存に使う時間を 10 分残す（PR #9 のレビュー N-2）
+    assert.ok(Number(job[1]) - Number(t[1]) >= 10, `${label}: ${run} の timeout-minutes（${t[1]}）とジョブ（${job[1]}）の差が 10 分より短い`);
   }
 }
 
@@ -842,5 +854,66 @@ describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別の�
     const crons = [...nightly.matchAll(/cron: '([^']+)'/g)].map((m) => m[1]);
     assert.ok(crons.length >= 1, 'cron の行がない');
     for (const c of crons) assert.equal(c, '0 18 * * 0,3');
+  });
+});
+
+describe('失敗したときの E2E の記録（BL-099。決定 0006-4・QA 判定書 S1 §6-3。500MB の保存量の枠）', () => {
+  const ci = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8').replaceAll('\r\n', '\n');
+  const pw = readFileSync(join(root, 'playwright.config.ts'), 'utf8');
+
+  test('ci.yml の e2e ジョブ: playwright-report/ だけを 3 日、HTML レポートができなかったときだけ test-results/。failure() はこの 2 つだけ', () => {
+    assertFailureReportPolicy(jobOf(ci, 'e2e'), 'ci.yml の e2e', ['npm run test:e2e']);
+  });
+
+  test('ci.yml の成果物の名前: HTML レポートは e2e-report、test-results/ は e2e-test-results（手順書・実行記録の名前と合わせる）', () => {
+    const ss = stepsOf(jobOf(ci, 'e2e'));
+    const nameOf = (path) => {
+      const st = ss.find((s) => new RegExp(`^ {10}path: ${escRe(path)}$`, 'm').test(s));
+      assert.ok(st, `${path} の upload がない`);
+      return /^ {10}name: (\S+)$/m.exec(st)?.[1];
+    };
+    assert.equal(nameOf('playwright-report/'), 'e2e-report');
+    assert.equal(nameOf('test-results/'), 'e2e-test-results');
+    // ほかのジョブ・複数行の path で同じものを保存し直していない（コメント行は除く）
+    const c = codeOf(ci);
+    // path の値（1 行の `path: x` と、`path: |` の下の一覧の行）だけを数える
+    assert.equal((c.match(/^\s+(?:path: )?playwright-report\/?$/gm) ?? []).length, 1, 'ci.yml で playwright-report/ を保存する場所が 1 つでない');
+    assert.equal((c.match(/^\s+(?:path: )?test-results\/?$/gm) ?? []).length, 1, 'ci.yml で test-results/ を保存する場所が 1 つでない');
+  });
+
+  test('nightly.yml は書き込みの権限と secrets を持たない（ワークフロー直下の contents: read だけ。PR #9 のレビュー S-3）', () => {
+    const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
+    const c = codeOf(nightly);
+    assert.match(c, /^permissions:\n {2}contents: read\n(?! )/m, 'ワークフロー直下の permissions が contents: read だけでない');
+    assert.equal((c.match(/permissions:/g) ?? []).length, 1, 'ジョブ単位の permissions がある（ワークフロー直下の 1 つだけにする）');
+    for (const [re, what] of [
+      [/\bsecrets\b/, 'secrets（`secrets.X`・`secrets[\'X\']`・`toJSON(secrets)`。PR #19 のレビュー N-1）'],
+      [/github\.token|GITHUB_TOKEN/, 'GitHub のトークン'],
+      [/wrangler|CLOUDFLARE_/, 'Cloudflare（デプロイ）'],
+      [/butler|BUTLER_/, 'itch.io（butler）'],
+    ])
+      assert.doesNotMatch(c, re, `nightly.yml に ${what} がある（schedule で main の上を人の目なしに動き、npm ci とテストのコードが動くジョブ）`);
+  });
+
+  test('playwright.config.ts: トレースは最初の実行の失敗だけ（retain-on-first-failure）、スクリーンショットは失敗したときだけ、動画なし（TS-073-02 を保ったまま小さく）', () => {
+    const code = pw.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    assert.match(code, /^\s+trace: 'retain-on-first-failure',$/m);
+    assert.match(code, /^\s+screenshot: 'only-on-failure',$/m);
+    assert.match(code, /^\s+video: 'off',$/m);
+    assert.equal((code.match(/\btrace:/g) ?? []).length, 1, 'trace の設定が 2 か所以上ある（project ごとの上書きを含む）');
+    assert.match(code, /\['html', \{ open: 'never', outputFolder: 'playwright-report' \}\]/, 'HTML レポートの出力先が playwright-report/ でない（ci.yml の hashFiles と合わない）');
+    // playwright.config.ts の外から trace・レポートの出力先を変えない（PR #19 のレビュー N-3）
+    for (const [name, s] of Object.entries(pkg.scripts).filter(([k]) => k.startsWith('test:e2e')))
+      assert.doesNotMatch(s, /--trace\b|--reporter\b/, `package.json の ${name} が --trace・--reporter で設定を上書きしている`);
+    for (const f of ['ci.yml', 'nightly.yml'])
+      assert.doesNotMatch(codeOf(readFileSync(join(root, '.github', 'workflows', f), 'utf8')), /PLAYWRIGHT_HTML_|PLAYWRIGHT_JSON_|PW_TEST_HTML_REPORT/, `${f} が環境変数で HTML レポートの出力先を変えている（hashFiles と合わなくなる）`);
+  });
+
+  test('playwright.config.ts: maxFailures は CI で 10・手元で 0（上限なし）、PW_MAX_FAILURES で変えられる（実行・修復エンジニアの決定。CEO 承認。PR 1 回の全体の失敗の時間とレポートを抑える）', () => {
+    const code = pw.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    assert.match(code, /^\s+maxFailures: Number\(process\.env\.PW_MAX_FAILURES \?\? \(CI \? 10 : 0\)\),$/m);
+    assert.equal((code.match(/\bmaxFailures:/g) ?? []).length, 1, 'maxFailures の設定が 2 か所以上ある');
+    for (const f of ['ci.yml'])
+      assert.doesNotMatch(codeOf(readFileSync(join(root, '.github', 'workflows', f), 'utf8')), /PW_MAX_FAILURES/, `${f} が PR の上限（10）を上書きしている`);
   });
 });

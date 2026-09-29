@@ -87,7 +87,7 @@ jobs:
           # scripts/check-lib.mjs の E2E_JOB_TARGETS と同じ 6 つ（test:checks が一致を検査する）。BL-095
           # - e2e 系: e2e-web（E1・E5・E9 など）・e2e-crazygames（S2 の PW_MODE=e2e-crazygames）
           # - 本番の 4 種: 本番の起動の E2E（BL-097 の TS-007-03・09・13。__game なし）が配信する。dist-web（デプロイ用）とは別に持つ
-          #   （デプロイのジョブは今のまま dist-web だけを受け取る）。zip で約 2.6MB（e2e 系 0.9MB＋本番 1.7MB。2026-09-29 の実測からの推定）
+          #   （デプロイのジョブは今のまま dist-web だけを受け取る）。zip で 2,694,889 バイト（PR #5 の run 36491902871 の実測）
           # どれも dist/ からの相対パスで保存される（パスの共通の親が dist/）。ないものは飛ばされるので、e2e ジョブの check-e2e-dist.mjs で確かめる
           path: |
             dist/e2e-web/
@@ -102,7 +102,7 @@ jobs:
   e2e:
     needs: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25 # テストの step（15）＋準備と失敗したときの記録の保存に 10 分（BL-099）
     env:
       PW_CHANNEL: chromium # Playwright の Chromium（BL-073 から playwright.config.ts の既定も chromium。手元で Chrome を使うときだけ chrome）
     steps:
@@ -128,16 +128,29 @@ jobs:
         # mode（既定 e2e）の outDir（dist/e2e-web）を使う。配信先の上書きの環境変数はここでは渡さない（S2 の mode の切り替えを上書きするため）。
         # 本番の起動の E2E（BL-097）は、手元と同じ dist/web・crazygames・itch・poki を読む前提で test:e2e に含める（step を増やさない）。
         # 別の project・スクリプトにする場合は、ここに 1 行足して注記を直す（実行・修復エンジニアと合わせる。BL-095）
+        # timeout-minutes はジョブ（25）より 10 分短くする: ジョブのタイムアウトで止まると failure() の step も動かず、記録が何も残らない（BL-099）
+        timeout-minutes: 15
         run: npm run test:e2e
-      - name: 失敗したときの記録を残す
-        if: failure()
+      # 失敗したときの記録（BL-099。決定 0006-4・QA 判定書 S1 §6-3。nightly.yml も同じ方針）
+      # - playwright-report/ だけを 3 日。HTML レポートがトレース・スクリーンショットを自分の中に写すので、原因はこれで追える
+      #   （前は test-results/ も一緒に 7 日保存して同じものを 2 回持っていた。1 回 約 168MB。infra.md §4-3「成果物の保存量」）
+      # - test-results/ は HTML レポートができなかったとき（playwright-report/index.html がないとき。step のタイムアウトなど）だけ
+      # - 失敗の原因（エラーの要約・分類）は、3 日で消える成果物ではなく実行記録（org/30_quality/test-engineer/runs/）に残す
+      - name: 失敗したときの記録を残す（HTML レポート）
+        if: failure() && hashFiles('playwright-report/index.html') != ''
         uses: actions/upload-artifact@v7
         with:
           name: e2e-report
-          path: |
-            playwright-report/
-            test-results/
-          retention-days: 7
+          path: playwright-report/
+          retention-days: 3
+          if-no-files-found: ignore
+      - name: 失敗したときの記録を残す（HTML レポートができなかったときだけ test-results/）
+        if: failure() && hashFiles('playwright-report/index.html') == ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-test-results
+          path: test-results/
+          retention-days: 3
           if-no-files-found: ignore
 
   deploy-preview:
