@@ -1,18 +1,26 @@
-// バランスの短縮版（PR ごと）。全件は npm run sim（20 時間 × 3 ボット）
+// バランスの短縮版（PR ごとの `npm run test`）。全件は `npm run test:balance`（ボット × シード 1〜8。BL-033）
 import { describe, expect, it } from 'vitest';
 import { BOTS } from '../../tools/sim/bots.ts';
 import { runBot } from '../../tools/sim/sim.ts';
 
+/**
+ * 標準ボット・シード 1・1 時間・1 秒刻みの最終状態のハッシュ（BL-031。PR #13 のレビューの連絡 4）。
+ * core・content・ボットのどこかを変えて結果が変わると、ここが赤になる。数値やボットを意図して変えたときは、
+ * この値を更新し、更新の理由と `npm run sim` のレポートの差を PR の説明に書く
+ */
+const STANDARD_1H_SEED1_HASH = 'f0bcf894';
+
 describe('sim (短縮版)', () => {
-  it('標準ボット 1 時間: 同じシードで同じハッシュ、数値が健全', () => {
+  it('標準ボット 1 時間: 同じシードで同じハッシュ、固定値と一致、数値が健全', () => {
     const a = runBot(BOTS.standard, { hours: 1, stepMs: 1000, seed: 1 });
     const b = runBot(BOTS.standard, { hours: 1, stepMs: 1000, seed: 1 });
     expect(a.hash).toBe(b.hash);
+    expect(a.hash).toBe(STANDARD_1H_SEED1_HASH);
     expect(a.healthy).toBe(true);
     expect(a.bestDepth).toBeGreaterThanOrEqual(150);
   });
 
-  it('標準ボット 1 時間: 目標表の出来事の時刻を記録する（源泉は深さの順、#18 の入湯料の割合は 50% 超。範囲の判定は BL-033）', () => {
+  it('標準ボット 1 時間: 目標表の出来事の時刻を記録する（源泉は深さの順、#18 の入湯料の割合は 50% 超・100% 以下）', () => {
     const r = runBot(BOTS.standard, { hours: 1, stepMs: 1000, seed: 1 });
     const m = r.milestones;
     const order = [m.firstUpgrade, m.simple, m.co2, m.salt, m.sulfur];
@@ -22,7 +30,18 @@ describe('sim (短縮版)', () => {
     expect(typeof m.lv10Guest).toBe('number');
     expect(r.bathShare).toBeGreaterThan(0.5);
     expect(r.bathShare).toBeLessThanOrEqual(1); // 数え方の検査（頭打ちにしていない。レビュー PR #10 N-3）
-    expect(typeof m.recommend).toBe('number');
-    expect(m.recommend).toBeLessThan(m.prestige ?? Infinity);
   });
+
+  it.each([1, 2, 3, 4, 5, 6, 7, 8])('転生の推奨（#10）は 1 周目で記録し、最初の転生より後にならない（seed %i。同じ時刻もある。PR #13 のレビュー S-1）', (seed) => {
+    const m = runBot(BOTS.standard, { hours: 0.5, stepMs: 1000, seed }).milestones;
+    expect(typeof m.recommend).toBe('number');
+    expect(m.recommend).toBeLessThanOrEqual(m.prestige ?? Infinity);
+  });
+
+  it('標準ボット 20 時間を 1 秒刻みで 2 回流すと、結果（ハッシュ・最深・転生の回数）が同じ（BL-031 の受け入れ基準 3）', () => {
+    const a = runBot(BOTS.standard, { hours: 20, stepMs: 1000, seed: 1 });
+    const b = runBot(BOTS.standard, { hours: 20, stepMs: 1000, seed: 1 });
+    expect([a.hash, a.bestDepth, a.prestiges]).toEqual([b.hash, b.bestDepth, b.prestiges]);
+    expect(a.healthy).toBe(true);
+  }, 120_000);
 });
