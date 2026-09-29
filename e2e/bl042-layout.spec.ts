@@ -111,10 +111,9 @@ test.describe('BL-042 レイアウトと HUD', () => {
 
   test('TS-042-09 ルートとステージが user-select: none・touch-action（manipulation が効く）、高さ 100dvh・セーフエリアの余白があり、ステージを 1 秒長押ししても文字が選択されない', async ({
     page,
-    browserName,
   }) => {
     await bootGame(page);
-    const st = await page.evaluate(() => {
+    const st = await page.evaluate(async () => {
       const pick = (el: Element) => {
         const cs = getComputedStyle(el) as CSSStyleDeclaration & { webkitTouchCallout?: string; webkitUserSelect?: string };
         return { userSelect: cs.userSelect || cs.webkitUserSelect || '', touchAction: cs.touchAction, touchCallout: cs.webkitTouchCallout ?? null };
@@ -128,19 +127,35 @@ test.describe('BL-042 レイアウトと HUD', () => {
         }
       }
       const appRule = rules.filter((t) => /^#app\s*\{/.test(t)).join('\n');
+      // 解釈する前の CSS の文（同じオリジンの <link rel="stylesheet"> を読み直す）の #app の規則。エンジンが知らない性質も残る（BL-111）
+      const raw: string[] = [];
+      for (const link of [...document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')]) {
+        if (new URL(link.href).origin !== location.origin) continue;
+        const text = await (await fetch(link.href)).text();
+        for (const m of text.matchAll(/(?:^|[}\s,;])#app\s*\{([^}]*)\}/g)) raw.push(m[1] ?? '');
+      }
       return {
         root: pick(document.querySelector('[data-testid="app-root"]')!),
         stage: pick(document.querySelector('[data-testid="stage"]')!),
         appRule,
+        rawAppRule: raw.join('\n'),
+        supportsCallout: typeof CSS !== 'undefined' && CSS.supports('-webkit-touch-callout', 'none'),
       };
     });
     test.info().annotations.push({ type: '計算済みのスタイル', description: JSON.stringify({ root: st.root, stage: st.stage }) });
+    test.info().annotations.push({ type: '-webkit-touch-callout', description: `CSS.supports=${st.supportsCallout}・計算済み=${st.root.touchCallout}` });
     expect(st.root.userSelect).toBe('none');
     expect(st.stage.userSelect).toBe('none');
     expect(st.root.touchAction).toBe('manipulation');
     // ステージは touch-action: none（manipulation より強い制限。タッチの動作は祖先との共通部分になるので、manipulation の制限〔ダブルタップの拡大なし〕も効く）
     expect(['manipulation', 'none']).toContain(st.stage.touchAction);
-    if (browserName === 'webkit') expect(st.root.touchCallout).toBe('none');
+    // -webkit-touch-callout: none（iOS の Safari で長押しの OS のメニューを出さない。iOS だけの性質）。
+    // この性質を持たないエンジン（Windows の Playwright の WebKit などは CSS.supports が false）は、解釈した時点で宣言を捨てるので、
+    // 計算済みの値にも cssRules の文にも残らない（PR #23 のレビュー ③。BL-111）。そこで配信した CSS の文（解釈する前）で、
+    // #app の規則にあることを全プロジェクトで確かめる。計算済みの値は、エンジンがこの性質を持つときだけ見る。
+    // 実際の効果（長押しで OS のメニューが出ない）はオーナーの iPhone の確認（TS-042-14）で見る
+    expect(st.rawAppRule, '配信した CSS の #app の規則に -webkit-touch-callout: none がある').toMatch(/-webkit-touch-callout\s*:\s*none/);
+    if (st.supportsCallout) expect(st.root.touchCallout).toBe('none');
     // 高さ 100dvh とセーフエリアの余白（スタイルシートの規則。計算済みの値は px になるので規則の文で見る）
     expect(st.appRule).toContain('100dvh');
     for (const side of ['top', 'right', 'bottom', 'left']) expect(st.appRule).toContain(`env(safe-area-inset-${side})`);
