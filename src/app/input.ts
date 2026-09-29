@@ -7,7 +7,7 @@
 //   フォーカスのあるボタンも Space では押さない（キーボードでボタンを押すのは Enter）
 // - Ctrl・Alt・Meta と組み合わせたキーは、掘削にも preventDefault にも使わない（ブラウザ・OS のショートカット）
 // - ステージの pointerdown は preventDefault するので、互換の mousedown とその既定の動作（押したフレームへのフォーカスの移動・
-//   フォーカスのある要素からフォーカスを外す）が起きない。これを自分で行う（BUG-1。ポータルの iframe の中でステージを押した後の
+//   フォーカスのある要素からフォーカスを外す）が起きない。これを自分で行う（BUG-1・BL-100。ポータルの iframe の中でステージを押した後の
 //   Space・矢印キーが親ページに届いてスクロールし、掘れなかった）
 // ブラウザがなくても確かめられるように、EventTarget と タイマーを引数で受け取る（tests/integration/input.test.ts）
 import { PARAMS } from '../content/params.ts';

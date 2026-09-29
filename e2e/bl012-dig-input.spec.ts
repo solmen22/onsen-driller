@@ -4,10 +4,8 @@
 //   「ゲームにフォーカスして」を 2 通りで確かめる: (a) ゲームの中の HUD を押す、(b) 遊ぶ場所（ステージ）を押す。
 //   (b) は 2026-09-29 の BL-097 の実行で本体の不具合が見つかった（ステージの pointerdown の preventDefault で mousedown が出ず、
 //   iframe にフォーカスが移らない → キーが親ページに届いてスクロールする。実行記録 org/30_quality/test-engineer/runs/2026-09-29_bl-097-ticket-e2e.md）。
-//   期待は変えずに、Chromium では「既知の不具合の印」（KNOWN_BUG_1）にしてある: ステージを押した後に枠にフォーカスが無ければ、
-//   その症状（フォーカスが無い・↓ で親がスクロールする）を確かめて合格で終える（後片付けの共通の検査 TS-COM-01〜04 は効く）。
-//   ほかの理由の失敗は普通に赤。フォーカスが入った（本体が直った）ら「BUG-1 は直っています」で赤になるので、KNOWN_BUG_1 の分岐を消す。
-//   （以前の test.fail は理由を問わず失敗を吸い込み、(b) の中の共通の検査の違反も緑にした。2026-09-29 のレビュー S-2）
+//   BL-100（BUG-1 の修正。ステージの pointerdown で window.focus() と、フォーカスのある要素の blur を行う）で直したので、
+//   既知の不具合の印（KNOWN_BUG_1）を外し、(a) と同じ期待で判定する（期待は変えていない）
 import type { Frame, Page } from '@playwright/test';
 import { test, expect } from './support/fixtures.ts';
 import { bootGame, centerOf } from './support/boot.ts';
@@ -30,18 +28,6 @@ async function settledScrollY(page: Page): Promise<number> {
 /** 親ページのスクロールの開始位置（上下どちらにも動ける位置） */
 const START_Y = 400;
 
-interface KnownBug {
-  id: string;
-  summary: string;
-}
-
-/**
- * 既知の不具合（2026-09-29 BL-097 で発見。Chromium で確認。実行記録 §5-2 の BUG-1）: ステージの pointerdown の preventDefault（src/app/input.ts）で
- * 互換の mousedown が出ず、iframe にフォーカスが移らない。キーは親ページに届いてスクロールし、Space で掘れない。
- * 期待は BL-012 の受け入れ基準（Space・矢印キーでポータルの枠がスクロールしない）のまま。本体を直す PR でこの定数と分岐を消す
- */
-const KNOWN_BUG_1: KnownBug = { id: 'BUG-1', summary: 'ポータルの iframe でステージを押しても枠にフォーカスが移らない' };
-
 /** 枠（iframe の文書）にフォーカスが入るのを最大 timeoutMs 待つ */
 async function waitFocus(frame: Frame, timeoutMs: number): Promise<boolean> {
   const until = Date.now() + timeoutMs;
@@ -56,7 +42,7 @@ async function waitFocus(frame: Frame, timeoutMs: number): Promise<boolean> {
  * TS-012-18 の本体: 縦に長い親ページ（3000px）の上から 600px に 800×450 の枠。親を START_Y まで動かし、
  * 親ページにフォーカスを移してから（ポータルのページを触った後を模す）、focusGame でゲームにフォーカスし、Space・矢印キーを押す
  */
-async function keysInPortal(page: Page, focusGame: (frame: Frame) => Promise<void>, knownBug: KnownBug | null = null): Promise<void> {
+async function keysInPortal(page: Page, focusGame: (frame: Frame) => Promise<void>): Promise<void> {
   const { frame, g } = await openGameInFrame(page, { width: 800, height: 450, top: 600, parentHeight: 3000 });
   await page.evaluate((y) => window.scrollTo(0, y), START_Y);
   expect(await settledScrollY(page)).toBe(START_Y);
@@ -75,20 +61,7 @@ async function keysInPortal(page: Page, focusGame: (frame: Frame) => Promise<voi
 
   // ゲームにフォーカスする
   await focusGame(frame);
-  const focused = await waitFocus(frame, 2_000);
-  if (knownBug) {
-    if (focused) throw new Error(`${knownBug.id} は直っています（ゲームの枠にフォーカスが入った）。この spec の ${knownBug.id} の分岐（KNOWN_BUG_1）を消してください`);
-    // 既知の不具合の症状だけを確かめて終える（症状が変われば赤になる）: フォーカスが無く、↓ で親がスクロールし、キーは枠に届かない
-    const h1 = hitsOf(await g.getState());
-    await page.keyboard.press('ArrowDown');
-    const y = await settledScrollY(page);
-    test.info().annotations.push({ type: `既知の不具合 ${knownBug.id}`, description: `${knownBug.summary}（↓ で親の scrollY ${START_Y} → ${y}）` });
-    expect(y, `${knownBug.id} の症状: キーが親ページに届いてスクロールする`).toBeGreaterThan(START_Y);
-    expect((await recordedKeydowns(frame)).filter((k) => k.code === 'ArrowDown'), `${knownBug.id} の症状: キーが枠に届かない`).toEqual([]);
-    expect(hitsOf(await g.getState()), `${knownBug.id} の症状: ステージを押した 1 打のほかは増えない`).toBe(h1);
-    return;
-  }
-  expect(focused, 'ゲームの枠にフォーカスがある').toBe(true);
+  expect(await waitFocus(frame, 2_000), 'ゲームの枠にフォーカスがある').toBe(true);
   const h0 = hitsOf(await g.getState());
 
   const keys = ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ArrowDown', 'ArrowDown', 'Space'];
@@ -142,9 +115,7 @@ test.describe('BL-012 掘削の入力', () => {
 
   test('TS-012-18 (b) 縦に長い親ページの iframe: 遊ぶ場所（ステージ）を押してフォーカスした後の Space・矢印キーが preventDefault され、親の scrollY が変わらない', async ({
     page,
-    browserName,
   }) => {
-    // Chromium だけ既知の不具合の印（KNOWN_BUG_1）。WebKit・Firefox は未確認なので、期待どおりに判定する（毎晩のジョブ）
-    await keysInPortal(page, (frame) => clickInFrame(page, frame, 'stage', 0.75), browserName === 'chromium' ? KNOWN_BUG_1 : null);
+    await keysInPortal(page, (frame) => clickInFrame(page, frame, 'stage', 0.75));
   });
 });
