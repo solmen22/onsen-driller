@@ -37,6 +37,8 @@ export function startLoop(store: GameStore, clock: Clock, opts: LoopOptions = {}
   const speed = opts.speed ?? 1;
   const raf = opts.raf ?? ((cb: () => void) => requestAnimationFrame(cb));
   const caf = opts.caf ?? ((id: number) => cancelAnimationFrame(id));
+  // 図鑑の初来訪の時刻に使う壁時計（BL-017。main.ts はストアを作った直後にループを始めるので、ここでつなぐ）
+  store.useWallClock(() => clock.wallNow());
   let last = clock.monoNow();
   let acc = 0;
   let handle = 0;
