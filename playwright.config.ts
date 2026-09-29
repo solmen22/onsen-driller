@@ -66,6 +66,10 @@ export default defineConfig({
   forbidOnly: CI,
   // QA §5: 不安定なテストは 1 回だけ再実行を許す（再実行で通ったものは flaky として報告に残る）
   retries: 1,
+  // 再実行を使い切っても落ちたテストがこの件数に達したら止める（flaky と test.fail の期待どおりの失敗は数えない）。
+  // 全体が落ちる回の時間（PR で上限なしなら約 95 分）と失敗のレポートの大きさを抑える。PR（CI）は 10、毎晩は nightly.yml が
+  // PW_MAX_FAILURES=25、手元は 0（上限なし）。実行・修復エンジニアの決定（実行記録 2026-09-29_s2-start.md §5）、CEO 承認（BL-099）
+  maxFailures: Number(process.env.PW_MAX_FAILURES ?? (CI ? 10 : 0)),
   // 手元（GPU あり）は時計の待ちが大半なので 4。CI（非公開リポジトリの GitHub のランナーは 2 vCPU で GPU なし）は、
   // 描画（ソフトウェアの WebGL）が CPU を使い切り、4 並びでは 1 件が 60 秒の上限に届いた（2026-09-29 の PR #4）ので vCPU と同じ 2。
   // PW_WORKERS で変えられる

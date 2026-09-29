@@ -773,8 +773,12 @@ function assertFailureReportPolicy(body, label, testRuns) {
   for (const s of ss) {
     if (/(?:always|failure|cancelled)\(\)/.test(ifOf(s)))
       assert.ok(s === report[0] || s === results[0], `${label}: failure()・always() を記録を残す step 以外に使っている:\n${s}`);
-    assert.doesNotMatch(s, /continue-on-error:\s*true/, `${label}: continue-on-error`);
+    // `if:` をブロックスカラー（> や |）で書くと ifOf が読めない。1 行で書き、`${{ }}` で包まない（PR #19 のレビュー N-2）
+    assert.doesNotMatch(s, /^ {6}(?:- | {2})if:\s*[>|]/m, `${label}: if: をブロックスカラーで書いている:\n${s}`);
+    // continue-on-error は false 以外の値（true・`${{ true }}` など）をすべて拒む（N-2）
+    assert.doesNotMatch(s, /continue-on-error:\s*(?!false\s*(?:#.*)?$)\S/m, `${label}: continue-on-error`);
   }
+  assert.doesNotMatch(body, /^ {4}continue-on-error:\s*(?!false\s*(?:#.*)?$)\S/m, `${label}: ジョブ単位の continue-on-error`);
   const job = /^ {4}timeout-minutes: (\d+)(?:\s+#.*)?$/m.exec(body);
   assert.ok(job, `${label}: ジョブに timeout-minutes がない`);
   const lastRecord = Math.min(ss.indexOf(report[0]), ss.indexOf(results[0]));
@@ -871,7 +875,7 @@ describe('失敗したときの E2E の記録（BL-099。決定 0006-4・QA 判�
     assert.match(c, /^permissions:\n {2}contents: read\n(?! )/m, 'ワークフロー直下の permissions が contents: read だけでない');
     assert.equal((c.match(/permissions:/g) ?? []).length, 1, 'ジョブ単位の permissions がある（ワークフロー直下の 1 つだけにする）');
     for (const [re, what] of [
-      [/secrets\./, 'secrets'],
+      [/\bsecrets\b/, 'secrets（`secrets.X`・`secrets[\'X\']`・`toJSON(secrets)`。PR #19 のレビュー N-1）'],
       [/github\.token|GITHUB_TOKEN/, 'GitHub のトークン'],
       [/wrangler|CLOUDFLARE_/, 'Cloudflare（デプロイ）'],
       [/butler|BUTLER_/, 'itch.io（butler）'],
@@ -886,5 +890,18 @@ describe('失敗したときの E2E の記録（BL-099。決定 0006-4・QA 判�
     assert.match(code, /^\s+video: 'off',$/m);
     assert.equal((code.match(/\btrace:/g) ?? []).length, 1, 'trace の設定が 2 か所以上ある（project ごとの上書きを含む）');
     assert.match(code, /\['html', \{ open: 'never', outputFolder: 'playwright-report' \}\]/, 'HTML レポートの出力先が playwright-report/ でない（ci.yml の hashFiles と合わない）');
+    // playwright.config.ts の外から trace・レポートの出力先を変えない（PR #19 のレビュー N-3）
+    for (const [name, s] of Object.entries(pkg.scripts).filter(([k]) => k.startsWith('test:e2e')))
+      assert.doesNotMatch(s, /--trace\b|--reporter\b/, `package.json の ${name} が --trace・--reporter で設定を上書きしている`);
+    for (const f of ['ci.yml', 'nightly.yml'])
+      assert.doesNotMatch(codeOf(readFileSync(join(root, '.github', 'workflows', f), 'utf8')), /PLAYWRIGHT_HTML_|PLAYWRIGHT_JSON_|PW_TEST_HTML_REPORT/, `${f} が環境変数で HTML レポートの出力先を変えている（hashFiles と合わなくなる）`);
+  });
+
+  test('playwright.config.ts: maxFailures は CI で 10・手元で 0（上限なし）、PW_MAX_FAILURES で変えられる（実行・修復エンジニアの決定。CEO 承認。PR 1 回の全体の失敗の時間とレポートを抑える）', () => {
+    const code = pw.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    assert.match(code, /^\s+maxFailures: Number\(process\.env\.PW_MAX_FAILURES \?\? \(CI \? 10 : 0\)\),$/m);
+    assert.equal((code.match(/\bmaxFailures:/g) ?? []).length, 1, 'maxFailures の設定が 2 か所以上ある');
+    for (const f of ['ci.yml'])
+      assert.doesNotMatch(codeOf(readFileSync(join(root, '.github', 'workflows', f), 'utf8')), /PW_MAX_FAILURES/, `${f} が PR の上限（10）を上書きしている`);
   });
 });
