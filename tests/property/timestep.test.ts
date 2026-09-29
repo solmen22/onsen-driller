@@ -1,5 +1,6 @@
 // 刻み幅によらないこと（arch §8-3）: 同じ初期状態から 1 時間進めたとき、0.1 秒刻みと 1 秒刻みの差が 1% 以内
 import fc from 'fast-check';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import { describe, expect, it } from 'vitest';
 import {
   advance,
@@ -62,7 +63,7 @@ describe('刻み幅', () => {
           expect(rel(a.stats.hits, b.stats.hits)).toBeLessThanOrEqual(0.01);
         },
       ),
-      { numRuns: 20, seed: 20260928 },
+      fcRuns(20, 20260928),
     );
   });
 });

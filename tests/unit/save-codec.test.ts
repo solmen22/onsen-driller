@@ -1,5 +1,6 @@
 // BL-026: セーブの codec とスキーマ v1（TS-026-01〜18。Q-10）
 import fc from 'fast-check';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import LZString from 'lz-string';
 import { describe, expect, it } from 'vitest';
 import {
@@ -85,7 +86,7 @@ describe('TS-026-01 任意の GameState の往復（property）', () => {
         expect(r.state.run.coins.eq(s.run.coins) && r.state.run.coins.mantissa === s.run.coins.mantissa).toBe(true);
         expect(r.state.input).toEqual({ hold: false, manualLog: [] });
       }),
-      { numRuns: 200, seed: 2601 },
+      fcRuns(200, 2601),
     );
   });
 });
@@ -441,7 +442,7 @@ describe('TS-026-22 書き出し文字列の往復（property）', () => {
         expect(stateHash(r.state)).toBe(stateHash(s));
         expect(r.corrected).toEqual([]);
       }),
-      { numRuns: 100, seed: 2622 },
+      fcRuns(100, 2622),
     );
   });
 });
@@ -655,7 +656,7 @@ describe('TS-026-26 どんな文字列でも例外を投げない（property）'
           for (let i = 0; i < 10; i++) step(st, 100);
         }).not.toThrow();
       }),
-      { numRuns: 1000, seed: 2626 },
+      fcRuns(1000, 2626),
     );
   });
 });

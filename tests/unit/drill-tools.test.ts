@@ -1,5 +1,6 @@
 // BL-014: ドリル・自動掘削機・道具 7 段・購入（TS-014-01〜18。Q-03・Q-08・Q-09・PM の依頼 1・2）
 import fc from 'fast-check';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import { describe, expect, it } from 'vitest';
 import { TOOLS } from '../../src/content/tools.ts';
 import {
@@ -224,7 +225,7 @@ describe('TS-014-16 見積もりと購入が一致する（property）', () => {
           }
         },
       ),
-      { numRuns: 300, seed: 1416 },
+      fcRuns(300, 1416),
     );
   });
 });

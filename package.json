@@ -17,6 +17,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.core.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
+    "test:property:full": "vitest run --config vitest.property.config.ts",
     "sim": "node tools/sim/run.ts",
     "build:web": "vite build --mode web && node scripts/copy-headers.mjs",
     "build:crazygames": "vite build --mode crazygames",

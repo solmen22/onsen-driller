@@ -1,5 +1,6 @@
 // BL-009: core/num.ts（Decimal のラッパ）の健全性（TS-009-01〜07。#22。Q-13）
 import fc from 'fast-check';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import { describe, expect, it } from 'vitest';
 import {
   add,
@@ -38,7 +39,7 @@ const bigArb: fc.Arbitrary<Num> = fc.oneof(
   },
 );
 
-const RUNS = { numRuns: 300, seed: 20260928 };
+const RUNS = fcRuns(300, 20260928);
 
 describe('TS-009-01 演算の結果が健全（NaN・Infinity・負のゼロなし、上限以下）', () => {
   it('加減乗除・pow・比較（property）', () => {
@@ -129,7 +130,7 @@ describe('レビュー S-10: add・sub・mul の第 2 引数も正規化する�
         expect(isHealthy(add(a, b)) && isHealthy(sub(a, b)) && isHealthy(mul(a, b))).toBe(true);
         expect(add(a, b).eq(a.add(b)) || a.add(b).gt(NUM_MAX)).toBe(true);
       }),
-      { numRuns: 200, seed: 2610 },
+      fcRuns(200, 2610),
     );
   });
 });
