@@ -341,8 +341,9 @@ test.describe('BL-071 テスト用フック（BL-089）', () => {
       void Promise.reject(new Error('x2'));
     });
     await expect.poll(async () => (await g.errors()).slice(before.length)).toEqual(expect.arrayContaining(['Error: x1', 'Error: x2']));
-    // ブラウザも同じ 2 件を捕まえていない例外として出している（ページの例外の見張り。わざと起こしたものだけ）
-    expect(harness.pageErrors).toEqual(expect.arrayContaining(['Error: x1', 'Error: x2']));
+    // ブラウザも同じ 2 件を捕まえていない例外として出している（ページの例外の見張り。わざと起こしたものだけ）。
+    // 文の形はエンジンで違う（WebKit は reject を「Unhandled Promise Rejection: Error: x2」と出す。2026-09-29 の手元の毎晩の実行）
+    for (const x of ['x1', 'x2']) expect(harness.pageErrors.some((e) => new RegExp(`\\bError: ${x}\\b`).test(e)), `ページの例外に ${x}`).toBe(true);
     expect(harness.pageErrors.filter((e) => !/\bx[12]\b/.test(e))).toEqual([]);
   });
 
