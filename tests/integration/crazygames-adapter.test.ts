@@ -54,12 +54,16 @@ describe('S-2: init の前に来た loadingStart も SDK に届く（main.ts は
   });
 
   it('init が失敗・タイムアウト・disabled なら、覚えていた合図は送らない（SDK を呼ばない＝web と同じ）', async () => {
-    for (const setup of [
-      (m: CrazyMock) => (m.initBehavior = 'reject'),
-      (m: CrazyMock) => (m.environment = 'disabled'),
+    // environment は作るときに決める（BL-072〔PR #24〕のモックでは読み取り専用のため、後から代入しない）
+    for (const make of [
+      (): CrazyMock => {
+        const m = crazyMock('local');
+        m.initBehavior = 'reject';
+        return m;
+      },
+      (): CrazyMock => crazyMock('disabled'),
     ]) {
-      const sdk = crazyMock('local');
-      setup(sdk);
+      const sdk = make();
       const p = createCrazyGamesPlatform({ getSdk: () => sdk, adsEnabled: true });
       p.loadingStart();
       await p.init();
