@@ -6,6 +6,9 @@
 // - Space と矢印キーは、編集できる要素（input・textarea・select・contenteditable）が対象のとき以外は必ず preventDefault する。
 //   フォーカスのあるボタンも Space では押さない（キーボードでボタンを押すのは Enter）
 // - Ctrl・Alt・Meta と組み合わせたキーは、掘削にも preventDefault にも使わない（ブラウザ・OS のショートカット）
+// - ステージの pointerdown は preventDefault するので、互換の mousedown とその既定の動作（押したフレームへのフォーカスの移動・
+//   フォーカスのある要素からフォーカスを外す）が起きない。これを自分で行う（BUG-1・BL-100。ポータルの iframe の中でステージを押した後の
+//   Space・矢印キーが親ページに届いてスクロールし、掘れなかった）
 // ブラウザがなくても確かめられるように、EventTarget と タイマーを引数で受け取る（tests/integration/input.test.ts）
 import { PARAMS } from '../content/params.ts';
 
@@ -21,10 +24,13 @@ export interface InputTimers {
 export interface InputEnv {
   /** ステージ（キャンバスの親要素）。ここのポインタで掘る（地上を含むキャンバス全体。Q-04(f)） */
   stage: EventTarget;
-  /** キーボード・blur・pagehide を受ける（window） */
-  win: EventTarget;
-  /** visibilitychange を受ける（document）。hidden か visibilityState で非表示を判定する */
-  doc: EventTarget & { readonly hidden?: boolean; readonly visibilityState?: string };
+  /** キーボード・blur・pagehide を受ける（window）。ステージを押したら focus() で押した枠にフォーカスを移す（BUG-1） */
+  win: EventTarget & { focus?: () => void };
+  /**
+   * visibilitychange を受ける（document）。hidden か visibilityState で非表示を判定する。
+   * ステージを押したら activeElement（body 以外）からフォーカスを外す（BUG-1）
+   */
+  doc: EventTarget & { readonly hidden?: boolean; readonly visibilityState?: string; readonly activeElement?: unknown; readonly body?: unknown };
   timers?: InputTimers;
 }
 
@@ -79,6 +85,32 @@ export function isEditableTarget(t: unknown): boolean {
 
 const isHidden = (doc: InputEnv['doc']): boolean => doc.hidden === true || doc.visibilityState === 'hidden';
 
+/**
+ * ステージを押したときに、ブラウザの mousedown の既定の動作と同じフォーカスの移動を行う（BUG-1）。
+ * 1. window.focus(): 押した枠（ポータルの iframe）にフォーカスを移す。以後のキーはゲームに届き、preventDefault できる。
+ *    今のエンジン（Chromium・WebKit・Firefox）は、自分の枠の window.focus() を利用者の操作で制限しない（PR #7 で別オリジン・
+ *    マウスとタッチで確認）。なお仕様上、タッチの pointerdown は利用者の活性化を生まない（マウスの pointerdown だけ）。
+ *    Phaser の autoFocus と同じ
+ *    （Phaser は mousedown・touchstart で window.focus() を呼ぶ。本作は Phaser の入力を使わない）
+ * 2. フォーカスのある要素（HUD のボタンなど。body 以外）からフォーカスを外す（押した後の Enter でボタンを押さない。
+ *    読み込みのテキスト欄〔S3 の BL-029〕にフォーカスがあっても、ステージを押せば Space で掘れる）
+ * どちらも失敗してよい（掘削は続ける）
+ */
+function focusGame(env: InputEnv): void {
+  try {
+    env.win.focus?.();
+  } catch {
+    // フォーカスを移せない環境でも掘削は続ける
+  }
+  const active = env.doc.activeElement as { blur?: unknown } | null | undefined;
+  if (typeof active !== 'object' || active === null || active === env.doc.body || typeof active.blur !== 'function') return;
+  try {
+    (active.blur as () => void)();
+  } catch {
+    // 同上
+  }
+}
+
 export function setupInput(env: InputEnv, sink: InputSink, opts: InputOptions = {}): InputController {
   const timers = env.timers ?? defaultTimers;
   const holdDelayMs = opts.holdDelayMs ?? PARAMS.input.holdDelayMs;
@@ -129,6 +161,7 @@ export function setupInput(env: InputEnv, sink: InputSink, opts: InputOptions = 
   on<PointerLike>(env.stage, 'pointerdown', (e) => {
     if (!enabled || e.isPrimary === false) return;
     e.preventDefault();
+    focusGame(env); // preventDefault で起きなくなるフォーカスの移動を自分で行う（BUG-1）
     activePointer = typeof e.pointerId === 'number' ? e.pointerId : null;
     press(e.timeStamp);
   });

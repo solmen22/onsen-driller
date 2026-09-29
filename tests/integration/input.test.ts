@@ -5,9 +5,42 @@ import { setupInput, type InputController } from '../../src/app/input.ts';
 import { GameStore } from '../../src/app/store.ts';
 import { createInitialState } from '../../src/core/index.ts';
 
+/** フォーカスを持てる要素の代わり（blur で document のフォーカスを body に戻す） */
+class FakeEl {
+  blurs = 0;
+  readonly tagName: string;
+  private readonly owner: FakeDoc;
+  constructor(tagName: string, owner: FakeDoc) {
+    this.tagName = tagName;
+    this.owner = owner;
+  }
+  focus(): void {
+    this.owner.activeElement = this;
+  }
+  blur(): void {
+    this.blurs++;
+    if (this.owner.activeElement === this) this.owner.activeElement = this.owner.body;
+  }
+}
+
 class FakeDoc extends EventTarget {
   hidden = false;
   visibilityState = 'visible';
+  readonly body: FakeEl = new FakeEl('BODY', this);
+  activeElement: FakeEl | null = this.body;
+}
+
+/** window の代わり。focus() は押した枠（iframe）へのフォーカスの移動（BUG-1）。呼ばれた回数と、そのときの打撃数を記録する */
+class FakeWin extends EventTarget {
+  focusCalls: number[] = [];
+  private readonly hitsNow: () => number;
+  constructor(hitsNow: () => number) {
+    super();
+    this.hitsNow = hitsNow;
+  }
+  focus(): void {
+    this.focusCalls.push(this.hitsNow());
+  }
 }
 
 /** type のイベントを作る（code・repeat・isPrimary・target などを自分のプロパティとして持たせる） */
@@ -18,7 +51,7 @@ function ev(type: string, props: Record<string, unknown> = {}): Event {
 }
 
 let stage: EventTarget;
-let win: EventTarget;
+let win: FakeWin;
 let doc: FakeDoc;
 let store: GameStore;
 let input: InputController;
@@ -27,7 +60,7 @@ let firstInputs = 0;
 beforeEach(() => {
   vi.useFakeTimers();
   stage = new EventTarget();
-  win = new EventTarget();
+  win = new FakeWin(() => store.state.stats.hits);
   doc = new FakeDoc();
   store = new GameStore(createInitialState(1));
   firstInputs = 0;
@@ -230,6 +263,130 @@ describe('Space（Q-04(d)・Q-05）と TS-012-20', () => {
     expect(hits()).toBe(0);
     stage.dispatchEvent(ev('pointerdown', { isPrimary: true }));
     expect(hits()).toBe(0);
+  });
+});
+
+describe('BUG-1 ステージを押すと、押した枠（ポータルの iframe）にフォーカスを移す', () => {
+  // pointerdown の preventDefault で互換の mousedown が出ず、その既定の動作（フォーカスの移動）が起きなかった。
+  // 実際のブラウザで親ページがスクロールしないことは e2e の TS-012-18 (b)（iframe の中でステージを押す）で確かめる
+  it('pointerdown で打撃の前に window.focus() を呼び（preventDefault は続ける）、その後の Space で掘れて preventDefault される', () => {
+    const down = ev('pointerdown', { isPrimary: true, pointerId: 1 });
+    stage.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    expect(win.focusCalls).toEqual([0]); // 1 回だけ、打撃（hits 1）の前に
+    expect(hits()).toBe(1);
+    stage.dispatchEvent(ev('pointerup', { pointerId: 1 }));
+
+    const space = ev('keydown', { code: 'Space', target: doc.activeElement });
+    win.dispatchEvent(space);
+    expect(space.defaultPrevented).toBe(true);
+    expect(hits()).toBe(2);
+    win.dispatchEvent(ev('keyup', { code: 'Space' }));
+    for (const code of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+      const e = ev('keydown', { code, target: doc.activeElement });
+      win.dispatchEvent(e);
+      expect(e.defaultPrevented, code).toBe(true);
+    }
+    expect(hits()).toBe(2);
+  });
+  it('押すたびにフォーカスを移す（親ページを触った後にまた押しても枠に戻る）', () => {
+    for (let i = 0; i < 3; i++) {
+      stage.dispatchEvent(ev('pointerdown', { isPrimary: true }));
+      stage.dispatchEvent(ev('pointerup'));
+    }
+    expect(win.focusCalls).toHaveLength(3);
+  });
+  it('フォーカスのある要素（HUD のボタン）からフォーカスを外す。body には何もしない', () => {
+    const btn = new FakeEl('BUTTON', doc);
+    btn.focus();
+    stage.dispatchEvent(ev('pointerdown', { isPrimary: true }));
+    expect(btn.blurs).toBe(1);
+    expect(doc.activeElement).toBe(doc.body);
+    stage.dispatchEvent(ev('pointerup'));
+    stage.dispatchEvent(ev('pointerdown', { isPrimary: true }));
+    expect(doc.body.blurs).toBe(0);
+    expect(btn.blurs).toBe(1);
+  });
+  it('編集できる要素（読み込みのテキスト欄）にフォーカスがあっても、ステージを押せば外れて Space で掘れる', () => {
+    const ta = new FakeEl('TEXTAREA', doc);
+    ta.focus();
+    const typed = ev('keydown', { code: 'Space', target: doc.activeElement });
+    win.dispatchEvent(typed);
+    expect(typed.defaultPrevented).toBe(false); // 文字として入る（Q-05）
+    expect(hits()).toBe(0);
+    win.dispatchEvent(ev('keyup', { code: 'Space', target: doc.activeElement }));
+
+    stage.dispatchEvent(ev('pointerdown', { isPrimary: true }));
+    stage.dispatchEvent(ev('pointerup'));
+    expect(ta.blurs).toBe(1);
+    expect(hits()).toBe(1);
+    const space = ev('keydown', { code: 'Space', target: doc.activeElement });
+    win.dispatchEvent(space);
+    expect(space.defaultPrevented).toBe(true);
+    expect(hits()).toBe(2);
+  });
+  it('フォーカスを移した後も、長押し（300ms）と Ctrl・Alt・Meta の規則は変わらない', () => {
+    stage.dispatchEvent(ev('pointerdown', { isPrimary: true, pointerId: 3 }));
+    vi.advanceTimersByTime(299);
+    expect(holdOn()).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(holdOn()).toBe(true);
+    for (const mod of ['ctrlKey', 'altKey', 'metaKey']) {
+      const e = ev('keydown', { code: 'Space', [mod]: true, target: doc.activeElement });
+      win.dispatchEvent(e);
+      expect(e.defaultPrevented, mod).toBe(false);
+    }
+    expect(hits()).toBe(1);
+    expect(holdOn()).toBe(true); // フォーカスの移動や修飾キーで長押しは終わらない
+    stage.dispatchEvent(ev('pointerup', { pointerId: 3 }));
+    expect(holdOn()).toBe(false);
+    expect(win.focusCalls).toHaveLength(1);
+  });
+  it('入力を止めている間・2 本目の指では preventDefault もフォーカスの移動もしない（ブラウザの既定の動作に任せる）', () => {
+    const btn = new FakeEl('BUTTON', doc);
+    btn.focus();
+    input.setEnabled(false);
+    const off = ev('pointerdown', { isPrimary: true });
+    stage.dispatchEvent(off);
+    expect(off.defaultPrevented).toBe(false);
+    input.setEnabled(true);
+    const second = ev('pointerdown', { isPrimary: false });
+    stage.dispatchEvent(second);
+    expect(second.defaultPrevented).toBe(false);
+    expect(win.focusCalls).toEqual([]);
+    expect(btn.blurs).toBe(0);
+    expect(hits()).toBe(0);
+  });
+  it('focus のない window・activeElement のない document、focus・blur が例外を投げても掘削は続ける', () => {
+    const s2 = new EventTarget();
+    const plain = setupInput({ stage: s2, win: new EventTarget(), doc: new EventTarget() }, store);
+    s2.dispatchEvent(ev('pointerdown', { isPrimary: true }));
+    s2.dispatchEvent(ev('pointerup'));
+    plain.dispose();
+    expect(hits()).toBe(1);
+
+    const s3 = new EventTarget();
+    const badWin = Object.assign(new EventTarget(), {
+      focus: () => {
+        throw new Error('focus denied');
+      },
+    });
+    const badDoc = Object.assign(new EventTarget(), {
+      body: null,
+      activeElement: {
+        blur: () => {
+          throw new Error('blur failed');
+        },
+      },
+    });
+    const bad = setupInput({ stage: s3, win: badWin, doc: badDoc }, store);
+    const down = ev('pointerdown', { isPrimary: true });
+    // dispatchEvent はリスナーの例外を呼び出し元に投げない。例外が漏れると打撃が入らず hits が 1 のままになり、
+    // Vitest も未処理のエラーで落ちる（それで確かめる。PR #7 のレビュー N-2）
+    s3.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    bad.dispose();
+    expect(hits()).toBe(2);
   });
 });
 

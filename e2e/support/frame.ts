@@ -3,6 +3,10 @@
 // 同じオリジンの /__e2e_parent（page.route で返す）に、ゲーム（/）を iframe で置く。
 // harness の見張り（context.addInitScript・context.route）は iframe の中にも付く（Playwright の init script は全フレームで動く）。
 // 時計は固定しない（レイアウトの切り替えは ResizeObserver、キーの処理はイベントで動き、Clock API の止めた時計を要らない）。
+// 親ページには実際のポータルと同じく viewport の meta を置く（PR #7 のレビュー S-1）。
+// - 無いと mobile-safari で縮小表示になり、scrollTo(0, 400) の後の scrollY が 398 になる
+// - minimum-scale=1 が無いと、枠（800px）が画面より広い mobile-chrome で、レイアウトのビューポートが中身に合わせて広がり
+//   （801×1630）、↓ が視覚のビューポートだけを動かして scrollY が変わらない（TS-012-18 の対照が落ちる）
 import type { Frame, Page } from '@playwright/test';
 import { BOOT_TIMEOUT_MS, collectPageErrors, waitForGame } from './boot.ts';
 import { hooks, type Hooks } from './hooks.ts';
@@ -29,7 +33,7 @@ export interface GameFrame {
 
 function parentHtml(o: Required<FrameOptions>): string {
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>e2e portal</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1"><title>e2e portal</title>
 <style>
   html, body { margin: 0; }
   body { height: ${o.parentHeight}px; position: relative; background: #ccc; font: 14px sans-serif; }
