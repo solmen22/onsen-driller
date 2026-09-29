@@ -1,10 +1,15 @@
-// CLI: npm run sim [--step 1000] [--hours 20] [--seed 1]
-// ボット 3 本 × シード 1〜8 の一式（BL-031）と、PoC からの計測（決定論・刻み幅の差・#23）を出す
+// CLI: npm run sim [--step 1000] [--hours 20] [--seed 1] [--out reports/balance]
+// バランスのレポート（BL-033: 目標表・CSV・グラフを reports/balance/ に）と、PoC からの計測（決定論・刻み幅の差・#23）を出す。
+// 判定で失敗にするのは npm run test:balance（ここは終了コード 0）
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { advance, cloneState, stateHash } from '../../src/core/index.ts';
 import { BOTS } from './bots.ts';
+import { buildReport, targetsTable } from './report.ts';
 import { relDiff, runBot } from './sim.ts';
 import { benchStep, DEFAULT_SEEDS, runSuite } from './suite.ts';
+import { judgeTargets } from './targets.ts';
 
 const arg = (name: string, def: number): number => {
   const i = process.argv.indexOf(`--${name}`);
@@ -14,6 +19,8 @@ const arg = (name: string, def: number): number => {
 const stepMs = arg('step', 1000);
 const hours = arg('hours', 20);
 const seed = arg('seed', 1);
+const outIdx = process.argv.indexOf('--out');
+const outDir = outIdx >= 0 ? (process.argv[outIdx + 1] ?? join('reports', 'balance')) : join('reports', 'balance');
 const now = (): number => performance.now();
 
 const seeds = [seed, ...DEFAULT_SEEDS.filter((s) => s !== seed)];
@@ -30,6 +37,9 @@ for (const r of long) {
   );
 }
 console.log(`TOTAL wall ms (${runs.length} runs): ${total.toFixed(0)}`);
+console.log('');
+const targets = judgeTargets(runs);
+console.log(targetsTable(targets));
 console.log('');
 
 // 同じシードで同じハッシュ（標準ボットをもう一度）
@@ -60,3 +70,8 @@ if (bench) {
   console.log(`#23 step late median ${bench.lateUs.toFixed(2)} µs -> ${bench.lateUs < 50 ? 'OK' : 'NG'} (target: median < 50 µs, and < 1000 µs)`);
   console.log(`step late/early = ${(bench.lateUs / bench.earlyUs).toFixed(2)} (recorded only; decision 0006-3)`);
 }
+
+const files = buildReport(runs, targets, { title: `npm run sim（シード ${seeds.join(',')}）`, stepBench: bench, seeds });
+mkdirSync(outDir, { recursive: true });
+for (const [name, body] of Object.entries(files)) writeFileSync(join(outDir, name), body);
+console.log(`report: ${outDir}（summary.md・targets.csv・series.csv・coins.svg・income.svg）`);
