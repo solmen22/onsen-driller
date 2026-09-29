@@ -50,6 +50,11 @@ export function sanitize(d: Decimal): Num {
 }
 
 const CANONICAL = /^([1-9](?:\.\d+)?)e(-?\d+)$/;
+/**
+ * BL-106 の修正の前に保存された、仮数が 1 未満の文字列（例 "0.999999999999998e7"）。修正の後の計算と同じ道（sanitize で 10 倍）で
+ * 読み、値をビット単位で同じにする（break_infinity.js の文字列の読み方では最後の桁がずれる）
+ */
+const LEGACY_SUB1 = /^(0\.\d*[1-9]\d*)e(-?\d+)$/;
 
 /** 任意の値を Num にする（読み込み・補正にも使う。例外を投げない） */
 export function num(v: unknown): Num {
@@ -68,6 +73,12 @@ export function num(v: unknown): Num {
     const m = Number(c[1]);
     const e = Number(c[2]);
     if (m >= 1 && m < 10 && Number.isSafeInteger(e)) return sanitize(Decimal.fromMantissaExponent_noNormalize(m, e));
+  }
+  const l = LEGACY_SUB1.exec(s);
+  if (l?.[1] && l[2]) {
+    const m = Number(l[1]);
+    const e = Number(l[2]);
+    if (m > 0 && m < 1 && Number.isSafeInteger(e)) return sanitize(Decimal.fromMantissaExponent_noNormalize(m, e));
   }
   try {
     return sanitize(new Decimal(s));
