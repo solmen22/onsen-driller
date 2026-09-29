@@ -17,17 +17,44 @@ export const ONE: Num = Decimal.fromMantissaExponent_noNormalize(1, 0);
 
 export const isNum = (v: unknown): v is Num => v instanceof Decimal;
 
-/** 計算結果を健全な値にする */
+/**
+ * 仮数を [1, 10) に戻すときの繰り返しの上限（正の有限の double なら 10 倍・1/10 を 330 回ほどで収まる。無限ループの防止）
+ */
+const RENORM_MAX_STEPS = 400;
+
+/**
+ * 計算結果を健全な値にする。break_infinity.js の加減算・乗除は、仮数が 9.99…9 の近くで丸められると
+ * 仮数が [1, 10) から外れた値（例: add(1, 9999998.999999976) → 仮数 0.999999999999998・指数 7）を返すことがあるので、
+ * 値を変えずに 10 倍ずつ桁を移して [1, 10) に戻す（保存の文字列・isHealthy・比較の前提。num.ts の正規化の不具合）
+ */
 export function sanitize(d: Decimal): Num {
-  const m = d.mantissa;
-  const e = d.exponent;
+  let m = d.mantissa;
+  let e = d.exponent;
   if (Number.isNaN(m) || Number.isNaN(e) || m <= 0) return ZERO; // NaN・負・0・負のゼロ
-  if (!Number.isFinite(m) || !Number.isFinite(e) || e > NUM_EXP_MAX || (e === NUM_EXP_MAX && m > 1)) return NUM_MAX;
+  if (!Number.isFinite(m) || !Number.isFinite(e)) return NUM_MAX;
+  const inRange = m >= 1 && m < 10;
+  if (!inRange) {
+    for (let i = 0; m < 1 && i < RENORM_MAX_STEPS; i++) {
+      m *= 10;
+      e -= 1;
+    }
+    for (let i = 0; m >= 10 && i < RENORM_MAX_STEPS; i++) {
+      m /= 10;
+      e += 1;
+    }
+    if (!(m >= 1 && m < 10)) return ZERO; // 正の有限の数なら届かない（念のため）
+  }
+  if (e > NUM_EXP_MAX || (e === NUM_EXP_MAX && m > 1)) return NUM_MAX;
   if (e < -NUM_EXP_MAX) return ZERO;
-  return d;
+  return inRange ? d : Decimal.fromMantissaExponent_noNormalize(m, e);
 }
 
 const CANONICAL = /^([1-9](?:\.\d+)?)e(-?\d+)$/;
+/**
+ * BL-106 の修正の前に保存された、仮数が 1 未満の文字列（例 "0.999999999999998e7"）。修正の後の計算と同じ道（sanitize で 10 倍）で
+ * 読み、値をビット単位で同じにする（break_infinity.js の文字列の読み方では最後の桁がずれる）
+ */
+const LEGACY_SUB1 = /^(0\.\d*[1-9]\d*)e(-?\d+)$/;
 
 /** 任意の値を Num にする（読み込み・補正にも使う。例外を投げない） */
 export function num(v: unknown): Num {
@@ -46,6 +73,12 @@ export function num(v: unknown): Num {
     const m = Number(c[1]);
     const e = Number(c[2]);
     if (m >= 1 && m < 10 && Number.isSafeInteger(e)) return sanitize(Decimal.fromMantissaExponent_noNormalize(m, e));
+  }
+  const l = LEGACY_SUB1.exec(s);
+  if (l?.[1] && l[2]) {
+    const m = Number(l[1]);
+    const e = Number(l[2]);
+    if (m > 0 && m < 1 && Number.isSafeInteger(e)) return sanitize(Decimal.fromMantissaExponent_noNormalize(m, e));
   }
   try {
     return sanitize(new Decimal(s));
