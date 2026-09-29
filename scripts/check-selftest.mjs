@@ -1162,10 +1162,16 @@ describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別の�
     for (const p of ['webkit', 'firefox', 'mobile-safari', 'mobile-chrome']) assert.ok(projects.includes(p), `test:e2e:nightly に ${p} がない`);
     for (const p of ['chromium', 'prod-builds'])
       assert.ok(!projects.includes(p), `test:e2e:nightly に ${p}（PR ごとの test:e2e で流しているもの）がある`);
-    // あるブラウザで全体が落ちたときの失敗のレポート（3 日保存）と分数に上限を作る。件数は実行・修復エンジニアが決める
-    const max = /--max-failures=(\d+)(?:\s|$)/.exec(script);
-    assert.ok(max, 'test:e2e:nightly に --max-failures がない（全体が落ちるとレポートが 0.1〜0.4GB になりうる。infra §4-3）');
-    assert.ok(Number(max[1]) >= 1 && Number(max[1]) <= 50, `--max-failures=${max[1]} が 1〜50 でない`);
+    // 上限は playwright.config.ts の maxFailures（PW_MAX_FAILURES）で決める。スクリプトの引数では上書きしない
+    assert.doesNotMatch(script, /--max-failures/, 'test:e2e:nightly の --max-failures（上限は nightly.yml の PW_MAX_FAILURES で決める）');
+  });
+
+  test('毎晩の E2E は PW_MAX_FAILURES=25 で失敗の件数に上限がある（全体が落ちたときのレポートと分数を抑える。PR #9 のレビュー S-1。実行・修復エンジニアの決定）', () => {
+    const env = /^ {4}env:\n((?: {6}.*\n)+)/m.exec(e)?.[1] ?? '';
+    const m = /^ {6}PW_MAX_FAILURES: (\d+)(?:\s+#.*)?$/m.exec(env);
+    assert.ok(m, 'nightly.yml の e2e-nightly ジョブの env に PW_MAX_FAILURES がない（全体が落ちるとレポートが 0.1〜0.4GB になりうる。infra §4-3）');
+    assert.equal(Number(m[1]), 25, `PW_MAX_FAILURES=${m[1]}（実行・修復エンジニアの決定は 25）`);
+    assert.equal((codeOf(nightly).match(/PW_MAX_FAILURES/g) ?? []).length, 1, 'PW_MAX_FAILURES を 2 か所以上で決めている');
   });
 
   test('失敗したときの記録: playwright-report/ だけを 3 日、HTML レポートができなかったときだけ test-results/（BL-099 と同じ方針）', () => {
