@@ -236,10 +236,16 @@ export class ContextMonitor {
   async violations(): Promise<Violation[]> {
     const out: Violation[] = [];
     const seen = new Set<string>();
+    // ページの記録（どの API で送ったか）。WebKit はページを離れるときの画像の読み込みを PingLoader で送り、要求の種類が
+    // 'ping' になる（2026-09-29 の実測。Chromium・Firefox は 'image'）。種類だけで分けると画像がビーコン（TS-COM-02）に
+    // 数えられ、「画像＝TS-COM-01」（QA §4-3・TS-COM-08 (c)）と合わない。記録にある URL は記録の種類で分ける（BL-094）
+    const journal = await this.netJournal();
+    const kindOf = new Map(journal.map((e) => [e.url, e.kind] as const));
     for (const r of this.requests) {
       if (isAllowedUrl(r.url, this.allowedOrigins) || seen.has(r.url)) continue;
       seen.add(r.url);
-      const isBeacon = r.type === 'ping' || r.type === 'beacon';
+      const kind = kindOf.get(r.url);
+      const isBeacon = kind ? kind === 'beacon' : r.type === 'ping' || r.type === 'beacon';
       out.push({ check: isBeacon ? 'TS-COM-02' : 'TS-COM-01', detail: `許可リスト外への${isBeacon ? 'ビーコン' : '通信'}（${r.type}）: ${r.url}` });
     }
     for (const url of this.blocked) {
@@ -248,7 +254,7 @@ export class ContextMonitor {
       out.push({ check: 'TS-COM-01', detail: `許可リスト外への通信（中止した）: ${url}` });
     }
     // ページを離れるとき（pagehide）の送信は要求として見えないので、ページに書き留めた記録を読む（M-1）
-    for (const e of await this.netJournal()) {
+    for (const e of journal) {
       if (isAllowedUrl(e.url, this.allowedOrigins) || seen.has(e.url)) continue;
       seen.add(e.url);
       out.push(

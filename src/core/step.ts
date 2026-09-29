@@ -1,7 +1,7 @@
 // 固定ステップ（arch §7。BL-010・BL-012）。生産は「毎秒の量 × 刻み幅」、打撃は端数を繰り越して刻み幅によらず同じ打数にする。
 // 時刻は読まない（arch §8-2）
 import { PARAMS } from '../content/params.ts';
-import type { SpringId } from '../content/springs.ts';
+import { SPRINGS, SPRING_BY_ID, type SpringId } from '../content/springs.ts';
 import { M2_FIRST_BAND } from '../content/strata.ts';
 import type { GameEvent } from './events.ts';
 import {
@@ -14,7 +14,6 @@ import {
   drillPower,
   modifiers,
   oreAt,
-  springAtDepth,
   type Modifiers,
 } from './formulas.ts';
 import { admitManualHits, manualRate, setHold } from './input.ts';
@@ -49,7 +48,7 @@ export function discoverSpring(s: GameState, sp: SpringId, emit: boolean, out: G
   if (r.springs[sp]) return;
   r.springs[sp] = { pump: 1 }; // 発見時にポンプ Lv1 が無料で付く（gdd §5-4）
   if (!s.collection.springsSeen.includes(sp)) s.collection.springsSeen.push(sp);
-  if (emit) out.push({ type: 'SpringFound', spring: sp, depth: r.depth });
+  if (emit) out.push({ type: 'SpringFound', spring: sp, depth: SPRING_BY_ID[sp].depth }); // 源泉の深さ（越えて見つけたときも）
   const empty = r.bath.slots.indexOf(null);
   if (empty >= 0) r.bath.slots[empty] = sp;
   refreshGuests(s, out);
@@ -95,12 +94,16 @@ function breakBlock(s: GameState, m: Modifiers, out: GameEvent[]): BreakResult {
     r.interludeMs = PARAMS.interludeMs;
     interlude = true;
   }
-  const sp = springAtDepth(r.depth);
-  if (sp && !r.springs[sp]) {
-    discoverSpring(s, sp, true, out);
-    return { changed: true, interlude };
+  // 源泉は「その深さに届いた（越えた）ら」発見する。深さの一致では判定しない（読み込んだ状態や S3 の地形・近道の坑道で
+  // 深さが先に進んでいても見逃さない。2026-09-29 Q-31 (e)）。自然に掘るときは 1m ずつ進むので、その深さのブロックで見つかる
+  let changed = false;
+  for (const sp of SPRINGS) {
+    if (sp.depth <= r.depth && !r.springs[sp.id]) {
+      discoverSpring(s, sp.id, true, out);
+      changed = true;
+    }
   }
-  return { changed: false, interlude };
+  return { changed, interlude };
 }
 
 /** hits 回の打撃を与える（壊したブロックの余りのダメージは次のブロックへ繰り越す。Q-02）。新しい帯に入ったら残りは捨てる（Q-06） */
