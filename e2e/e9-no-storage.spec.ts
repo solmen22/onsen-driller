@@ -79,10 +79,10 @@ function noStorageSuite(v: 'V1' | 'V2' | 'V3', id: (n: string) => string): void 
         await expect(page.locator('[data-testid="stage"] canvas')).toBeVisible({ timeout: BOOT_TIMEOUT_MS });
         await expect(page.getByTestId('hud-coins')).toBeVisible({ timeout: BOOT_TIMEOUT_MS });
       } catch (e) {
-        throw new Error(`ゲーム画面が出ませんでした（ページの例外: ${harness.pageErrors.join(' / ') || 'なし'}）`, { cause: e });
+        throw new Error(`ゲーム画面が出ませんでした（捕まえていない例外: ${(await harness.uncaughtErrors()).join(' / ') || 'なし'}）`, { cause: e });
       }
       expect(Date.now() - started).toBeLessThanOrEqual(BOOT_TIMEOUT_MS);
-      expect(harness.pageErrors).toEqual([]);
+      expect(await harness.uncaughtErrors()).toEqual([]);
       await expectNoKeys(page);
     });
 
@@ -138,7 +138,7 @@ function noStorageSuite(v: 'V1' | 'V2' | 'V3', id: (n: string) => string): void 
       }
       test.info().annotations.push({ type: '打撃の増分（4 回の保存の間）', description: String(hitsOf(prev) - hitsOf(s0)) });
       expect(coinsOf(prev)).toBeGreaterThan(coinsOf(s0));
-      expect(harness.pageErrors).toEqual([]);
+      expect(await harness.uncaughtErrors()).toEqual([]);
       await expectNoKeys(page);
     });
 
@@ -157,7 +157,7 @@ function noStorageSuite(v: 'V1' | 'V2' | 'V3', id: (n: string) => string): void 
         const h0 = hitsOf(await g.getState());
         await g.advance(1_000, { tapsPerSec: 2 });
         expect(hitsOf(await g.getState())).toBeGreaterThan(h0);
-        expect(harness.pageErrors).toEqual([]);
+        expect(await harness.uncaughtErrors()).toEqual([]);
         await expectNoKeys(page);
       });
     }
@@ -230,7 +230,7 @@ test.describe('E9 保存できない環境', () => {
     await expectWarning(page, 'failing');
     await tapUnderground(page, 3);
     expect(hitsOf(await g.getState())).toBeGreaterThan(0);
-    expect(harness.pageErrors).toEqual([]);
+    expect(await harness.uncaughtErrors()).toEqual([]);
     await expectNoKeys(page);
   });
 
@@ -256,7 +256,7 @@ test.describe('E9 保存できない環境', () => {
     const h0 = hitsOf(await g.getState());
     await g.advance(1_000, { tapsPerSec: 2 });
     expect(hitsOf(await g.getState())).toBeGreaterThan(h0);
-    expect(harness.pageErrors).toEqual([]);
+    expect(await harness.uncaughtErrors()).toEqual([]);
     // a・b は 2 回目までの中身のまま
     const slots3 = await readSlots(context, harness.origin);
     expect(slots3.a.raw).toBe(slots2.a.raw);
@@ -324,7 +324,7 @@ test.describe('E9 保存できない環境', () => {
     expect(ok[y].env!.game).toEqual(state);
     // ok に戻り、案内が消える
     await expect(warning(rp)).toHaveCount(0);
-    expect(harness.pageErrors).toEqual([]);
+    expect(await harness.uncaughtErrors()).toEqual([]);
   });
 
   test('TS-E9-15 V7（セーブの枠だけ読めない・既存のセーブあり）: 起動して遊べ、読めない枠を空とみなして上書きしない（S-1・Q-23）', async ({ page, harness }) => {
@@ -364,7 +364,7 @@ test.describe('E9 保存できない環境', () => {
     expect(late.get(SLOT_KEYS.a) ?? null).toBe(slots.a.raw);
     expect(late.get(SLOT_KEYS.b) ?? null).toBe(slots.b.raw);
     await expectWarning(rp, 'unavailable');
-    expect(harness.pageErrors).toEqual([]);
+    expect(await harness.uncaughtErrors()).toEqual([]);
     // 次の起動（初期化スクリプトなし＝読める context）で、元の進行（X）が残っている
     const next = await reopenWithStorage(harness, reopened.context, () => {});
     const g2 = await bootGame(next.page, { time: xEnv.savedAt, startPaused: true });

@@ -14,7 +14,7 @@
 //   要素の読み込みと setAttribute('src') は包んでいない。preconnect・dns-prefetch は要求にならない。これらはビルドの静的検査で塞ぐ案がある
 // - TS-COM-03 Cookie: context.cookies() と、開いているページの document.cookie
 // - TS-COM-04 キー名: localStorage のキーがすべて `onsen-driller:` で始まる（テストが自分で入れた他のゲームのキーは除く）
-import type { BrowserContext, Frame, Page } from '@playwright/test';
+import type { BrowserContext, ConsoleMessage, Frame, Page } from '@playwright/test';
 
 export const STORAGE_PREFIX = 'onsen-driller:';
 
@@ -168,6 +168,33 @@ export function isAllowedUrl(url: string, allowedOrigins: readonly string[]): bo
   return allowedOrigins.includes(u.origin);
 }
 
+/** Playwright の Clock API がタイマー・rAF を実行する関数の名前（Playwright 1.63 の ClockController。例外のスタックに必ず出る） */
+const CLOCK_TIMER_RUNNER = '_callFirstTimer';
+
+/**
+ * console.error が「Clock API の偽のタイマー・rAF の中の、捕まえていない例外」なら `名前: 文`、そうでなければ null（BL-108。
+ * PR #15 のレビューの連絡 1）。時計が流れている間（bootGame の起動中・pauseClock: false）は、Clock API がその例外を
+ * `console.error(e)` で出すだけで、window の error・pageerror・__game.errors() のどれにも入らない（止めている間は
+ * runFor・fastForward の呼び出し元に投げ返すので、テストが失敗して見逃さない）。
+ * 見分け方（2026-10-04 の手元の実測。chromium・firefox・webkit）: 引数が Error 1 つ・そのスタックに CLOCK_TIMER_RUNNER がある・
+ * 呼び出しの位置が http(s) の URL ではない（Clock API は注入されたスクリプトから呼ぶ。Firefox は text() が「Error」だけなので、
+ * 名前と文は Error から読む）。アプリが自分で出す console.error（store の購読者の例外など。位置はアプリの http の URL）や、
+ * ブラウザが出す console.error（404 の読み込みの失敗など）は含めない（それらは consoleErrors で見る）
+ */
+async function clockUncaughtErrorOf(m: ConsoleMessage): Promise<string | null> {
+  const args = m.args();
+  if (args.length !== 1 || /^https?:/.test(m.location().url)) return null;
+  try {
+    return await args[0]!.evaluate(
+      (a, runner) => (a instanceof Error && String(a.stack).includes(runner) ? `${a.name}: ${a.message}` : null),
+      CLOCK_TIMER_RUNNER,
+    );
+  } catch {
+    // 中身を読めなかった（ページが閉じた直後など）。見逃さない側に倒す
+    return `${m.text()}（Clock API の例外かどうか確かめられなかった console.error）`;
+  }
+}
+
 /** 1 つの browser context を見張る */
 export class ContextMonitor {
   readonly requests: { url: string; type: string }[] = [];
@@ -175,6 +202,9 @@ export class ContextMonitor {
   readonly websockets: string[] = [];
   readonly pageErrors: string[] = [];
   readonly consoleErrors: string[] = [];
+  /** Clock API の偽のタイマー・rAF の中の、捕まえていない例外（clockUncaughtErrorOf。settled() の後に読む） */
+  readonly clockErrors: string[] = [];
+  private readonly pending = new Set<Promise<void>>();
   readonly context: BrowserContext;
   readonly allowedOrigins: readonly string[];
   readonly foreignKeys: ReadonlySet<string>;
@@ -203,7 +233,13 @@ export class ContextMonitor {
     const watch = (p: Page): void => {
       p.on('pageerror', (e) => this.pageErrors.push(`${e.name}: ${e.message}`));
       p.on('console', (m) => {
-        if (m.type() === 'error') this.consoleErrors.push(m.text());
+        if (m.type() !== 'error') return;
+        this.consoleErrors.push(m.text());
+        const job = clockUncaughtErrorOf(m).then((e) => {
+          if (e) this.clockErrors.push(e);
+        });
+        this.pending.add(job);
+        void job.finally(() => this.pending.delete(job));
       });
       // routeWebSocket を通らなかったもの（Worker など）の保険
       p.on('websocket', (ws) => {
@@ -212,6 +248,11 @@ export class ContextMonitor {
     };
     for (const p of this.context.pages()) watch(p);
     this.context.on('page', watch);
+  }
+
+  /** console.error の見分け（clockUncaughtErrorOf）が終わるのを待つ */
+  async settled(): Promise<void> {
+    await Promise.all([...this.pending]);
   }
 
   /** 開いているページの送信の記録（pageProbe が sessionStorage に書き留めたもの。同じタブの再読み込みの前の分を含む） */
@@ -237,7 +278,8 @@ export class ContextMonitor {
     const out: Violation[] = [];
     const seen = new Set<string>();
     // ページの記録（どの API で送ったか）。WebKit はページを離れるときの画像の読み込みを PingLoader で送り、要求の種類が
-    // 'ping' になる（2026-09-29 の実測。Chromium・Firefox は 'image'）。種類だけで分けると画像がビーコン（TS-COM-02）に
+    // 'ping' になる（2026-09-29 の実測。Firefox は 'image'。Chromium はページを離れるときの送信が要求として見えず、記録だけで数える
+    // 〔PR #12 のレビュー N-1〕）。種類だけで分けると画像がビーコン（TS-COM-02）に
     // 数えられ、「画像＝TS-COM-01」（QA §4-3・TS-COM-08 (c)）と合わない。記録にある URL は記録の種類で分ける（BL-094）
     const journal = await this.netJournal();
     const kindOf = new Map(journal.map((e) => [e.url, e.kind] as const));

@@ -36,6 +36,9 @@ const RAW_TEST: string[] = [
   "import { test } from '@playwright/test';\ntest('x', () => {});",
   "import { test as t } from '@playwright/test';\nt('x', () => {});",
   "import * as pw from '@playwright/test';\npw.test('x', () => {});",
+  // ③ _baseTest（型つきの公開の export。素の test と同じ物。PR #12 のレビューの S-1・BL-108）
+  "import { _baseTest as test } from '@playwright/test';\ntest('x', () => {});",
+  "import { _baseTest } from 'playwright/test';\n_baseTest('x', () => {});",
 ];
 
 describe('R-S2 共通の検査の付かない test の import は、E2E の spec でエラーになる', () => {

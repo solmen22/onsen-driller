@@ -3,10 +3,13 @@
 // - harness（自動）: テストごとの新しい browser context を見張り（通信・WebSocket・エラー・全画面の要求）、
 //   テストの終わりに共通の検査（TS-COM-01〜04）を行う。違反があればそのテストを失敗にする。
 //   検査の結果は teardownChecks に記録し、TS-COM-08 (d)・(e) が「この経路で検査が本当に行われている」ことを見張る（BL-094・R-S1）。
+//   あわせてテストの注記 COMMON_CHECKS_MARK（'common-checks'）を付け、レポーター（common-checks-reporter.ts）が「印のないテスト」＝
+//   この test を使っていない・後片付けの検査が外れたテストを見つけて実行を失敗にする（BL-108。PR #12 のレビューの S-1 の案 B）
 // - テストの開始時に、ストレージと Cookie が空であることを確かめる（TS-073-04。前のテストの保存が漏れない）
 // - harness.newContext(): 同じ設定の context を追加で開く（storageState を書き換えて開き直す E5・E9 用）。見張りも付く
 import { test as base, expect, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from '@playwright/test';
 import { CommonCheckError, ContextMonitor, localStorageKeys, type CheckId, type Violation } from './privacy.ts';
+import { COMMON_CHECKS_MARK } from './common-checks-reporter.ts';
 
 /** 自己テストが期待した違反を、共通の検査が検出しなかった（検査が効いていない＝偽の緑のおそれ） */
 export class ExpectedViolationMissingError extends Error {
@@ -119,6 +122,17 @@ export class Harness {
     return this.monitors.flatMap((m) => m.consoleErrors);
   }
 
+  /**
+   * 捕まえていない例外: pageerror と、Clock API が console.error にだけ出したタイマー・rAF の例外（BL-108。PR #15 のレビューの連絡 1。
+   * privacy.ts の clockUncaughtErrorOf）。「捕まえていない例外がない」の検査は pageErrors ではなくこれを使う。
+   * console.error の全体（consoleErrors）は見ない: E9 の保存できない環境などでブラウザ・アプリが出す console.error は例外ではなく、
+   * 見るかどうかはテストごとに決める（TS-E1・TS-007-13 は consoleErrors も 0 件を求める）
+   */
+  async uncaughtErrors(): Promise<string[]> {
+    for (const m of this.monitors) await m.settled();
+    return this.monitors.flatMap((m) => [...m.pageErrors, ...m.clockErrors]);
+  }
+
   async dispose(): Promise<void> {
     for (const c of this.owned) await c.close().catch(() => {});
   }
@@ -168,6 +182,7 @@ export const test = base.extend<Fixtures>({
       await use(h);
       const record = (outcome: string): void => {
         teardownChecks.push({ title: testInfo.title, expected: [...expectViolations], outcome });
+        testInfo.annotations.push({ type: COMMON_CHECKS_MARK, description: outcome });
       };
       try {
         // TS-E1-17・TS-E9-13 ほか: すべての E2E の後の共通の検査（TS-COM-08 の自己テストは期待した違反だけを許す）
