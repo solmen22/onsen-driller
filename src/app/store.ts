@@ -10,6 +10,13 @@ import {
   type GameEvent,
   type GameState,
 } from '../core/index.ts';
+import type { SaveStatus } from '../save/slots.ts';
+
+/**
+ * UI に見せる保存の状態（Q-26 ①。BL-046）: 保存の状態（save/slots.ts の SaveStatus。変えない）に、読み取り専用（新しい版のセーブ）を足したもの。
+ * 表示の優先は readonly → unavailable → failing → ok（main.ts の saveDisplay）
+ */
+export type SaveDisplayStatus = SaveStatus | 'readonly';
 
 /** 描画だけが使う一時的なイベント（打撃の数。タップ由来かどうかで反応の計測をする） */
 export type ViewEvent = GameEvent | { type: 'Hits'; n: number; fromTap: boolean };
@@ -35,9 +42,10 @@ export class GameStore {
   /** ループがステップを進めた回数と、最後に進めたフレームの単調時計（描画の補間用） */
   stepSerial = 0;
   lastStepAt = 0;
-  /** 保存の状態（app/autosave が更新する。UI の save-warning。ok 以外の間は表示する） */
-  saveStatus: 'ok' | 'failing' | 'unavailable' = 'ok';
+  /** 保存の状態（app/autosave が更新する。UI の save-warning。ok 以外の間は表示する。readonly は BL-046） */
+  saveStatus: SaveDisplayStatus = 'ok';
   private readonly subs = new Set<() => void>();
+  private readonly eventSubs = new Set<(e: GameEvent) => void>();
   private viewQueue: ViewEvent[] = [];
   private readonly recent: GameEvent[] = [];
   private readonly uiIntervalMs: number;
@@ -110,6 +118,13 @@ export class GameStore {
     for (const e of evs) {
       this.pushView(e);
       this.recent.push(e);
+      for (const fn of this.eventSubs) {
+        try {
+          fn(e);
+        } catch (err) {
+          this.onError(err);
+        }
+      }
     }
     if (this.recent.length > EVENTS_KEEP) this.recent.splice(0, this.recent.length - EVENTS_KEEP);
   }
@@ -120,7 +135,7 @@ export class GameStore {
   }
 
   /** 保存の状態を変えて通知する（変わらなければ何もしない） */
-  setSaveStatus(st: 'ok' | 'failing' | 'unavailable'): void {
+  setSaveStatus(st: SaveDisplayStatus): void {
     if (this.saveStatus === st) return;
     this.saveStatus = st;
     this.notify();
@@ -137,6 +152,15 @@ export class GameStore {
   events(limit: number = EVENTS_DEFAULT_LIMIT): GameEvent[] {
     const n = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : EVENTS_DEFAULT_LIMIT;
     return n === 0 ? [] : this.recent.slice(-n);
+  }
+
+  /**
+   * core のイベントを 1 つずつ受け取る（UI のトースト〔お客さんの初来訪〕。BL-046）。ステップの中から同期で呼ぶので、
+   * 受け手は軽い処理（状態の積み上げ）だけにする。例外は onError に渡し、ほかの受け手・ループは続ける
+   */
+  onEvent(fn: (e: GameEvent) => void): () => void {
+    this.eventSubs.add(fn);
+    return () => this.eventSubs.delete(fn);
   }
 
   subscribe(fn: () => void): () => void {

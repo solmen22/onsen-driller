@@ -129,7 +129,7 @@ describe('TS-012-19 長押しの終わらせ方（ポインタ・blur・非表�
         doc.dispatchEvent(ev('visibilitychange'));
       },
     ],
-    ['入力の無効化（広告の再生中）', () => input.setEnabled(false)],
+    ['入力の無効化（広告の再生中）', () => input.setBlocked('ad', true)],
   ];
   for (const [name, end] of enders) {
     it(`${name} で長押しが終わり、5 秒進めても打撃が増えない`, () => {
@@ -256,7 +256,7 @@ describe('Space（Q-04(d)・Q-05）と TS-012-20', () => {
     expect(hits()).toBe(0);
   });
   it('入力を止めている間は Space で掘らない（preventDefault は続ける）', () => {
-    input.setEnabled(false);
+    input.setBlocked('ad', true);
     const e = ev('keydown', { code: 'Space' });
     win.dispatchEvent(e);
     expect(e.defaultPrevented).toBe(true);
@@ -345,11 +345,11 @@ describe('BUG-1 ステージを押すと、押した枠（ポータルの iframe
   it('入力を止めている間・2 本目の指では preventDefault もフォーカスの移動もしない（ブラウザの既定の動作に任せる）', () => {
     const btn = new FakeEl('BUTTON', doc);
     btn.focus();
-    input.setEnabled(false);
+    input.setBlocked('ad', true);
     const off = ev('pointerdown', { isPrimary: true });
     stage.dispatchEvent(off);
     expect(off.defaultPrevented).toBe(false);
-    input.setEnabled(true);
+    input.setBlocked('ad', false);
     const second = ev('pointerdown', { isPrimary: false });
     stage.dispatchEvent(second);
     expect(second.defaultPrevented).toBe(false);
@@ -396,5 +396,54 @@ describe('UI のパネルの押下も「最初の入力」', () => {
     win.dispatchEvent(ev('pointerdown'));
     expect(firstInputs).toBe(1);
     expect(hits()).toBe(0);
+  });
+});
+
+describe('理由ごとに入力を止める（setBlocked。BL-046・BL-059 共通。TS-046-14・TS-059-03 の前段）', () => {
+  it('広告とモーダルが重なると、両方が外れるまで掘れない（同じ理由を二重に立てても 1 つ）', () => {
+    input.setBlocked('ad', true);
+    input.setBlocked('modal', true);
+    input.setBlocked('modal', true);
+    input.setBlocked('ad', false);
+    stage.dispatchEvent(ev('pointerdown', { isPrimary: true }));
+    expect(hits()).toBe(0);
+    input.setBlocked('modal', false);
+    stage.dispatchEvent(ev('pointerdown', { isPrimary: true }));
+    expect(hits()).toBe(1);
+  });
+  it('止めた時点で長押しが終わり、長押しのタイマーも効かない', () => {
+    stage.dispatchEvent(ev('pointerdown', { isPrimary: true }));
+    input.setBlocked('modal', true);
+    vi.advanceTimersByTime(1000);
+    expect(holdOn()).toBe(false);
+    expect(hits()).toBe(1);
+  });
+  it('モーダルの表示中: ボタンが対象の Space は preventDefault しない（ボタンを押せる）。ボタン以外の Space・矢印は preventDefault し、掘らない', () => {
+    input.setBlocked('modal', true);
+    const btn = new FakeEl('BUTTON', doc);
+    const onBtn = ev('keydown', { code: 'Space', target: btn });
+    win.dispatchEvent(onBtn);
+    expect(onBtn.defaultPrevented).toBe(false);
+    const upBtn = ev('keyup', { code: 'Space', target: btn });
+    win.dispatchEvent(upBtn);
+    expect(upBtn.defaultPrevented).toBe(false);
+    const div = new FakeEl('DIV', doc);
+    const onBody = ev('keydown', { code: 'Space', target: div });
+    win.dispatchEvent(onBody);
+    expect(onBody.defaultPrevented).toBe(true);
+    const arrow = ev('keydown', { code: 'ArrowDown', target: btn });
+    win.dispatchEvent(arrow);
+    expect(arrow.defaultPrevented).toBe(true);
+    expect(hits()).toBe(0);
+  });
+  it('広告だけで止めているときは、ボタンが対象の Space も今までどおり preventDefault する（モーダルの外は Q-05 のまま）', () => {
+    input.setBlocked('ad', true);
+    const btn = new FakeEl('BUTTON', doc);
+    const e = ev('keydown', { code: 'Space', target: btn });
+    win.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+    const up = ev('keyup', { code: 'Space', target: btn });
+    win.dispatchEvent(up);
+    expect(up.defaultPrevented).toBe(true);
   });
 });

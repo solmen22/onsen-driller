@@ -189,7 +189,7 @@ body {
   color: var(--gold);
 }
 
-/* 「保存できません」の仮の表示（S1。BL-027・Q-11 の 5。S2 からトースト）: HUD の帯の最後の行 */
+/* 保存の案内（S1。BL-027・Q-11 の 5。出したまま。BL-046 で読み取り専用〔readonly〕を足した。ok → failing のトーストは .toast）: HUD の帯の最後の行 */
 .save-warning {
   flex: 1 0 100%;
   margin: 2px 0 0;
@@ -458,4 +458,142 @@ body {
   margin: 0;
   font-size: 13px;
   color: var(--muted);
+}
+
+/* モーダル・シート（BL-046。gdd §11-2）: 画面全体を覆う背景（押すと閉じる。ステージに押下を届けない）＋本体 */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.overlay-sheet {
+  align-items: flex-end;
+}
+
+.overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: #1b1420b3;
+}
+
+.dialog {
+  position: relative;
+  width: min(420px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
+  overflow: auto;
+  margin: 8px;
+  padding: 10px 12px 12px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 6px;
+  outline: none;
+}
+
+.dialog:focus-visible {
+  box-shadow: 0 0 0 2px var(--gold);
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog-title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 16px;
+  font-weight: normal;
+}
+
+.dialog-x {
+  min-width: 44px;
+  min-height: 44px;
+  font: inherit;
+  font-size: 20px;
+  color: var(--text);
+  background: transparent;
+  border: 2px solid var(--line);
+  border-radius: 4px;
+}
+
+.sheet-body {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.sheet-desc,
+.sheet-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.sheet-note {
+  color: #fff0a8;
+}
+
+/* 選択肢のボタンはどれも同じ部品（同じ大きさ・字体・色）。どれかだけを強調しない（gdd §13-2） */
+.sheet-btn {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 2px solid var(--line);
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+
+.sheet-btn:disabled,
+.dialog-x:disabled {
+  opacity: 0.55;
+}
+
+/* 動画アイコン（再生の三角） */
+.video-icon {
+  width: 0;
+  height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 10px solid var(--text);
+}
+
+/* トースト（BL-046。Q-37 (c)）: 画面の下部に縦に最大 3 つ。押せない（下の購入ボタン・ステージの操作を妨げない） */
+.toasts {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.toast {
+  max-width: calc(100% - 16px);
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text);
+  background: #2a1f2bee;
+  border: 2px solid var(--water);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.toast[data-kind='save'] {
+  border-color: #d9483b;
 }

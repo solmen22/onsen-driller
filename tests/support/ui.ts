@@ -7,7 +7,7 @@ import { createInitialState, type GameState } from '../../src/core/index.ts';
 import { setLang, type Lang } from '../../src/i18n/index.ts';
 import type { Platform } from '../../src/platform/types.ts';
 import { App } from '../../src/ui/App.tsx';
-import { Ctx } from '../../src/ui/hooks/use-game.ts';
+import { Ctx, type UiContext } from '../../src/ui/hooks/use-game.ts';
 
 /** UI が読むだけの最小のアダプタ（target と calls） */
 export function uiPlatform(target: Platform['target'] = 'web'): Platform {
@@ -53,12 +53,15 @@ export interface Mounted {
 }
 
 /** 部品（既定は App 全体）を描く。lang の既定は en（表示の文字ではなく data-* で判定する） */
-export function mount(opts: { state?: GameState; lang?: Lang; node?: ComponentChild; store?: GameStore } = {}): Mounted {
+export function mount(
+  opts: { state?: GameState; lang?: Lang; node?: ComponentChild; store?: GameStore; ctx?: Partial<UiContext> } = {},
+): Mounted {
   setLang(opts.lang ?? 'en');
   const store = opts.store ?? new GameStore(opts.state ?? createInitialState(1), { onError: (e) => { throw e; } });
   const root = document.createElement('div');
   document.body.appendChild(root);
-  const value = { store, platform: uiPlatform(), version: '0.0.1-test' };
+  // ctx: ご褒美の口（rewards・requestReward）・壁時計（now）・platform などを差し替える（BL-046）
+  const value: UiContext = { store, platform: uiPlatform(), version: '0.0.1-test', ...opts.ctx };
   // act は Promise の型を返すが、同期の関数なら描画を終えてから戻る（ここでは待たない）
   void act(() => {
     render(h(Ctx.Provider, { value }, opts.node ?? h(App, {})), root);
