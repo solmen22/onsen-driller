@@ -20,23 +20,35 @@ async function freshSfx(): Promise<Sfx> {
   return import('../../src/audio/sfx.ts');
 }
 
+/** 偽の AudioContext の状態（iOS の interrupted を含む） */
+type CtxState = 'suspended' | 'running' | 'closed' | 'interrupted';
+
 interface AudioCalls {
   created: number;
   resumed: number;
   played: number;
+  /** 作られた偽の AudioContext（状態を外から変える。BL-104） */
+  ctx?: { state: CtxState };
 }
 
-/** ZzFX が使う分だけの Web Audio の偽物のクラスを作る。resume() の振る舞いは差し替えられる */
+/**
+ * ZzFX が使う分だけの Web Audio の偽物のクラスを作る。state は suspended で始まり、resume() が解決したら running になる
+ * （本物と同じ）。resume() の振る舞いは差し替えられる
+ */
 function fakeAudioContextClass(calls: AudioCalls, resume: () => Promise<void>): new () => object {
   const link = { connect: (next: unknown): unknown => next };
   return class FakeAudioContext {
     readonly destination = {};
+    state: CtxState = 'suspended';
     constructor() {
       calls.created++;
+      calls.ctx = this;
     }
     resume(): Promise<void> {
       calls.resumed++;
-      return resume();
+      return resume().then(() => {
+        this.state = 'running';
+      });
     }
     createBuffer(channels: number, length: number): { getChannelData(i: number): Float32Array | undefined } {
       const data = Array.from({ length: channels }, () => new Float32Array(length));
@@ -243,7 +255,7 @@ describe('unlockAudio — それ以外の失敗は音を諦めて onFailure に 
     });
   }
 
-  it('resume() が拒否したら音を諦める（その後の playHit・playBreak は鳴らさない）', async () => {
+  it('resume() が拒否したら鳴らさない（running でない間は音を作らない）', async () => {
     const calls = stubWebAudio(() => Promise.reject(new Error('NotAllowedError')));
     const sfx = await freshSfx();
     await sfx.unlockAudio();
@@ -366,4 +378,130 @@ describe('音を諦めても掘る・購入が続く（main.ts と同じ結線: 
       }
     });
   }
+});
+
+describe('止まった音（BL-104）: running のときだけ鳴らし、次の入力で同期に resume する', () => {
+  /** 読み込み済みで running の状態を作る。resume の結果は mode で切り替える */
+  async function running(): Promise<{ sfx: Sfx; calls: AudioCalls; ctx: { state: CtxState }; failures: unknown[]; mode: { next: 'ok' | 'reject' } }> {
+    const mode: { next: 'ok' | 'reject' } = { next: 'ok' };
+    const calls = stubWebAudio(() => (mode.next === 'ok' ? Promise.resolve() : Promise.reject(new Error('NotAllowedError: not allowed'))));
+    const sfx = await freshSfx();
+    const failures: unknown[] = [];
+    await sfx.unlockAudio((e) => failures.push(e));
+    const ctx = calls.ctx;
+    if (!ctx) throw new Error('no AudioContext');
+    expect(ctx.state).toBe('running');
+    return { sfx, calls, ctx, failures, mode };
+  }
+
+  it('止まっている間（suspended）は playHit・playBreak を 50 回ずつ呼んでも音を作らない。戻った後は、戻った後に呼んだ分だけ鳴る', async () => {
+    const { sfx, calls, ctx } = await running();
+    ctx.state = 'suspended'; // iOS のバックグラウンドからの復帰・電話の後など
+    for (let i = 0; i < 50; i++) {
+      sfx.playHit(1_000 + i * 100);
+      sfx.playBreak();
+    }
+    expect(calls.played, '止まっている間は作らない（再開の瞬間に一度に鳴らない）').toBe(0);
+    sfx.resumeAudio();
+    await settle();
+    expect(ctx.state).toBe('running');
+    expect(calls.played, '再開しただけでは鳴らない').toBe(0);
+    sfx.playBreak();
+    expect(calls.played).toBe(1);
+  });
+
+  it('入力のハンドラの中で同期に resume() を呼ぶ（iOS の interrupted からも）。running の間は入力ごとに呼ばない', async () => {
+    const { sfx, calls, ctx } = await running();
+    expect(calls.resumed, '最初の入力の resume').toBe(1);
+    for (let i = 0; i < 5; i++) sfx.resumeAudio();
+    expect(calls.resumed, 'running の間は呼ばない').toBe(1);
+    for (const st of ['suspended', 'interrupted'] as const) {
+      ctx.state = st;
+      const win = new EventTarget(); // main.ts と同じ結線（window の入力のキャプチャ）
+      win.addEventListener('pointerdown', sfx.resumeAudio, true);
+      const before = calls.resumed;
+      win.dispatchEvent(new Event('pointerdown'));
+      expect(calls.resumed, `${st}: ハンドラの中で同期に呼ぶ`).toBe(before + 1);
+      await settle();
+      expect(ctx.state).toBe('running');
+      sfx.playBreak();
+    }
+    expect(calls.played).toBe(2);
+  });
+
+  it('読み込む前・AudioContext がない環境では何もしない（例外なし）', async () => {
+    const calls = stubWebAudio();
+    let sfx = await freshSfx();
+    expect(() => sfx.resumeAudio()).not.toThrow();
+    expect(calls.created + calls.resumed).toBe(0);
+    vi.unstubAllGlobals();
+    sfx = await freshSfx();
+    await sfx.unlockAudio();
+    expect(() => sfx.resumeAudio()).not.toThrow();
+  });
+
+  it('resume() が拒否しても外に出さず、記録は最初の 1 回だけ。ZzFX は残り、次に戻れば鳴る（BL-102 の「拒否で捨てる」を見直した）', async () => {
+    const { sfx, calls, ctx, failures, mode } = await running();
+    ctx.state = 'suspended';
+    mode.next = 'reject';
+    for (let i = 0; i < 3; i++) sfx.resumeAudio();
+    await settle();
+    expect(calls.resumed).toBe(4);
+    expect(failures.map(describeError)).toEqual(['Error: NotAllowedError: not allowed']);
+    expect(rejections).toEqual([]);
+    sfx.playBreak();
+    expect(calls.played).toBe(0);
+    mode.next = 'ok';
+    sfx.resumeAudio();
+    await settle();
+    sfx.playBreak();
+    expect(calls.played).toBe(1);
+    expect(failures).toHaveLength(1);
+  });
+
+  it('最初の resume が拒否しても ZzFX は残し、次の入力で戻れば鳴る', async () => {
+    const mode: { next: 'ok' | 'reject' } = { next: 'reject' };
+    const calls = stubWebAudio(() => (mode.next === 'ok' ? Promise.resolve() : Promise.reject(new Error('NotAllowedError'))));
+    const sfx = await freshSfx();
+    const failures: unknown[] = [];
+    await sfx.unlockAudio((e) => failures.push(e));
+    expect(failures).toHaveLength(1);
+    sfx.playBreak();
+    expect(calls.played).toBe(0);
+    mode.next = 'ok';
+    sfx.resumeAudio();
+    await settle();
+    sfx.playBreak();
+    expect(calls.played).toBe(1);
+  });
+
+  it('閉じた文脈（closed）は戻せないので resume を呼ばず、音も作らない。resume が閉じた文脈で拒否したら ZzFX を捨てる', async () => {
+    const { sfx, calls, ctx } = await running();
+    ctx.state = 'closed';
+    sfx.resumeAudio();
+    sfx.playBreak();
+    expect(calls.resumed).toBe(1);
+    expect(calls.played).toBe(0);
+
+    // 最初の resume の時点で閉じていた（InvalidStateError）→ 以後は状態が戻っても鳴らさない
+    const c2: AudioCalls = { created: 0, resumed: 0, played: 0 };
+    vi.stubGlobal(
+      'AudioContext',
+      fakeAudioContextClass(c2, () => {
+        if (c2.ctx) c2.ctx.state = 'closed';
+        return Promise.reject(new Error('InvalidStateError: closed'));
+      }),
+    );
+    const sfx2 = await freshSfx();
+    const failures: unknown[] = [];
+    await sfx2.unlockAudio((e) => failures.push(e));
+    expect(failures).toHaveLength(1);
+    if (c2.ctx) c2.ctx.state = 'running';
+    sfx2.resumeAudio();
+    sfx2.playBreak();
+    expect(c2.resumed).toBe(1);
+    expect(c2.played, 'ZzFX を捨てたので鳴らさない').toBe(0);
+    await settle();
+    expect(rejections).toEqual([]);
+  });
 });
