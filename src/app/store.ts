@@ -4,6 +4,7 @@
 import {
   advance,
   dispatch,
+  normalizeBoostClock,
   stampGuestsSeen,
   step,
   type AdvanceOptions,
@@ -123,9 +124,16 @@ export class GameStore {
     this.wallNow = wallNow;
   }
 
-  /** イベントを記録する（描画の列・フックの events）。お客さんの初来訪があれば、その時刻を図鑑に入れる（BL-017） */
+  /**
+   * イベントを記録する（描画の列・フックの events）。お客さんの初来訪があれば、その時刻を図鑑に入れる（BL-017）。
+   * ステップ・アクションのたびに、R2 の休みの残りを 15 分以下に切り詰める（時計が戻ったとき。BL-120・BL-124）
+   */
   pushEvents(evs: readonly GameEvent[]): void {
-    if (this.wallNow && evs.some((e) => e.type === 'GuestArrived' && e.first)) stampGuestsSeen(this.state, evs, this.wallNow());
+    if (this.wallNow) {
+      const wall = this.wallNow();
+      if (evs.some((e) => e.type === 'GuestArrived' && e.first)) stampGuestsSeen(this.state, evs, wall);
+      normalizeBoostClock(this.state, wall);
+    }
     for (const e of evs) {
       this.pushView(e);
       this.recent.push(e);
