@@ -40,7 +40,7 @@ function makeState(seed: number, drill: number, auto: number, bath: number, pump
 const rel = (a: number, b: number): number => (Math.max(a, b) === 0 ? 0 : Math.abs(a - b) / Math.max(a, b));
 
 describe('刻み幅', () => {
-  it('0.1 秒刻みと 1 秒刻みで 1 時間後の差が 1% 以内（操作なし）', () => {
+  it('TS-010-14 0.1 秒刻みと 1 秒刻みで 1 時間後の差が 1% 以内（操作なし）', () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 1, max: 2 ** 31 }),

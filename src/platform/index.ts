@@ -14,8 +14,9 @@ export async function loadPlatform(): Promise<Platform> {
     const m = await import('./poki.ts');
     return m.createPokiPlatform({ getSdk: () => window.PokiSDK });
   }
-  // dev（開発）と、偽の広告を使う e2e（target は web のまま）
-  if (target === 'dev' || import.meta.env.VITE_FAKE_ADS === 'true') {
+  // dev（開発。`npm run dev` の開発サーバーも）と、偽の広告を使う e2e（target は web のまま）。
+  // import.meta.env.DEV は本番のビルドで false に置き換わるので、本番の web・itch には dev アダプタが入らない
+  if (target === 'dev' || import.meta.env.VITE_FAKE_ADS === 'true' || import.meta.env.DEV) {
     const m = await import('./dev.ts');
     return m.createDevPlatform({ target: target === 'itch' ? 'itch' : target === 'dev' ? 'dev' : 'web' });
   }

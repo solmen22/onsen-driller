@@ -65,6 +65,39 @@ describe('TS-006-12 lint の抜け道', () => {
     const ids = await ruleIds('src/core/__fixture__.ts', '// eslint-disable-next-line\nexport const a = Math.random();');
     expect(ids).toContain('no-restricted-properties');
   });
+
+  // BL-089（棚卸し traceability §6-3）: content・save も無効化のコメントを許さない（eslint.config.js の noInlineConfig）
+  // 形ごとに、無効化しようとした規則そのものが出ることを見る（PR #15 のレビュー N-1）
+  for (const dir of ['src/content', 'src/save'])
+    for (const [code, rule] of [
+      ['// eslint-disable-next-line\nexport const a = Math.random();', 'no-restricted-properties'],
+      ['/* eslint-disable */\nexport const a = Date.now();', 'no-restricted-globals'],
+      ['// eslint-disable-next-line no-restricted-globals\nexport const a = performance.now();', 'no-restricted-globals'],
+    ] as const)
+      it(`TS-006-14 ${dir} でも無効化のコメントは効かない: ${code.split('\n')[0]}`, async () => {
+        expect(await ruleIds(`${dir}/__fixture__.ts`, code)).toContain(rule);
+      });
+});
+
+describe('TS-006-07 save はブラウザのストレージ・window・document を直接使わない（platform.storage を受け取る。arch §5）', () => {
+  const codes = ["export const a = localStorage.getItem('k');", 'export const a = (window as unknown as { x: number }).x;', 'export const a = document.cookie;'];
+  for (const code of codes)
+    it(`src/save: ${code}`, async () => {
+      expect(await ruleIds('src/save/__fixture__.ts', code)).toContain('no-restricted-globals');
+    });
+});
+
+describe('TS-006-09 時計の実装（app）と UI では Date.now()・performance.now() が通る（誤検出がない）', () => {
+  const ok: [string, string][] = [
+    ['src/app/clock.ts', 'export const a = Date.now();'],
+    ['src/app/clock.ts', 'export const a = performance.now();'],
+    ['src/app/clock.ts', 'export const a = { wallNow: () => Date.now(), monoNow: () => performance.now() };'],
+    ['src/ui/__fixture__.ts', 'export const a = Date.now();'],
+  ];
+  for (const [p, code] of ok)
+    it(`${p}: ${code}`, async () => {
+      expect(await ruleIds(p, code)).toEqual([]);
+    });
 });
 
 describe('TS-006-06 層をまたぐ import', () => {

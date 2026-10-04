@@ -1,7 +1,7 @@
 // 固定ステップ（arch §7。BL-010・BL-012）。生産は「毎秒の量 × 刻み幅」、打撃は端数を繰り越して刻み幅によらず同じ打数にする。
 // 時刻は読まない（arch §8-2）
 import { PARAMS } from '../content/params.ts';
-import type { SpringId } from '../content/springs.ts';
+import { SPRINGS, SPRING_BY_ID, type SpringId } from '../content/springs.ts';
 import { M2_FIRST_BAND } from '../content/strata.ts';
 import type { GameEvent } from './events.ts';
 import {
@@ -14,7 +14,6 @@ import {
   drillPower,
   modifiers,
   oreAt,
-  springAtDepth,
   type Modifiers,
 } from './formulas.ts';
 import { admitManualHits, manualRate, setHold } from './input.ts';
@@ -30,17 +29,39 @@ const addCount = (a: number, b: number): number => Math.min(Number.MAX_SAFE_INTE
 /** 端数を f から n 打を引いた残り（0 以上 1 未満）にする。f が有限でなければ 0（NaN を状態に入れない。レビュー S-4） */
 const carryOf = (f: number, n: number): number => (Number.isFinite(f) ? Math.max(0, f - n) : 0);
 
+/**
+ * お客さんの顔ぶれを条件から決め直す（抽選なし。乱数を使わない）。来た・帰ったお客さんを GuestArrived・GuestLeft で出す（定義の順）。
+ * 呼ぶのは状態が変わるアクション（buy・assignSlot）と源泉の発見の直後。初来訪は図鑑に 0（時刻不明）を入れ、app が stampGuestsSeen で埋める
+ */
 export function refreshGuests(s: GameState, out: GameEvent[]): void {
   const next = computeGuests(s);
   for (const g of next) {
     if (!s.run.guests.includes(g)) {
-      const first = !(g in s.collection.guestsSeen);
-      if (first) s.collection.guestsSeen[g] = 0; // 初来訪の時刻は app が埋める（S2）
+      const first = !Object.hasOwn(s.collection.guestsSeen, g);
+      if (first) s.collection.guestsSeen[g] = 0; // 初来訪の壁時計は app が埋める（core は時刻を読まない。arch §8-2）
       out.push({ type: 'GuestArrived', guest: g, first });
     }
   }
   for (const g of s.run.guests) if (!next.includes(g)) out.push({ type: 'GuestLeft', guest: g });
   s.run.guests = next;
+}
+
+/**
+ * 初来訪の壁時計を図鑑に入れる（BL-017。arch §6-1）。events の中の GuestArrived{first: true} のお客さんのうち、
+ * 図鑑の値がまだ 0（時刻不明）のものだけを wallMs にする（2 回目の来訪・すでに時刻がある記録は変えない）。
+ * wallMs が正の有限の数でなければ何もしない。埋めた数を返す
+ */
+export function stampGuestsSeen(s: GameState, events: readonly GameEvent[], wallMs: number): number {
+  if (!(Number.isFinite(wallMs) && wallMs > 0)) return 0;
+  let n = 0;
+  for (const e of events) {
+    if (e.type !== 'GuestArrived' || !e.first) continue;
+    if (s.collection.guestsSeen[e.guest] === 0) {
+      s.collection.guestsSeen[e.guest] = wallMs;
+      n++;
+    }
+  }
+  return n;
 }
 
 /** 源泉を発見した（ポンプ Lv1 を無料で付け、空いている枠につなぐ）。SpringFound を出すかは emit で選ぶ（grant は出さない。Q-16） */
@@ -49,7 +70,7 @@ export function discoverSpring(s: GameState, sp: SpringId, emit: boolean, out: G
   if (r.springs[sp]) return;
   r.springs[sp] = { pump: 1 }; // 発見時にポンプ Lv1 が無料で付く（gdd §5-4）
   if (!s.collection.springsSeen.includes(sp)) s.collection.springsSeen.push(sp);
-  if (emit) out.push({ type: 'SpringFound', spring: sp, depth: r.depth });
+  if (emit) out.push({ type: 'SpringFound', spring: sp, depth: SPRING_BY_ID[sp].depth }); // 源泉の深さ（越えて見つけたときも）
   const empty = r.bath.slots.indexOf(null);
   if (empty >= 0) r.bath.slots[empty] = sp;
   refreshGuests(s, out);
@@ -95,12 +116,16 @@ function breakBlock(s: GameState, m: Modifiers, out: GameEvent[]): BreakResult {
     r.interludeMs = PARAMS.interludeMs;
     interlude = true;
   }
-  const sp = springAtDepth(r.depth);
-  if (sp && !r.springs[sp]) {
-    discoverSpring(s, sp, true, out);
-    return { changed: true, interlude };
+  // 源泉は「その深さに届いた（越えた）ら」発見する。深さの一致では判定しない（読み込んだ状態や S3 の地形・近道の坑道で
+  // 深さが先に進んでいても見逃さない。2026-09-29 Q-31 (e)）。自然に掘るときは 1m ずつ進むので、その深さのブロックで見つかる
+  let changed = false;
+  for (const sp of SPRINGS) {
+    if (sp.depth <= r.depth && !r.springs[sp.id]) {
+      discoverSpring(s, sp.id, true, out);
+      changed = true;
+    }
   }
-  return { changed: false, interlude };
+  return { changed, interlude };
 }
 
 /** hits 回の打撃を与える（壊したブロックの余りのダメージは次のブロックへ繰り越す。Q-02）。新しい帯に入ったら残りは捨てる（Q-06） */

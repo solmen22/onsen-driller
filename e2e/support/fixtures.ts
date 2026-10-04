@@ -2,6 +2,7 @@
 //
 // - harness（自動）: テストごとの新しい browser context を見張り（通信・WebSocket・エラー・全画面の要求）、
 //   テストの終わりに共通の検査（TS-COM-01〜04）を行う。違反があればそのテストを失敗にする。
+//   検査の結果は teardownChecks に記録し、TS-COM-08 (d)・(e) が「この経路で検査が本当に行われている」ことを見張る（BL-094・R-S1）。
 // - テストの開始時に、ストレージと Cookie が空であることを確かめる（TS-073-04。前のテストの保存が漏れない）
 // - harness.newContext(): 同じ設定の context を追加で開く（storageState を書き換えて開き直す E5・E9 用）。見張りも付く
 import { test as base, expect, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from '@playwright/test';
@@ -19,11 +20,31 @@ export class ExpectedViolationMissingError extends Error {
   }
 }
 
+/** テストの終わりの共通の検査の 1 回分の記録（R-S1） */
+export interface TeardownCheckRecord {
+  /** テストの題名（testInfo.title） */
+  title: string;
+  /** そのテストの expectViolations（ふつうのテストは空） */
+  expected: CheckId[];
+  /** 'passed'＝検査が通った。それ以外は検査が投げた例外の名前（CommonCheckError・ExpectedViolationMissingError など） */
+  outcome: string;
+}
+
+/**
+ * テストの終わり（harness の後片付け）の共通の検査を行うたびに、このワーカーで残す記録（PR #4 の再レビュー R-S1）。
+ * TS-COM-08 (d)（common-privacy.spec.ts。serial で同じワーカー）が、先に流れた自己テストの記録を読み、検査が
+ * すべての E2E と同じ後片付けの経路で実際に行われたこと（呼び出しが消えていない・期待した違反のあるテストだけに
+ * 絞られていない・違反で投げた例外を握りつぶしていない〔(e)〕）を確かめる。以前の test.fail の形が持っていた性質の代わり
+ */
+export const teardownChecks: TeardownCheckRecord[] = [];
+
 export class Harness {
   private readonly monitors: ContextMonitor[] = [];
   private readonly owned: BrowserContext[] = [];
   /** テストが自分で入れた、接頭辞のないキー（他のゲームのキーを模したもの）。TS-COM-04 の対象から外す */
   readonly foreignKeys = new Set<string>();
+  /** テストのモックが応答を返した URL（完全一致）。共通の検査で許す（e2e/support/crazygames.ts の routeCrazySdk だけが足す。BL-072） */
+  readonly mockedUrls = new Set<string>();
   private readonly browser: Browser;
   private readonly contextOptions: BrowserContextOptions;
   readonly allowedOrigins: readonly string[];
@@ -41,7 +62,7 @@ export class Harness {
   }
 
   async watch(context: BrowserContext): Promise<ContextMonitor> {
-    const m = new ContextMonitor(context, this.allowedOrigins, this.foreignKeys);
+    const m = new ContextMonitor(context, this.allowedOrigins, this.foreignKeys, this.mockedUrls);
     await m.attach();
     this.monitors.push(m);
     return m;
@@ -129,6 +150,7 @@ export const test = base.extend<Fixtures>({
     async (
       { browser, context, page, baseURL, viewport, locale, isMobile, hasTouch, deviceScaleFactor, userAgent, timezoneId, allowedOrigins, expectViolations },
       use,
+      testInfo,
     ) => {
       if (!baseURL) throw new Error('baseURL がありません（playwright.config.ts）');
       // TS-073-04: テストの開始時にストレージと Cookie が空（テストごとに新しい context）
@@ -146,9 +168,17 @@ export const test = base.extend<Fixtures>({
       await h.watch(context);
       void page; // 既定のページを検査の後まで開いておく（document.cookie を読むため）
       await use(h);
+      const record = (outcome: string): void => {
+        teardownChecks.push({ title: testInfo.title, expected: [...expectViolations], outcome });
+      };
       try {
         // TS-E1-17・TS-E9-13 ほか: すべての E2E の後の共通の検査（TS-COM-08 の自己テストは期待した違反だけを許す）
         await h.assertCommonChecks(expectViolations);
+        record('passed');
+      } catch (e) {
+        // 記録してから投げ直す（R-S1: TS-COM-08 (d)・(e) が、失敗の理由が共通の検査であることを確かめる）
+        record(e instanceof Error ? e.name : String(e));
+        throw e;
       } finally {
         await h.dispose();
       }

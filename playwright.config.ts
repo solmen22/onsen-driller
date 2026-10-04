@@ -18,12 +18,16 @@
 //   ポートは 4174（4173 は preview:web・preview:lan の iPhone 確認で使うので避ける）。PW_PORT で変えられる。
 //   本番のビルドは e2e/support/serve-prod.mjs が 4175（PW_PROD_PORT）の /html/123/<target>/ で配信する（ビルドはしない。先に `npm run build:all`）。
 //   ビルドが無くてもサーバーは起動し、prod-builds のテストだけが理由つきで失敗する。
+//   e2e-crazygames のビルドは同じ serve.mjs を PW_MODE=e2e-crazygames で 4176（PW_CG_PORT）に立てる（BL-072）。
+//   build:e2e は e2e-web と e2e-crazygames の両方を作るので、片方だけが無いことはない（無ければ serve.mjs が理由を出して止まる）。
 // ブラウザ: 既定は Playwright の Chromium（channel chromium。CI と同じ）。PW_CHANNEL=chrome でインストール済みの Chrome。
 import { defineConfig, devices, type Project } from '@playwright/test';
 
 const HOST = process.env.PW_HOST ?? '127.0.0.1';
 const PORT = Number(process.env.PW_PORT ?? 4174);
 const PROD_PORT = Number(process.env.PW_PROD_PORT ?? 4175);
+/** e2e-crazygames のビルドの配信（BL-072。e2e/support/crazygames.ts の CG_PORT と同じ既定） */
+const CG_PORT = Number(process.env.PW_CG_PORT ?? 4176);
 const CI = !!process.env.CI;
 const CHANNEL = process.env.PW_CHANNEL ?? 'chromium';
 
@@ -66,6 +70,10 @@ export default defineConfig({
   forbidOnly: CI,
   // QA §5: 不安定なテストは 1 回だけ再実行を許す（再実行で通ったものは flaky として報告に残る）
   retries: 1,
+  // 再実行を使い切っても落ちたテストがこの件数に達したら止める（flaky と test.fail の期待どおりの失敗は数えない）。
+  // 全体が落ちる回の時間（PR で上限なしなら約 95 分）と失敗のレポートの大きさを抑える。PR（CI）は 10、毎晩は nightly.yml が
+  // PW_MAX_FAILURES=25、手元は 0（上限なし）。実行・修復エンジニアの決定（実行記録 2026-09-29_s2-start.md §5）、CEO 承認（BL-099）
+  maxFailures: Number(process.env.PW_MAX_FAILURES ?? (CI ? 10 : 0)),
   // 手元（GPU あり）は時計の待ちが大半なので 4。CI（非公開リポジトリの GitHub のランナーは 2 vCPU で GPU なし）は、
   // 描画（ソフトウェアの WebGL）が CPU を使い切り、4 並びでは 1 件が 60 秒の上限に届いた（2026-09-29 の PR #4）ので vCPU と同じ 2。
   // PW_WORKERS で変えられる
@@ -79,8 +87,10 @@ export default defineConfig({
   use: {
     baseURL: `http://${HOST}:${PORT}`,
     headless: process.env.PW_HEADED !== '1',
-    // 失敗したときにトレースとスクリーンショットを残す（TS-073-02）
-    trace: 'retain-on-failure',
+    // 失敗したときにトレースとスクリーンショットを残す（TS-073-02）。トレースは最初の実行の分だけ（retries の再実行では取らない）。
+    // flaky の分析に要るのは最初の失敗で、再実行の分を減らして失敗したときの成果物を小さくする（BL-099。実行・修復エンジニアの意見、
+    // QA リードの同意、決定 0006-4）
+    trace: 'retain-on-first-failure',
     screenshot: 'only-on-failure',
     video: 'off',
     serviceWorkers: 'allow',
@@ -101,6 +111,17 @@ export default defineConfig({
       url: `http://${HOST}:${PROD_PORT}/__health`,
       reuseExistingServer: process.env.PW_REUSE === '1',
       timeout: 30_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      // e2e-crazygames のビルド（BL-072。dist/e2e-crazygames。build:e2e が e2e-web と一緒に作る）。SDK は page.route でモックに差し替える
+      // （e2e/support/crazygames.ts。使う spec は test.use({ baseURL: CG_BASE_URL })）。ポートは PW_CG_PORT（既定 4176）
+      command: 'node e2e/support/serve.mjs',
+      env: { PW_MODE: 'e2e-crazygames', PW_PORT: String(CG_PORT) },
+      url: `http://${HOST}:${CG_PORT}`,
+      reuseExistingServer: process.env.PW_REUSE === '1',
+      timeout: 60_000,
       stdout: 'pipe',
       stderr: 'pipe',
     },

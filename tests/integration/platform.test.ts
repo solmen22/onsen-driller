@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { createCrazyGamesPlatform } from '../../src/platform/crazygames.ts';
 import { createPokiPlatform } from '../../src/platform/poki.ts';
 import { createWebPlatform } from '../../src/platform/web.ts';
-import { crazyMock, pokiMock } from '../mocks/sdk.ts';
+import { crazyMock } from '../../e2e/mocks/crazygames.ts';
+import { pokiMock } from '../../e2e/mocks/poki.ts';
 
 describe('web・itch', () => {
   it('SDK を呼ばず、動画は出さない', async () => {

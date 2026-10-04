@@ -37,7 +37,10 @@ export const PARAMS = {
     /** 押し続けてから長押しになるまで（app/input.ts） */
     holdDelayMs: 300,
   },
+  /** 湯船（gdd §5-5）: コスト c0 × r^Lv、1 Lv ごとに入湯料の合計 +5%、枠は Lv0・5・15・35 で 1〜4 つ（MVP の最大 4） */
   bath: { c0: 150, r: 1.25, bonusPerLv: 0.05, slotsAtLevel: [0, 5, 15, 35] },
+  /** オフライン（gdd §9）: 効率の基本 50%。塩化物泉などの足し算の効果を足しても maxEff（100%。オンラインを超えない）まで（BL-016。早送りは S3 の BL-030） */
+  offline: { eff: 0.5, maxEff: 1 },
   pumpMilestones: [10, 25, 50, 100],
   prestige: { unlockDepth: 150, divisor: 50, bonusPerYunohana: 0.02 },
   tickets: { initial: 2, max: 10 },

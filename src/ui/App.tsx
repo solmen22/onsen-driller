@@ -37,7 +37,7 @@ function Placeholder({ tab, lang, onLang }: { tab: TabNo; lang: Lang; onLang: (l
         <>
           <button class="row" type="button" data-testid="lang-toggle" onClick={() => onLang(lang === 'ja' ? 'en' : 'ja')}>
             <span class="row-name">{t('menu.lang')}</span>
-            <span class="row-cost">{lang === 'ja' ? '日本語' : 'English'}</span>
+            <span class="row-cost">{t(lang === 'ja' ? 'ui.langName.ja' : 'ui.langName.en')}</span>
           </button>
           <p class="note">
             {t('menu.version')}: {version} · {t('menu.target')}: {platform.target}
