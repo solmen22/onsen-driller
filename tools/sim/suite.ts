@@ -6,8 +6,8 @@ import { runBot, type SimResult } from './sim.ts';
 
 /** 判定に使うシード（docs/balance.md）。中央値で判定する */
 export const DEFAULT_SEEDS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8];
-/** 一式のボット（BL-031 の 3 本。BL-032 で 6 本を足す） */
-export const SUITE_BOTS: readonly BotId[] = ['standard', 'active', 'idle'];
+/** 一式のボット（BL-031 の 3 本と、BL-032 の安い順・ランダム。広告なし・構成別は BL-058・S3 の転生の後に足す） */
+export const SUITE_BOTS: readonly BotId[] = ['standard', 'active', 'idle', 'cheapest', 'random'];
 
 export interface SuiteOptions {
   bots?: readonly BotId[];
