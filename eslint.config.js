@@ -165,6 +165,25 @@ export default defineConfig(
   { files: ['src/view/**'], rules: restrictedImports(viewImports) },
   { files: ['src/ui/**'], rules: restrictedImports(uiImports) },
   { files: ['src/platform/**'], rules: restrictedImports(platformImports) },
+  // ポータルへの loading・gameplay の合図を呼ぶのは app/lifecycle.ts だけ（BL-056・BL-057。PR #16 のレビュー Nit 1）。
+  // UI・広告の流れから platform.gameplayStart() などを直接呼ぶと、ライフサイクルの止まる理由の集合とずれる。
+  // main.ts の life.loadingStart()・life.loadingStop()（ライフサイクルそのもの）は通す。
+  // core・content・save には mathRules の no-restricted-syntax があり、同じ規則を別の設定で重ねると上書きになるので対象にしない
+  // （その 3 つは層の規則で platform の値を import できない）
+  {
+    files: ['src/app/**/*.{ts,tsx}', 'src/ui/**/*.{ts,tsx}', 'src/view/**/*.{ts,tsx}'],
+    ignores: ['src/app/lifecycle.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.property.name=/^(loadingStart|loadingStop|gameplayStart|gameplayStop)$/]:not([callee.object.name='life'])",
+          message: 'loading・gameplay の合図は app/lifecycle.ts だけが呼ぶ（止まる理由は life.setPaused で渡す。BL-056・PR #16 のレビュー Nit 1）',
+        },
+      ],
+    },
+  },
   // E2E の spec は共通の検査（通信・Cookie・キー名）の付いた test を使う（BL-073。PR #4 のレビュー S-2）。
   // @playwright/test の test を直接使うと harness の自動の検査が黙って外れるため。PoC の道具（PW_POC=1 のときだけ動く）は除く。
   // 抜け道を塞ぐ（PR #4 の再レビュー R-S2。BL-094。tests/unit/lint-e2e-imports.test.ts で確かめる）:

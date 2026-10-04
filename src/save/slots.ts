@@ -17,6 +17,9 @@ export const SAVE_KEYS = { a: 'onsen-driller:save:a', b: 'onsen-driller:save:b' 
 export const BROKEN_KEY = 'onsen-driller:save:broken';
 
 export type SlotId = 'a' | 'b';
+
+/** 読めない枠（保存先の例外）の印。「ない」（null）と区別する */
+const UNREADABLE: unique symbol = Symbol('unreadable');
 export type SaveStatus = 'ok' | 'failing' | 'unavailable';
 /** 起動時に読んだ枠の結果（unreadable: 読み出しが例外。空とは区別する） */
 export type SlotReport = 'empty' | 'ok' | 'unreadable' | DecodeFail;
@@ -89,12 +92,16 @@ export class SaveSlots {
     return { slot, seq: Math.min(Number.MAX_SAFE_INTEGER, max + 1) };
   }
 
-  /** 枠を読む（ない → null、読めない〔例外〕→ undefined） */
-  private read(slot: SlotId): string | null | undefined {
+  /**
+   * 枠を読む（ない → null、読めない〔例外〕→ UNREADABLE）。文字列以外（「ない」を undefined で返す保存先）は null にそろえる
+   * （以前は例外の印に undefined を使っていたので、undefined を返す保存先では空の枠が「読めない」になり保存が止まった。S1 再レビュー A-N1）
+   */
+  private read(slot: SlotId): string | null | typeof UNREADABLE {
     try {
-      return this.storage.get(SAVE_KEYS[slot]);
+      const v: unknown = this.storage.get(SAVE_KEYS[slot]);
+      return typeof v === 'string' ? v : null;
     } catch {
-      return undefined;
+      return UNREADABLE;
     }
   }
 
@@ -106,7 +113,7 @@ export class SaveSlots {
     const found: { slot: SlotId; state: GameState; seq: number; savedAt: number; corrected: string[] }[] = [];
     for (const slot of ['a', 'b'] as const) {
       const raw = this.read(slot);
-      if (raw === undefined) {
+      if (raw === UNREADABLE) {
         report[slot] = 'unreadable';
         continue;
       }
