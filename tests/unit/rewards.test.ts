@@ -455,7 +455,7 @@ describe('BL-120 休みの残りは 15 分を超えない（normalizeBoostClock�
     it(`時計が ${name}戻ると、休みの残りは 15 分に切り詰める（その 15 分後に使える）`, () => {
       const s = usedAt(T0);
       const now = T0 - back;
-      expect(boostView(s, now).cooldownLeftMs).toBe(CD + back); // 正規化の前は上限なし
+      expect(s.run.boost.readyAtWallMs - now).toBe(CD + back); // 保存の値は、正規化の前は上限なし（表示は BL-124 で 15 分に抑える）
       expect(normalizeBoostClock(s, now)).toBe(true);
       expect(s.run.boost).toEqual({ remainingMs: PARAMS.boost.durationMs, readyAtWallMs: now + CD }); // 効果の残りは変えない
       expect(boostView(s, now).cooldownLeftMs).toBe(CD);
@@ -501,6 +501,76 @@ describe('BL-120 休みの残りは 15 分を超えない（normalizeBoostClock�
     expect(normalizeBoostClock(s, T0 - DAY)).toBe(false);
     expect(stateHash(s)).toBe(h);
   });
+});
+
+describe('BL-124 休みの上限を core の判定と表示でも守る（解除の時刻は min(readyAtWallMs, wallMs + 15 分)。PR #41 のレビュー S-1）', () => {
+  const CD = PARAMS.boost.cooldownMs; // 15 分
+  const SEC = 1000;
+  const HOUR = 60 * MIN;
+  const DAY = 24 * HOUR;
+  const usedAt = (wallMs: number): GameState => {
+    const s = stateWith({ depth: 10 });
+    expect(dispatch(s, { type: 'useBoost', source: 'ad', wallMs }).ok).toBe(true);
+    advance(s, PARAMS.boost.durationMs); // 効果を終わらせる（休みだけが残る。理由は cooldown）
+    return s;
+  };
+
+  it('正規化を呼ばなくても、時計が 1 時間・1 日戻った直後の表示は 15 分、判定は cooldown（状態は変えない）', () => {
+    for (const back of [HOUR, DAY]) {
+      const s = usedAt(T0);
+      const now = T0 - back;
+      const h = stateHash(s);
+      expect(boostView(s, now)).toMatchObject({ canUse: false, reason: 'cooldown', cooldownLeftMs: CD });
+      expect(dispatch(s, { type: 'useBoost', source: 'ad', wallMs: now })).toEqual({ ok: false, reason: 'cooldown', events: [] });
+      expect(stateHash(s)).toBe(h);
+    }
+  });
+
+  it('境界: 残りがちょうど 15 分・15 分 + 1ms のどちらも表示は 15 分。時計が進んだ場合はふだんどおり', () => {
+    const s = usedAt(T0);
+    expect(boostView(s, T0).cooldownLeftMs).toBe(CD); // ちょうど 15 分
+    expect(boostView(s, T0 - 1).cooldownLeftMs).toBe(CD); // 15 分 + 1ms → 15 分
+    expect(boostView(s, T0 + 5 * MIN).cooldownLeftMs).toBe(10 * MIN); // 時計が進む: 残り 10 分
+    expect(boostView(s, T0 + CD - 1)).toMatchObject({ reason: 'cooldown', cooldownLeftMs: 1 });
+    expect(boostView(s, T0 + CD)).toMatchObject({ canUse: true, reason: null, cooldownLeftMs: 0 });
+    expect(boostView(s, T0 + DAY)).toMatchObject({ canUse: true, cooldownLeftMs: 0 });
+  });
+
+  it('min だけでは時計が戻った後に過ぎた時間を覚えられない: 正規化しなければ 15 分後も 15:00 のまま（だから app が毎ステップ正規化する）', () => {
+    const s = usedAt(T0);
+    const now = T0 - DAY;
+    expect(boostView(s, now + CD)).toMatchObject({ reason: 'cooldown', cooldownLeftMs: CD });
+    expect(dispatch(s, { type: 'useBoost', source: 'ad', wallMs: now + CD }).ok).toBe(false);
+  });
+
+  for (const [name, back] of [
+    ['1 時間', HOUR],
+    ['1 日', DAY],
+  ] as const)
+    it(`毎ステップ正規化する（app と同じ）と、遊んでいる最中に時計が ${name}戻っても、残りは 15 分から減り、15 分後に使える`, () => {
+      const s = usedAt(T0);
+      let wall = T0 + 2 * MIN; // 休みの途中（残り 13 分）
+      advance(s, SEC);
+      normalizeBoostClock(s, wall);
+      expect(boostView(s, wall).cooldownLeftMs).toBe(13 * MIN);
+      wall -= back; // 自動の時刻合わせなどで戻る
+      const backAt = wall;
+      let last = Infinity;
+      while (wall < backAt + CD) {
+        advance(s, SEC);
+        normalizeBoostClock(s, wall);
+        const v = boostView(s, wall);
+        expect(v.cooldownLeftMs).toBeLessThanOrEqual(CD);
+        expect(v.cooldownLeftMs).toBeLessThan(last); // 止まらずに減る
+        last = v.cooldownLeftMs;
+        expect(dispatch(s, { type: 'useBoost', source: 'ad', wallMs: wall }).ok).toBe(false);
+        wall += SEC;
+      }
+      advance(s, SEC);
+      normalizeBoostClock(s, wall);
+      expect(boostView(s, wall)).toMatchObject({ canUse: true, cooldownLeftMs: 0 });
+      expect(dispatch(s, { type: 'useBoost', source: 'ad', wallMs: wall }).ok).toBe(true);
+    });
 });
 
 describe('R3 ラッキー鉱脈（TS-058-13〜18）', () => {

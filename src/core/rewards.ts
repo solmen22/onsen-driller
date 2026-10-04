@@ -58,9 +58,17 @@ export interface BoostView {
   readonly reason: 'active' | 'cooldown' | null;
 }
 
+/**
+ * 休みが明ける時刻（壁時計）。保存の値が「今 + 休みの長さ」より先なら（時計が戻った）、「今 + 休みの長さ」として扱う（BL-124。PR #41 のレビュー S-1）。
+ * 判定と表示の残りが 15 分を超えない安全網。状態を変えない計算なので、時計が戻った後に過ぎた時間は覚えられない
+ * （この値だけでは「今 + 15 分」が今と一緒に進み、残りが 15:00 のまま止まる）。保存の値を切り詰めるのは normalizeBoostClock で、
+ * app が毎ステップ呼ぶ（app/store.ts の pushEvents）。両方がそろって「時計が戻っても 15 分で使える」になる
+ */
+const boostReadyAt = (s: Readonly<GameState>, wallMs: number): number => Math.min(s.run.boost.readyAtWallMs, wallMs + B.cooldownMs);
+
 const boostBlock = (s: Readonly<GameState>, wallMs: number): 'active' | 'cooldown' | null => {
   const b = s.run.boost;
-  if (wallMs >= b.readyAtWallMs) return null; // 休みが終われば使える（効果がオフライン中に残っていても、使えば 5 分に戻す。重ねない）
+  if (wallMs >= boostReadyAt(s, wallMs)) return null; // 休みが終われば使える（効果がオフライン中に残っていても、使えば 5 分に戻す。重ねない）
   return b.remainingMs > 0 ? 'active' : 'cooldown';
 };
 
@@ -71,7 +79,7 @@ export function boostView(s: Readonly<GameState>, wallMs: number): BoostView {
   return {
     active: b.remainingMs > 0,
     remainingMs: b.remainingMs,
-    cooldownLeftMs: Math.max(0, b.readyAtWallMs - wallMs),
+    cooldownLeftMs: Math.max(0, boostReadyAt(s, wallMs) - wallMs),
     canUse: reason === null,
     canUseTicket: reason === null && s.meta.tickets >= 1,
     reason,
@@ -96,7 +104,7 @@ export function useBoost(s: GameState, source: 'ad' | 'ticket', wallMs: number, 
  * 休みは壁時計なので、時計が進んだ端末で使い、後で時計が戻る（自動の時刻合わせ・別の端末への書き出しと読み込み）と、
  * 残りが上限なしに長くなる（その間 R2 が広告でもチケットでも使えない）。休みの残りは 15 分を超えないという不変条件をここで保つ。
  * 超えていなければ（休みでない・ちょうど 15 分を含む）何も変えない。変えたら true。
- * 呼び出し（起動時・復帰時）は BL-030 で app から入れる。効果の残り（remainingMs。ロジックの時間）には触れない
+ * app が毎ステップ呼ぶ（app/store.ts の pushEvents。BL-124）。効果の残り（remainingMs。ロジックの時間）には触れない
  */
 export function normalizeBoostClock(s: GameState, wallMs: number): boolean {
   const b = s.run.boost;
