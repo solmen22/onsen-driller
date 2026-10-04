@@ -1,0 +1,106 @@
+# PR に preview のラベルを付けたときのプレビュー（BL-098。PR #28 のレビュー S-1 (b)。A2 の続き。infra.md §4-3・runbook §4-1）
+#
+# なぜ ci.yml と分けるか
+#   - ci.yml に labeled のきっかけを置くと、ラベルを付けるたびに run ができ、preview 以外のラベルでは verify が skip のチェックとして
+#     同じ head に並ぶ。「名前ごとに最新」の見方では、前の run の verify の赤が skip に隠れうる（S-1）。
+#   - このワークフローのジョブ名は preview-label。verify という名前のチェックを作らない（test:checks が検査する）。
+#
+# 何をするか（verify は回し直さない。1 回 約 1 分）
+#   1. 同じ head の ci.yml の pull_request の run（同じリポジトリのもの）を新しい順に見て、verify が skip でない最初の run の
+#      verify が success であることを確かめる（PR #28 のレビュー S-1 (a) と同じ「CI 緑」の見方）。まだ動いている・赤なら失敗させる
+#   2. その run の dist-web（verify が E2E の前に保存したもの。1 日で消える）を受け取り、ci.yml の deploy-preview と同じ形で出す
+#   - ラベルを付けた後の push では、ci.yml の deploy-preview が出す（今までどおり）
+#   - 失敗したとき（CI がまだ・赤・dist-web が期限切れ）は、ログの指示に従う（runbook §4-1）
+#
+# 本番に出さない（コードレビュー PR #1 の Must・PR #28 のレビュー N-1・N-2。test:checks が静的に検査する）
+#   - pull_request（pull_request_target ではない）・同じリポジトリの PR だけ・Dependabot の PR には出さない
+#   - ブランチ名が 空・main・staging・production（小文字・Pages の別名にしたもの）なら deploy の前に失敗させる
+#   - secrets を参照するのは wrangler pages deploy の step 1 つだけ。GITHUB_TOKEN は読むだけ（contents: read・actions: read）
+name: preview
+
+on:
+  pull_request:
+    branches: [main]
+    types: [labeled]
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  preview-label:
+    # preview 以外のラベルでは skip（チェックの名前は preview-label。verify の結果を隠さない）
+    if: github.event.label.name == 'preview' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]' && vars.CF_PAGES_PROJECT != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read # deploy/ の lockfile を取る checkout だけに使う
+      actions: read # 同じ head の ci.yml の run・ジョブ・成果物を読む（書き込みはしない）
+    steps:
+      - name: 同じ head の ci.yml の run を探す（verify が skip でない最新の run の verify が success であること）
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          found=''
+          # 新しい順。同じリポジトリの pull_request の run だけ（フォークの run は使わない）
+          for id in $(gh api "repos/$REPO/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$SHA&per_page=50" \
+                        --jq '.workflow_runs | sort_by(.created_at) | reverse | .[] | select(.head_repository.full_name == "'"$REPO"'") | .id'); do
+            v="$(gh api "repos/$REPO/actions/runs/$id/jobs?filter=latest" --jq '[.jobs[] | select(.name == "verify")][0] | "\(.status) \(.conclusion)"')"
+            case "$v" in
+              'completed skipped'|''|'null null') continue ;;
+              'completed success') found="$id"; break ;;
+              *) echo "::error::head $SHA の ci.yml の run $id の verify が success でない（$v）。CI が緑になってから preview のラベルを付け直す（runbook §4-1）"; exit 1 ;;
+            esac
+          done
+          if [ -z "$found" ]; then
+            echo "::error::head $SHA の ci.yml の run（verify が skip でないもの）がない。CI が動いてから preview のラベルを付け直す（runbook §4-1）"; exit 1
+          fi
+          n="$(gh api "repos/$REPO/actions/runs/$found/artifacts" --jq '[.artifacts[] | select(.name == "dist-web" and (.expired | not))] | length')"
+          if [ "$n" != '1' ]; then
+            echo "::error::run $found の dist-web がない（1 日で消える）。gh run rerun $found で CI を回し直し、緑の後に preview のラベルを付け直す（runbook §4-1）"; exit 1
+          fi
+          echo "ci.yml の run $found（head $SHA）の verify は success。その dist-web を出す"
+          echo "run_id=$found" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: deploy
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: deploy/package-lock.json
+      - name: wrangler を入れる（deploy/package-lock.json で固定。インストールのスクリプトは動かさず、トークンも渡さない）
+        run: npm ci --prefix deploy --ignore-scripts --no-audit --no-fund
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist-web
+          path: dist/web/
+          run-id: ${{ steps.ci.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Cloudflare Pages（プレビュー https://<branch>.<project>.pages.dev）
+        run: |
+          # 本番・ステージングの別名と同じ名前、空の名前には出さない（Pages は小文字にし、英数字以外をハイフンにした名前を別名にする）
+          lower="$(printf '%s' "$BRANCH" | tr '[:upper:]' '[:lower:]')"
+          alias="$(printf '%s' "$lower" | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+          for name in "$lower" "$alias"; do
+            case "$name" in
+              ''|main|staging|production)
+                echo "::error::ブランチ名「$BRANCH」はプレビューに出さない（本番・ステージングの別名と衝突するか、空）"
+                exit 1 ;;
+            esac
+          done
+          deploy/node_modules/.bin/wrangler pages deploy dist/web --project-name="$PROJECT" --branch="$BRANCH" --commit-hash="$SHA" --commit-dirty=true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+          PROJECT: ${{ vars.CF_PAGES_PROJECT }}
+          BRANCH: ${{ github.head_ref }}
+          SHA: ${{ github.event.pull_request.head.sha }}
