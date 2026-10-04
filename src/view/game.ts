@@ -1,5 +1,6 @@
 // Phaser.Game を 1 つ作る（arch §14。BL-035）。Phaser の入力・音は使わない（入力は DOM、音は ZzFX）
 import Phaser from 'phaser';
+import { watchParentSize } from './parent-size.ts';
 import { MineScene, type ViewBridge } from './scenes/mine-scene.ts';
 
 export interface RenderStats {
@@ -88,6 +89,11 @@ export function createView(parent: HTMLElement, bridge: ViewBridge): Promise<Vie
     },
   };
   return new Promise((resolve) => {
-    game.events.once(Phaser.Core.Events.READY, () => resolve(view));
+    game.events.once(Phaser.Core.Events.READY, () => {
+      // 起動（ScaleManager の boot）が終わってから見張る（BL-114）。Game を壊したら止める
+      const stop = watchParentSize(parent, game.scale);
+      game.events.once(Phaser.Core.Events.DESTROY, stop);
+      resolve(view);
+    });
   });
 }

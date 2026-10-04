@@ -141,6 +141,23 @@ test.describe('TS-COM-08 偽の緑を防ぐ自己テスト（共通の検査が�
     // expectViolations（S-1）: 期待した ID のほかに違反があれば失敗する（TS-COM-02〜04 が残っている）
     await expect(harness.assertCommonChecks(['TS-COM-01'])).rejects.toThrow(CommonCheckError);
     await harness.release(ctx);
+    // 記録（pageProbe）に残らないビーコン（別オリジンの iframe の中・<a ping> など）は、要求の種類（ping・beacon）だけで
+    // TS-COM-02 に分ける（privacy.ts の violations()）。その経路を通す: ビーコンの後に記録を消す（PR #12 のレビュー N-2。
+    // Chromium・WebKit は 'ping'、Firefox は 'beacon' の種類で来る）
+    const ctx2 = await harness.newContext();
+    const page2 = await ctx2.newPage();
+    await bootGame(page2);
+    await page2.evaluate((key) => {
+      navigator.sendBeacon('https://example.com/beacon-unjournaled', 'x');
+      sessionStorage.removeItem(key);
+    }, NET_JOURNAL_KEY);
+    const monitor2 = harness.monitorOf(ctx2);
+    await expect.poll(async () => (await monitor2.violations()).length).toBeGreaterThanOrEqual(1);
+    expect(await monitor2.netJournal(), '記録は消えている（要求の種類だけで分ける経路）').toEqual([]);
+    expect(await monitor2.violations()).toEqual([
+      expect.objectContaining({ check: 'TS-COM-02', detail: expect.stringContaining('https://example.com/beacon-unjournaled') }),
+    ]);
+    await harness.release(ctx2);
     await expect(harness.assertCommonChecks()).resolves.toBeUndefined();
     // expectViolations（S-1）: 期待した違反が検出されなければ失敗する（違反 0 件の context で TS-COM-01 を期待する）
     await expect(harness.assertCommonChecks(['TS-COM-01'])).rejects.toThrow(ExpectedViolationMissingError);
@@ -157,8 +174,11 @@ test.describe('TS-COM-08 偽の緑を防ぐ自己テスト（共通の検査が�
     await page.evaluate(() => fetch('https://example.com/e').catch(() => {}));
   });
 
-  test('TS-COM-08 (d) (a)(b)(c)(e)・補助の共通の検査が、すべての E2E と同じ後片付けの経路で実際に行われた（R-S1）', () => {
-    // serial なので、このワーカーで先に流れた (a)(b)(c)・補助・(e) の後片付けは、このテストの前に終わっている
+  // 題名に「(c)」などの並びを入れない（-g "\(c\)" で (c) だけを流したときに一緒に流れて「(a) の記録がない」で赤になるため。PR #12 の
+  // レビュー N-3）。(d) は TS-COM-08 の describe 全体を流して確かめる（-g "TS-COM-08"）。記録がないときに skip にはしない（変異の合図）
+  test('TS-COM-08 (d) 自己テスト a・b・c・e・補助の共通の検査が、すべての E2E と同じ後片付けの経路で実際に行われた（R-S1）', () => {
+    // serial なので、このワーカーで先に流れた (a)(b)(c)・補助・(e) の後片付けは、このテストの前に終わっている。
+    // 失敗したら、TS-COM-08 の describe 全体を流し直す（-g "TS-COM-08"。(d) だけ・(c) だけを流すと記録がなく赤になる）
     const last = (prefix: string): TeardownCheckRecord | undefined => teardownChecks.filter((r) => r.title.startsWith(prefix)).at(-1);
     const seen = teardownChecks.map((r) => `${r.title.slice(0, 16)}… ${r.outcome}`).join(' / ') || 'なし';
     const cases: [string, CheckId[], string][] = [

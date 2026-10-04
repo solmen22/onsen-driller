@@ -167,13 +167,16 @@ export function incomePerSec(s: Readonly<GameState>): Num {
 }
 
 /**
- * 「あと N 秒」: ceil((cost − coins) ÷ incomePerSec)。すでに足りていれば 0、収入が 0 なら null（「あと N コイン」を出す。Q-09）
+ * 「あと N 秒」: ceil((cost − coins) ÷ incomePerSec)。返し方は 3 通り（BL-113）:
+ * ① 足りていれば（coins ≥ cost）0 ② 足りず、収入が 0 なら null（「あと N コイン」を出す。Q-09）
+ * ③ それ以外は 1 以上（差が Decimal の引き算の精度〔相対 1e-14 未満を 0 にする〕で消えた場合を含む）。
+ * 足りているかは差ではなく比較で決める（buyQuote の厳密な比較と合わせる。差が 0 でも足りないことがある）
  */
 export function secondsUntil(s: Readonly<GameState>, cost: Num): number | null {
-  const lack = sub(cost, s.run.coins);
-  if (lack.eq(0)) return 0;
+  if (!s.run.coins.lt(cost)) return 0;
   const inc = incomePerSec(s);
   if (inc.eq(0)) return null;
+  const lack = sub(cost, s.run.coins);
   // 割り切れる値が浮動小数の誤差で 8.000000001 になっても 9 にしないよう、ごく小さな許容を引いてから切り上げる（足りない間は 1 以上）
   return Math.max(1, Math.ceil(toNumber(div(lack, inc)) - 1e-9));
 }
