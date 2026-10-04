@@ -59,6 +59,38 @@ export const PRODUCTION_TARGETS = Object.keys(TARGETS).filter((t) => TARGETS[t].
  */
 export const E2E_JOB_TARGETS = ['e2e-web', 'e2e-crazygames', ...PRODUCTION_TARGETS];
 
+/**
+ * 外部への送信の静的な検査（BL-096。コードレビュー PR #4 の M-1 の「あわせて」と N-10、CEO 決定）。
+ * E2E の共通の検査（e2e/support/privacy.ts）は、タブ・context を閉じるときの送信や preconnect（接続だけで IP が外に出る）を
+ * 見られないので、ビルドの出力のテキスト（.map を除く）で塞ぐ。どれも 1 つでもあれば失敗（全ターゲット）。
+ * 誤検出が出たら、理由つきでターゲットごとに外す形を足す（外すのはコードレビュアーと QA リードの確認の後）
+ */
+export const NET_WORDS = [
+  { rule: 'net.beacon', re: /sendBeacon/g, why: 'navigator.sendBeacon（ページを離れるときの送信。E2E では見えない）' },
+  { rule: 'net.keepalive', re: /keepalive/gi, why: 'fetch の keepalive（ページを閉じた後も送る）' },
+  { rule: 'net.preconnect', re: /preconnect|dns-prefetch/gi, why: 'rel="preconnect"・"dns-prefetch"（接続・DNS の問い合わせだけで IP が外に出る）' },
+];
+/** Service Worker（TS-007-10。MVP では入れない。infra §8 #8: 更新・ロールバックがキャッシュで遅れる）。本文の API 名とファイル名で見る */
+export const SERVICE_WORKER = { text: 'serviceWorker', file: /^(?:sw|service-?worker)(?:[.-]|$)|workbox/i };
+/** 出力の中の外部の絶対 URL（http・https・ws・wss）。引用符・括弧・空白などで終わる */
+export const EXTERNAL_URL = /\b(?:https?|wss?):\/\/[^\s"'`<>()\\,;{}[\]]+/gi;
+/**
+ * 出力に書いてあってよい外部の絶対 URL（BL-096。**完全一致**。targets は 'all' かターゲット名の配列）。各行に理由を書く。
+ * 追加・変更はコードレビュアーと QA リードの確認を受ける（web に Cloudflare Web Analytics〔BL-082〕を入れるなら web だけに足す）
+ */
+export const EXTERNAL_URL_ALLOW = [
+  { url: 'http://www.w3.org/2000/svg', targets: 'all', why: 'SVG の XML 名前空間（Preact・Phaser の createElementNS の引数）。通信しない' },
+  { url: 'http://www.w3.org/1999/xhtml', targets: 'all', why: 'XHTML の名前空間（Preact の foreignObject・Phaser）。通信しない' },
+  { url: 'http://www.w3.org/1998/Math/MathML', targets: 'all', why: 'MathML の名前空間（Preact）。通信しない' },
+  { url: 'https://phaser.io', targets: 'all', why: 'Phaser が起動時に console に出す名前の文字列。通信しない' },
+  { url: 'https://phaser.io/', targets: 'all', why: 'Phaser の設定の gameURL の既定値（`https://phaser.io/`＋版。文字列として持つだけ）。通信しない' },
+  { url: 'https://sdk.crazygames.com/crazygames-sdk-v3.js', targets: ['crazygames', 'e2e-crazygames'], why: 'CrazyGames の SDK（ポータルの必須。index.html の script）' },
+  { url: 'https://game-cdn.poki.com/scripts/v2/poki-sdk.js', targets: ['poki', 'e2e-poki'], why: 'Poki の SDK（ポータルの必須。index.html の script）' },
+];
+/** そのターゲットで外部の URL が許されるか */
+export const urlAllowed = (url, target) =>
+  EXTERNAL_URL_ALLOW.some((a) => a.url === url && (a.targets === 'all' || a.targets.includes(target)));
+
 /** 配信時に圧縮される（gzip 換算で数える）拡張子。画像・音声・フォント（woff2 など）はそのままの大きさで数える */
 export const COMPRESSIBLE = new Set(['.html', '.htm', '.js', '.mjs', '.cjs', '.css', '.json', '.map', '.svg', '.txt', '.xml', '.webmanifest']);
 

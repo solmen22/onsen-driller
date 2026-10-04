@@ -1,4 +1,5 @@
-// E2E: BL-012 掘削の入力（BL-012_dig-input.md）の S1 の e2e — TS-012-15・18
+// E2E: BL-012 掘削の入力（BL-012_dig-input.md）の S1 の e2e — TS-012-15・18。S2 の BL-101 — TS-012-26（別オリジンの枠）・
+// TS-012-27（ステージを押したときの blur の経路。PR #7 のレビュー N-3）、BL-089 — TS-012-22（地上を押しても掘れる）
 // - TS-012-15 の「最初のクリックで 1 打」は、E1 の TS-E1-04 の前半をここに統合したもの（QA レビュー §3-1。TS-E1-15 は毎晩の画面サイズ違い）
 // - TS-012-18 はポータルの枠を模した縦に長い親ページの iframe で行う（e2e/support/frame.ts）。
 //   「ゲームにフォーカスして」を 2 通りで確かめる: (a) ゲームの中の HUD を押す、(b) 遊ぶ場所（ステージ）を押す。
@@ -9,8 +10,8 @@
 import type { Frame, Page } from '@playwright/test';
 import { test, expect } from './support/fixtures.ts';
 import { bootGame, centerOf } from './support/boot.ts';
-import { openGameInFrame } from './support/frame.ts';
-import { hitsOf } from './support/hooks.ts';
+import { crossOriginParent, openGameInFrame, type FrameOptions } from './support/frame.ts';
+import { coinsOf, hitsOf } from './support/hooks.ts';
 import { recordedKeydowns } from './support/privacy.ts';
 
 /** 親ページのスクロールが止まるまで待ち（キーのスクロールは滑らかに動く）、その位置を返す */
@@ -38,12 +39,54 @@ async function waitFocus(frame: Frame, timeoutMs: number): Promise<boolean> {
   }
 }
 
+/** TS-012-18・26・27 の枠: 縦に長い親ページ（3000px）の上から 600px に 800×450 */
+const PORTAL: FrameOptions = { width: 800, height: 450, top: 600, parentHeight: 3000 };
+
 /**
- * TS-012-18 の本体: 縦に長い親ページ（3000px）の上から 600px に 800×450 の枠。親を START_Y まで動かし、
- * 親ページにフォーカスを移してから（ポータルのページを触った後を模す）、focusGame でゲームにフォーカスし、Space・矢印キーを押す
+ * 枠の中に harness の見張り（初期化スクリプトの pageProbe）が入っていることを確かめる（PR #6 のレビュー N-4）。
+ * 入っていないと、枠の中の keydown の記録（recordedKeydowns）が取れず、別オリジンの枠で見張りが外れても気づけない
  */
-async function keysInPortal(page: Page, focusGame: (frame: Frame) => Promise<void>): Promise<void> {
-  const { frame, g } = await openGameInFrame(page, { width: 800, height: 450, top: 600, parentHeight: 3000 });
+async function expectFrameMonitored(frame: Frame): Promise<void> {
+  const probe = await frame.evaluate(() => {
+    const w = window as unknown as { __fsCalls?: unknown; __keys?: unknown; __e2eNetJournal?: unknown };
+    return { fsCalls: typeof w.__fsCalls, keys: Array.isArray(w.__keys), journal: typeof w.__e2eNetJournal };
+  });
+  expect(probe, '枠の中に harness の見張り（pageProbe）が入っている').toEqual({ fsCalls: 'number', keys: true, journal: 'function' });
+}
+
+/**
+ * 親ページと枠が本当に別オリジンで、Chromium では枠が別のプロセス（OOPIF）であることを確かめる（BL-101。
+ * 同じプロセスの枠のままでは、実際のポータルと同じ条件を試していないため）。OOPIF の確認は CDP を使うので Chromium だけ
+ */
+async function expectCrossOrigin(page: Page, frame: Frame, browserName: string): Promise<void> {
+  const parentOrigin = new URL(page.url()).origin;
+  const gameOrigin = new URL(frame.url()).origin;
+  test.info().annotations.push({ type: '親ページと枠のオリジン', description: `${parentOrigin} → ${gameOrigin}` });
+  expect(gameOrigin).not.toBe(parentOrigin);
+  if (browserName !== 'chromium') return;
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const { targetInfos } = (await cdp.send('Target.getTargets')) as { targetInfos: { type: string; url: string }[] };
+    const oopif = targetInfos.filter((t) => t.type === 'iframe' && t.url.startsWith(gameOrigin));
+    expect(oopif, 'ゲームの枠が別のプロセスの iframe（OOPIF）になっている').toHaveLength(1);
+  } finally {
+    await cdp.detach();
+  }
+}
+
+/**
+ * TS-012-18・26 の本体: 親を START_Y まで動かし、親ページにフォーカスを移してから（ポータルのページを触った後を模す）、
+ * focusGame でゲームにフォーカスし、Space・矢印キーを押す。extra で親ページ・枠の URL を変え（別オリジンの版）、
+ * onOpen で開いた直後の確かめ（別オリジン・見張り）を行う
+ */
+async function keysInPortal(
+  page: Page,
+  focusGame: (frame: Frame) => Promise<void>,
+  extra: Partial<FrameOptions> = {},
+  onOpen: (frame: Frame) => Promise<void> = async () => {},
+): Promise<void> {
+  const { frame, g } = await openGameInFrame(page, { ...PORTAL, ...extra });
+  await onOpen(frame);
   await page.evaluate((y) => window.scrollTo(0, y), START_Y);
   expect(await settledScrollY(page)).toBe(START_Y);
 
@@ -117,5 +160,123 @@ test.describe('BL-012 掘削の入力', () => {
     page,
   }) => {
     await keysInPortal(page, (frame) => clickInFrame(page, frame, 'stage', 0.75));
+  });
+
+  test('TS-012-22 地上（キャンバスの上 25%）を押しても掘れる（Q-04(f): ステージのどこを押しても掘れる）', async ({ page }) => {
+    const g = await bootGame(page);
+    const canvas = (await page.locator('[data-testid="stage"] canvas').boundingBox())!;
+    const drill = (await g.rect('drill'))!;
+    // 地上の帯（上 25%）の中の 2 点: 左から 10%・上から 10%、右から 10%・上から 22%（ドリルは横の中央にあり、縦長の画面では
+    // 地上の帯の中まで的が伸びるので、中央は避ける）。ドリルの的の外であることも確かめる（的を押した合格にしない）
+    for (const [rx, ry] of [
+      [0.1, 0.1],
+      [0.9, 0.22],
+    ] as const) {
+      const where = `左から ${rx * 100}%・上から ${ry * 100}%`;
+      const p = { x: canvas.x + canvas.width * rx, y: canvas.y + canvas.height * ry };
+      const onDrill = p.x >= drill.x && p.x <= drill.x + drill.w && p.y >= drill.y && p.y <= drill.y + drill.h;
+      expect(onDrill, `${where} はドリルの的の外`).toBe(false);
+      const h0 = hitsOf(await g.getState());
+      await page.mouse.click(p.x, p.y);
+      await page.clock.fastForward(150); // 連打の上限の窓（8 回/秒）に掛からないように
+      expect(hitsOf(await g.getState()) - h0, `${where} を押すと 1 打`).toBe(1);
+    }
+  });
+});
+
+// BL-101: 別オリジンの枠（実際のポータルと同じ。親 localhost → ゲーム 127.0.0.1）。
+// 許可リストに足すのは親ページのオリジンだけ（ゲームのオリジンは既定で入っている）。親ページは page.route で返すので外には
+// 出ないが、harness は要求を記録するので、足さないと共通の検査（TS-COM-01）で落ちる。ゲームの側の要求の検査はそのまま効く
+test.describe('BL-012 掘削の入力（別オリジンの枠。BL-101）', () => {
+  test.use({
+    allowedOrigins: async ({ baseURL }, use) => {
+      if (!baseURL) throw new Error('baseURL がありません（playwright.config.ts）');
+      await use([new URL(baseURL).origin, crossOriginParent(baseURL).parentOrigin]);
+    },
+  });
+
+  test('TS-012-26 (a) 別オリジンの枠: ゲームの HUD を押してフォーカスした後の Space・矢印キーが preventDefault され、親の scrollY が変わらない', async ({
+    page,
+    baseURL,
+    browserName,
+  }) => {
+    await keysInPortal(page, (frame) => clickInFrame(page, frame, 'hud-coins'), { crossOrigin: crossOriginParent(baseURL!) }, async (frame) => {
+      await expectCrossOrigin(page, frame, browserName);
+      await expectFrameMonitored(frame);
+    });
+  });
+
+  test('TS-012-26 (b) 別オリジンの枠: 遊ぶ場所（ステージ）を押してフォーカスした後の Space・矢印キーが preventDefault され、親の scrollY が変わらない', async ({
+    page,
+    baseURL,
+    browserName,
+  }) => {
+    await keysInPortal(page, (frame) => clickInFrame(page, frame, 'stage', 0.75), { crossOrigin: crossOriginParent(baseURL!) }, async (frame) => {
+      await expectCrossOrigin(page, frame, browserName);
+      await expectFrameMonitored(frame);
+    });
+  });
+
+  test('TS-012-27 別オリジンの枠: HUD のボタンにフォーカスがある状態でステージを押すと blur され、Enter でボタンが押し直されず、Space で掘れる（PR #7 N-3）', async ({
+    page,
+    baseURL,
+    browserName,
+  }) => {
+    const { frame, g } = await openGameInFrame(page, { ...PORTAL, crossOrigin: crossOriginParent(baseURL!) });
+    await expectCrossOrigin(page, frame, browserName);
+    await expectFrameMonitored(frame);
+    await page.evaluate((y) => window.scrollTo(0, y), START_Y);
+    expect(await settledScrollY(page)).toBe(START_Y);
+    const activeTestId = (): Promise<string | null> =>
+      frame.evaluate(() => {
+        const a = document.activeElement;
+        return a === document.body ? 'BODY' : (a?.getAttribute('data-testid') ?? a?.tagName ?? null);
+      });
+    const drillLevel = async (): Promise<number> => (await g.getState()).run.drill.level;
+
+    // ドリルを何度も買えるコインを入れる
+    await g.grant({ coins: '1e6' });
+    const buy = frame.getByTestId('buy-drill');
+    await expect(buy).toHaveAttribute('data-state', 'affordable');
+    const lv0 = await drillLevel();
+    // 購入ボタンは枠の右側のパネルにあり、モバイルの狭い画面（390px）では見えないので、locator で画面に入れてから押す。
+    // そのとき親がスクロールしうるので、押した後に START_Y へ戻す（フォーカスは動かない）
+    await buy.click();
+    await expect.poll(drillLevel).toBe(lv0 + 1);
+    await page.evaluate((y) => window.scrollTo(0, y), START_Y);
+    expect(await settledScrollY(page)).toBe(START_Y);
+    // 前提: そのボタンにフォーカスがある（ボタンを押してもフォーカスが移らないブラウザでは、キーボードで移ったのと同じ状態にする）
+    if ((await activeTestId()) !== 'buy-drill') {
+      test.info().annotations.push({ type: '前提', description: 'ボタンを押してもフォーカスが移らないブラウザなので focus() で移した' });
+      await buy.focus();
+    }
+    expect(await activeTestId(), '前提: 購入ボタンにフォーカスがある').toBe('buy-drill');
+    // 対照: フォーカスのあるボタンは Enter で押される（Enter で買えることの確認。偽の緑を防ぐ）
+    await page.keyboard.press('Enter');
+    await expect.poll(drillLevel, '対照: Enter でフォーカスのある購入ボタンが押される').toBe(lv0 + 2);
+    expect(await activeTestId()).toBe('buy-drill');
+
+    // ステージを押す → ボタンから blur される（枠の activeElement が body）・枠にフォーカスがある
+    const h0 = hitsOf(await g.getState());
+    await clickInFrame(page, frame, 'stage', 0.75);
+    expect(await activeTestId(), 'ステージを押すとボタンから blur される').toBe('BODY');
+    expect(await frame.evaluate(() => document.hasFocus())).toBe(true);
+    expect(hitsOf(await g.getState()), 'ステージを押した 1 打').toBe(h0 + 1);
+
+    // Enter でボタンが押し直されない（レベルが変わらない・コインが購入で減らない）
+    const before = await g.getState();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300); // 押し直されるなら、この間に onClick → dispatch が動く（対照では同じ待ちの中で買えた）
+    const after = await g.getState();
+    expect(after.run.drill.level, 'Enter で購入ボタンが押し直されない').toBe(before.run.drill.level);
+    expect(coinsOf(after), 'コインが購入で減らない').toBeGreaterThanOrEqual(coinsOf(before));
+    expect(await settledScrollY(page)).toBe(START_Y);
+
+    // Space で掘れる・親はスクロールしない
+    await page.keyboard.press('Space');
+    await expect.poll(async () => hitsOf(await g.getState()), 'Space で打撃が増える').toBeGreaterThan(hitsOf(after));
+    expect(await settledScrollY(page), 'Space の後の親の scrollY').toBe(START_Y);
+    const rec = await recordedKeydowns(frame);
+    expect(rec.filter((k) => k.code === 'Space' && !k.prevented), 'Space の keydown は preventDefault 済み').toEqual([]);
   });
 });
