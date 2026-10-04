@@ -4,6 +4,7 @@
 import {
   advance,
   dispatch,
+  stampGuestsSeen,
   step,
   type AdvanceOptions,
   type ActionResult,
@@ -43,6 +44,8 @@ export class GameStore {
   private readonly uiIntervalMs: number;
   private readonly onError: (e: unknown) => void;
   private nextNotifyAt: number | null = null;
+  /** 壁時計（初来訪の時刻を図鑑に入れる。startLoop が app の時計をつなぐ。つながっていなければ時刻は 0＝不明のまま） */
+  private wallNow: (() => number) | null = null;
 
   constructor(state: GameState, opts: StoreOptions = {}) {
     this.state = state;
@@ -106,7 +109,14 @@ export class GameStore {
     this.notify();
   }
 
+  /** 壁時計をつなぐ（app/loop.ts の startLoop が app の時計で呼ぶ。テスト用フックの setClock もこの時計に効く） */
+  useWallClock(wallNow: () => number): void {
+    this.wallNow = wallNow;
+  }
+
+  /** イベントを記録する（描画の列・フックの events）。お客さんの初来訪があれば、その時刻を図鑑に入れる（BL-017） */
   pushEvents(evs: readonly GameEvent[]): void {
+    if (this.wallNow && evs.some((e) => e.type === 'GuestArrived' && e.first)) stampGuestsSeen(this.state, evs, this.wallNow());
     for (const e of evs) {
       this.pushView(e);
       this.recent.push(e);
