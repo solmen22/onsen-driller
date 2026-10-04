@@ -7,7 +7,7 @@ import { STRATA } from '../../src/content/strata.ts';
 import { TOOLS } from '../../src/content/tools.ts';
 import { CrackTracker, crackFrame, crackStage } from '../../src/view/cracks.ts';
 import { tileGridSize } from '../../src/view/layout.ts';
-import { mergeBreaks, POPUP_MAX, PopupQueue, popupText, shortNumber, type BreakPop } from '../../src/view/popups.ts';
+import { mergeBreaks, POPUP_MAX, PopupQueue, popupText, type BreakPop } from '../../src/view/popups.ts';
 import { decoAt, DECO_PERCENT, glintAlpha, nextSpringHint, ORE_TINT, tileFrame, tileVariant } from '../../src/view/strata-look.ts';
 import { TilePool, type PooledSprite } from '../../src/view/tile-pool.ts';
 import { applyToolTexture, TOOL_FRAMES, toolTexture } from '../../src/view/tools.ts';
@@ -121,7 +121,7 @@ describe('TS-036-05・06 PopupQueue（同時 20 まで。21 個目は最も古�
     const q = new PopupQueue<BreakPop>();
     q.add(pop(3, '1.25e1'), 0);
     expect(q.active).toBe(1);
-    expect(popupText(pop(3, '1.25e1'), null)).toBe('+13');
+    expect(popupText(pop(3, '1.25e1'), null)).toBe('+12.5'); // BL-011: 毎秒の量と同じ形（100 未満は小数 2 桁まで切り捨て。四捨五入しない）
     expect(popupText(pop(3, '9.6e1', 'quartz'), '石英')).toBe('石英 +96');
     expect(popupText(pop(3, '9.6e1', 'quartz'), 'Quartz')).toBe('Quartz +96');
     expect(popupText(pop(0, '5e-1'), null)).toBe('+0.5');
@@ -156,8 +156,17 @@ describe('TS-036-05・06 PopupQueue（同時 20 まで。21 個目は最も古�
     expect(q.expire(700)).toEqual([0]);
     expect(q.active).toBe(0);
   });
-  it('短い数字の表記（S1 の仮）', () => {
-    expect([0, 0.52, 9.96, 12.4, 9999, 12345, 1.5e30, -1, Number.NaN].map(shortNumber)).toEqual(['0', '0.5', '10', '12', '9999', '1.2e4', '1.5e30', '0', '0']);
+  it('TS-011-14 ポップの数は HUD と同じ表記の関数（言語と数値表記の設定に従う。BL-011・Q-32 ⑥）', () => {
+    const p = (coins: string) => pop(3, coins);
+    expect(popupText(p('1.2345e4'), null, 'ja', 'auto')).toBe('+1.23万');
+    expect(popupText(p('1.2345e4'), null, 'en', 'auto')).toBe('+12.3K');
+    expect(popupText(p('1.2345e4'), null, 'en', 'exp')).toBe('+1.23e4');
+    expect(popupText(p('9.96e0'), null, 'ja', 'auto')).toBe('+9.96');
+    expect(popupText(p('5.2e-1'), null, 'en', 'auto')).toBe('+0.52');
+    expect(popupText(p('0'), null, 'en', 'auto')).toBe('+0');
+    expect(popupText(p('1.5e30'), 'Quartz', 'en', 'auto')).toBe('Quartz +1.5No');
+    expect(popupText(p('1.5e30'), '石英', 'ja', 'auto')).toBe('石英 +150穣');
+    expect(popupText({ depth: 3, coins: '1.2345e4', ore: null, count: 5 }, null, 'ja', 'auto')).toBe('+1.23万 ×5');
   });
 });
 
