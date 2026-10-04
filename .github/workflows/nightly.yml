@@ -3,7 +3,7 @@
 # ジョブ
 #   - e2e-nightly: 毎晩の E2E。npm run test:e2e:nightly（webkit・firefox・mobile-safari・mobile-chrome。@nightly の印を含む全件。
 #       PW_MAX_FAILURES=25 で失敗の件数に上限〔playwright.config.ts の maxFailures〕。全体が落ちたときのレポートと分数を抑える。PR #9 のレビュー S-1）。
-#       ジョブ名は ci.yml の e2e と取り違えないように e2e-nightly（PR #9 のレビュー N-1）。
+#       ジョブ名は e2e-nightly（PR #9 のレビュー N-1。ci.yml の旧 e2e ジョブ〔今は verify に含まれる〕と取り違えないため）。
 #       手動実行で mode=full を選ぶと npm run test:e2e:full（chromium-full・毎晩の 4 つ・prod-builds。リリース前の e2e-full）。
 #       決定 0006-2 で、balance・property（BL-090）を待たずに別のジョブにして S2 の最初に始めた。
 #   - balance・property: まだ置かない。BL-090（test:property:full）・BL-033（test:balance の全ボット）がそろってから、
