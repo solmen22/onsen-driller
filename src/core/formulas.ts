@@ -121,7 +121,7 @@ export const baseModifiers = (): Modifiers => ({
   offlineEff: 0,
 });
 
-/** 今の状態の倍率: 買った改良 → 枠につないだ源泉 → 来ているお客さん（step ごとに呼ぶので、配列を作らずに 1 回ずつ走査する） */
+/** 今の状態の倍率: 買った改良 → 枠につないだ源泉 → 来ているお客さん → 掘削ブースト（step ごとに呼ぶので、配列を作らずに 1 回ずつ走査する） */
 export function modifiers(s: GameState): Modifiers {
   const m = baseModifiers();
   for (const id of s.run.upgrades) {
@@ -130,6 +130,11 @@ export function modifiers(s: GameState): Modifiers {
   }
   for (const id of s.run.bath.slots) if (id !== null) applyEffect(m, SPRING_BY_ID[id].effect);
   for (const gid of s.run.guests) applyEffect(m, GUEST_BY_ID[gid].effect);
+  // 掘削ブースト（R2。BL-058）: 効果の途中はドリル威力と自動掘削機の打数 ×2（自動掘りの基本・手動の上限は変えない。Q-31 (d)）
+  if (s.run.boost.remainingMs > 0) {
+    m.drillPower *= PARAMS.boost.mult;
+    m.autoDig *= PARAMS.boost.mult;
+  }
   return m;
 }
 

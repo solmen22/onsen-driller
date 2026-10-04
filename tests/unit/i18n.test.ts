@@ -88,8 +88,11 @@ describe('BL-052 受け入れ基準 1: t() の置き換え変数と英語の複�
     expect(translate(d, 'ja', 'a')).toBe('エー');
     expect(translate(d, 'ja', 'b')).toBe('B');
     expect(translate(d, 'ja', 'zzz')).toBe('zzz');
+    // prototype の名前（constructor・toString・__proto__）は辞書のキーとして拾わない（PR #11 のレビュー N-3）
+    for (const k of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) expect(translate(d, 'ja', k, { x: 1 }), k).toBe(k);
     setLang('ja');
     expect(t('no.such.key' as TextKey)).toBe('no.such.key');
+    expect(tn('constructor' as TextKey, 1)).toBe('constructor');
   });
 
   it('setLang は今の言語と <html lang> を変える', () => {
@@ -152,7 +155,7 @@ describe('BL-052 受け入れ基準 1: t() の置き換え変数と英語の複�
 });
 
 describe('BL-052 受け入れ基準 2: 言語の判定の順番（設定 → platform.locale() → navigator.language → 英語）', () => {
-  // TS-052-10: 設定 × platform.locale() × navigator.language の組み合わせ（判定は resolveLang の 1 か所。main.ts は detectLang を呼ぶ）
+  // TS-052-10: 設定 × platform.locale() × navigator.language の組み合わせ（判定は resolveLang の 1 か所。main.ts も resolveLang を呼ぶ〔BL-046〕）
   const cases: readonly [setting: Lang | 'auto', platform: string | null, browser: string | null, want: Lang][] = [
     // 設定の上書きが最優先（locale によらない）
     ['ja', 'en-US', 'en-US', 'ja'],
@@ -226,9 +229,6 @@ describe('BL-052 受け入れ基準 3: 文章は en.json・ja.json にあり、�
    * まだ文を入れていないお客さんは、入れるチケットを書いて除く（入れたら消す）
    */
   const PENDING_KEYS: Readonly<Record<string, string>> = {
-    'guest.monkey': 'BL-017',
-    'guest.capybara': 'BL-017',
-    'guest.fox': 'BL-017',
     'guest.cat': 'BL-019',
     'guest.redPanda': 'BL-019',
   };
@@ -269,13 +269,15 @@ describe('BL-052 受け入れ基準 3: 文章は en.json・ja.json にあり、�
    * - 日本語: .ts・.tsx の文字列・テンプレート・JSX の文のどれにもない（コメントは構文木に入らないので見ない）
    * - 英字: .tsx の JSX の文と、`aria-label`・`title`・`alt`・`placeholder` の文字列の値にない（数字・記号・`t()` の呼び出しは可。
    *   単位の記号〔深さの m〕は英日で同じなので可。文言の中の単位は「{n}m」のように辞書に入れている）
-   * 除外: 数値の表記の万進の単位（BL-011 で表記の関数を作り直すときに扱う）
+   * 除外: なし（数値の表記の万進の単位は BL-011 で src/i18n/number-format.ts に移した。言語ごとの表記のデータなので i18n の範囲）
+   * - 日本語の範囲には、かな・漢字・半角カナに加えて、和文の句読点・括弧（U+3000–303F「、。「」々」）と全角の英数・記号
+   *   （U+FF01–FF5E「（）！？＋」）も入れる（記号だけの直書きも見逃さない。PR #11 のレビュー N-1 ②）
+   * - 文言の属性は、文字列の値（title="Close"）に加えて、式の中の文字列・テンプレート（title={'Close'}・aria-label={`Close`}）も
+   *   英字の検査に掛ける（PR #11 のレビュー N-1 ①）
    */
-  const PENDING_FILES: Readonly<Record<string, string>> = {
-    'src/ui/format.ts': 'BL-011',
-  };
-  const JAPANESE = /[぀-ヿ㐀-鿿ｦ-ﾟ]/;
-  const LETTERS = /[A-Za-z぀-ヿ㐀-鿿ｦ-ﾟ]/;
+  const PENDING_FILES: Readonly<Record<string, string>> = {};
+  const JAPANESE = /[\u3000-\u303f\u3040-\u30ff\u3400-\u9fff\uff01-\uff5e\uff66-\uff9f]/;
+  const LETTERS = /[A-Za-z\u3000-\u303f\u3040-\u30ff\u3400-\u9fff\uff01-\uff5e\uff66-\uff9f]/;
   const TEXT_ATTRS = new Set(['aria-label', 'title', 'alt', 'placeholder']);
   /** 英日で同じ単位の記号（JSX の文としてだけ許す） */
   const UNIT_SYMBOLS = new Set(['m']);
@@ -294,6 +296,16 @@ describe('BL-052 受け入れ基準 3: 文章は en.json・ja.json にあり、�
       } else if (ts.isJsxAttribute(n) && TEXT_ATTRS.has(n.name.getText(src)) && n.initializer && ts.isStringLiteral(n.initializer)) {
         if (LETTERS.test(n.initializer.text)) found.push(`${n.name.getText(src)}="${n.initializer.text}"`);
         return;
+      } else if (ts.isJsxAttribute(n) && TEXT_ATTRS.has(n.name.getText(src)) && n.initializer && ts.isJsxExpression(n.initializer) && n.initializer.expression) {
+        // 式の中の文字列・テンプレート（t() の呼び出しの引数のキーは見ない: キーは英字だが文章ではない）
+        const name = n.name.getText(src);
+        const visitExpr = (e: ts.Node): void => {
+          if (ts.isCallExpression(e)) return;
+          if ((ts.isStringLiteralLike(e) || ts.isTemplateLiteralToken(e)) && LETTERS.test(e.text)) found.push(`${name}={${e.text}}`);
+          e.forEachChild(visitExpr);
+        };
+        visitExpr(n.initializer.expression);
+        return;
       } else if (ts.isStringLiteralLike(n) || ts.isTemplateLiteralToken(n)) {
         if (JAPANESE.test(n.text)) found.push(n.text.trim());
       }
@@ -311,7 +323,9 @@ describe('BL-052 受け入れ基準 3: 文章は en.json・ja.json にあり、�
   });
 
   it('TS-052-14 検出の仕組み: 日本語の文字列・テンプレート・JSX の文、英字の JSX の文と文言の属性を見つけ、コメント・識別子・data-testid は見ない', () => {
-    expect(literalTexts(join(root, 'src/ui/format.ts'), readFileSync(join(root, 'src/ui/format.ts'), 'utf8'))).toContain('万');
+    // 万進の単位の表（src/i18n/number-format.ts）を ui に置いたら捕まえる
+    const nf = join(root, 'src/i18n/number-format.ts');
+    expect(literalTexts(nf, readFileSync(nf, 'utf8'))).toContain('万');
     const code = [
       '// コメント /* no */',
       "const a = 'あ'; const b = `x${1}い${2}ゃ`; const c = <p title=\"え\">う</p>; /* お */ const d = 'ok';",
@@ -319,6 +333,15 @@ describe('BL-052 受け入れ基準 3: 文章は en.json・ja.json にあり、�
       'const f = <span>{t(\'buy.max\')} × 10 · 3</span>; const g = <img alt="" />; const h = <b>{d}m</b>; const i = <b>{d}km</b>;',
     ].join('\n');
     expect(literalTexts('probe.tsx', code)).toEqual(['あ', 'い', 'ゃ', 'title="え"', 'う', 'aria-label="Close"', 'Buy now', 'km']);
+  });
+
+  it('TS-052-14 検出の仕組み（PR #11 のレビュー N-1）: 文言の属性の式の中の文字列・テンプレート、和文の句読点・括弧・全角の記号だけの直書きも見つける', () => {
+    const code = [
+      "const a = <button title={'Close'} aria-label={`Open ${x}`} alt={cond ? 'Yes' : t('ui.no')} placeholder={t('ui.name')}>x</button>;",
+      "const b = '（'; const c = '！'; const d = `、`; const e = '「」'; const f = 'Ａ';",
+      "const g = <i aria-label={t('hud.settings')} title={String(n)} />; const h = '×'; const i = '·';",
+    ].join('\n');
+    expect(literalTexts('probe.tsx', code)).toEqual(['title={Close}', 'aria-label={Open }', 'alt={Yes}', 'x', '（', '！', '、', '「」', 'Ａ']);
   });
 
   it('TS-052-14 除外しているファイルは実在する（消えたら除外も消す）', () => {

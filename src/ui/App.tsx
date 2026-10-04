@@ -2,6 +2,7 @@
 // - 縦・横の配置は styles/global.css（#app の data-layout。判定は ui/layout.ts の layoutOf）
 // - タブは 5 つ（tab-1〜tab-5。クリックか 1〜5 キー）。S1 で中身があるのは T1 だけで、T2〜T5 は「準備中」（panel-placeholder。Q-09）
 // - 購入数（×1 → ×10 → 最大）は切り替えボタン（qty-toggle）か Shift。タブをまたいで共通で、保存しない（再読み込みで ×1）
+// - ご褒美のシート（R2: ブーストのボタン、R3: 鉱脈のチップ）とトースト（BL-046）。モーダル・シートの表示中は 1〜5・Shift を使わない
 import { useEffect, useState } from 'preact/hooks';
 import type { Qty } from '../core/index.ts';
 import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
@@ -9,6 +10,9 @@ import { useUi } from './hooks/use-game.ts';
 import { Hud } from './hud/Hud.tsx';
 import { StageActions } from './hud/StageActions.tsx';
 import { keyCommand, nextQty, type TabNo } from './keys.ts';
+import { isModalOpen } from './overlay/modal-state.ts';
+import { RewardSheet } from './overlay/RewardSheet.tsx';
+import { Toasts } from './overlay/Toasts.tsx';
 import { DigPanel } from './panels/DigPanel.tsx';
 
 export type { TabNo } from './keys.ts';
@@ -63,6 +67,7 @@ export function App() {
   const [tab, setTab] = useState<TabNo>(1);
   const [qty, setQty] = useState<Qty>(1);
   const [lang, setLangState] = useState<Lang>(getLang());
+  const [sheet, setSheet] = useState<'R2' | 'R3' | null>(null);
   const onLang = (l: Lang): void => {
     setLang(l);
     setLangState(l);
@@ -72,6 +77,7 @@ export function App() {
   // キー操作（1〜5 でタブ、Shift で購入数）。Space・矢印は app/input.ts
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if (isModalOpen()) return; // 表示中は後ろの画面を変えない（Q-37 (e)）
       const c = keyCommand(e);
       if (c?.kind === 'tab') setTab(c.tab);
       else if (c?.kind === 'cycleQty') setQty(nextQty);
@@ -82,8 +88,8 @@ export function App() {
 
   return (
     <>
-      <Hud lang={lang} onSettings={() => setTab(5)} />
-      <StageActions />
+      <Hud lang={lang} onSettings={() => setTab(5)} onVein={() => setSheet('R3')} />
+      <StageActions onBoost={() => setSheet('R2')} />
       <section class="panel" data-testid="panel">
         <nav class="tabs" role="tablist">
           {TABS.map((x) => (
@@ -107,6 +113,8 @@ export function App() {
           {tab === 1 ? <DigPanel qty={qty} lang={lang} /> : <Placeholder tab={tab} lang={lang} onLang={onLang} />}
         </div>
       </section>
+      <Toasts />
+      {sheet !== null && <RewardSheet key={sheet} placement={sheet} onClose={() => setSheet(null)} />}
     </>
   );
 }

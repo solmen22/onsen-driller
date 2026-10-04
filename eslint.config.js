@@ -192,6 +192,11 @@ export default defineConfig(
   // - 対象のファイルは、Playwright がテストとして読む名前すべて（playwright.config.ts は testMatch を指定しないので、
   //   既定の '**/*.@(spec|test).?(c|m)[jt]s?(x)'）。.spec.ts だけだと e2e/foo.test.ts が抜ける。
   //   JS の名前（.js・.mjs など）でも規則が動くよう、このブロックでも @typescript-eslint のプラグインを読み込む（上と同じ物）
+  // - TS の parser が当たるのは上の '**/*.{ts,tsx}' だけなので、型注釈のある e2e/foo.spec.mts・.cts は「Parsing error」で止まる
+  //   （止める側に倒れる。E2E は .spec.ts で書く。PR #12 のレビュー N-4。testMatch を狭めると .test.ts が黙って動かなくなるので狭めない）
+  // - _baseTest（@playwright/test の型つきの公開の export。素の test と同じ物）も止める（PR #12 のレビュー S-1。BL-108）。
+  //   support 経由で素の test から作った fixture・動的 import・.cjs の require は lint では止められないので、
+  //   実行時にレポーター（e2e/support/common-checks-reporter.ts）が「共通の検査の印のないテスト」として見つける
   {
     files: ['e2e/**/*.@(spec|test).?(c|m)[jt]s?(x)'],
     ignores: ['e2e/perf.spec.ts', 'e2e/screens.spec.ts', 'e2e/sdk-live.spec.ts', 'e2e/smoke.spec.ts'],
@@ -203,7 +208,7 @@ export default defineConfig(
         {
           paths: ['@playwright/test', 'playwright/test'].map((name) => ({
             name,
-            importNames: ['test', 'default'],
+            importNames: ['test', 'default', '_baseTest'],
             message: "E2E の spec は './support/fixtures.ts' の test を使う（共通の検査 TS-COM-01〜04 と TS-073-04 が自動で付く。BL-073・BL-094）",
           })),
         },

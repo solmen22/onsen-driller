@@ -1,7 +1,9 @@
 # 毎晩のジョブと e2e-full（BL-084。infra.md §4-3、arch §16-4、QA 判定書 S1 §6-2・§6-3、決定 0006-2・4）
 #
 # ジョブ
-#   - e2e: 毎晩の E2E。npm run test:e2e:nightly（webkit・firefox・mobile-safari・mobile-chrome。@nightly の印を含む全件）。
+#   - e2e-nightly: 毎晩の E2E。npm run test:e2e:nightly（webkit・firefox・mobile-safari・mobile-chrome。@nightly の印を含む全件。
+#       PW_MAX_FAILURES=25 で失敗の件数に上限〔playwright.config.ts の maxFailures〕。全体が落ちたときのレポートと分数を抑える。PR #9 のレビュー S-1）。
+#       ジョブ名は e2e-nightly（PR #9 のレビュー N-1。ci.yml の旧 e2e ジョブ〔今は verify に含まれる〕と取り違えないため）。
 #       手動実行で mode=full を選ぶと npm run test:e2e:full（chromium-full・毎晩の 4 つ・prod-builds。リリース前の e2e-full）。
 #       決定 0006-2 で、balance・property（BL-090）を待たずに別のジョブにして S2 の最初に始めた。
 #   - balance・property: まだ置かない。BL-090（test:property:full）・BL-033（test:balance の全ボット）がそろってから、
@@ -21,14 +23,15 @@
 #   - テストの step に timeout-minutes を付ける（ジョブのタイムアウトで止まると failure() の step も動かず、何も残らないため）。
 #   - 失敗の原因（エラーの要約・分類）は、3 日で消える成果物ではなく実行記録（org/30_quality/test-engineer/runs/）に残す。
 #
-# schedule: 週 2 回（月・木の 03:00 JST。CEO 決定 2026-09-28）。PR #8（BL-102）のマージの後に手動実行（workflow_dispatch）で
-#   1 回流し、緑なら E2E のジョブだけのこの形でコメントを外す（決定 0006-2）。前回から main に変更がない回はすぐ終える。
-# 分数（infra.md §4-3）: E2E だけで 1 回 約 15〜20 分【推定。最初の手動実行で実測に直す】。週 2 回で月 約 9 回。
+# schedule: 週 2 回（月・木の 03:17 JST。CEO 決定 2026-09-28 の 03:00 を、GitHub が混みやすい毎時 0 分から 17 分ずらした。
+#   PR #9 のレビュー N-3・CEO 決定）。PR #8（BL-102）のマージの後の手動実行（workflow_dispatch）の結果を報告してから有効にした
+#   （決定 0006-2）。前回から main に変更がない回はすぐ終える。結果は CEO がセッションの開始時に gh run list で見る（runbook §7-1）。
+# 分数（infra.md §4-3）: 1 回の実測は infra.md。週 2 回で月 約 9 回。
 name: nightly
 
 on:
-  # schedule:
-  #   - cron: '0 18 * * 0,3' # 月・木の 03:00 JST（UTC の日・水 18:00）。毎日にするなら '0 18 * * *'（CEO の判断）
+  schedule:
+    - cron: '17 18 * * 0,3' # 月・木の 03:17 JST（UTC の日・水 18:17）。毎日にするなら '17 18 * * *'（CEO の判断）
   workflow_dispatch:
     inputs:
       mode:
@@ -46,11 +49,14 @@ permissions:
   contents: read
 
 jobs:
-  e2e:
+  e2e-nightly:
     runs-on: ubuntu-latest
     timeout-minutes: 55
     env:
       PW_CHANNEL: chromium # mobile-chrome・chromium-full は Playwright の Chromium（ci.yml の e2e ジョブと同じ）
+      # 再実行を使い切っても落ちたテストが 25 件に達したら止める（playwright.config.ts の maxFailures。PR は 10、手元は上限なし）。
+      # あるブラウザで全体が落ちたときのレポートの大きさと分数を抑える（PR #9 のレビュー S-1。件数は実行・修復エンジニアの決定）
+      PW_MAX_FAILURES: 25
     steps:
       - uses: actions/checkout@v7
         with:
