@@ -43,6 +43,8 @@ export class Harness {
   private readonly owned: BrowserContext[] = [];
   /** テストが自分で入れた、接頭辞のないキー（他のゲームのキーを模したもの）。TS-COM-04 の対象から外す */
   readonly foreignKeys = new Set<string>();
+  /** テストのモックが応答を返した URL（完全一致）。共通の検査で許す（e2e/support/crazygames.ts の routeCrazySdk だけが足す。BL-072） */
+  readonly mockedUrls = new Set<string>();
   private readonly browser: Browser;
   private readonly contextOptions: BrowserContextOptions;
   readonly allowedOrigins: readonly string[];
@@ -60,7 +62,7 @@ export class Harness {
   }
 
   async watch(context: BrowserContext): Promise<ContextMonitor> {
-    const m = new ContextMonitor(context, this.allowedOrigins, this.foreignKeys);
+    const m = new ContextMonitor(context, this.allowedOrigins, this.foreignKeys, this.mockedUrls);
     await m.attach();
     this.monitors.push(m);
     return m;
