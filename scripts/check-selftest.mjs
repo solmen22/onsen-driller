@@ -591,8 +591,11 @@ describe('ci.yml', () => {
   };
   /** ジョブの本文を step ごとに分ける */
   const steps = (body) => body.split(/\n(?= {6}- )/);
+  /** ワークフローのジョブの名前の一覧（jobs: の直下） */
+  const names = (text) => [...(/^jobs:\n([\s\S]*)$/m.exec(text)?.[1] ?? '').matchAll(/^ {2}([a-z][\w-]*):\n/gm)].map((m) => m[1]);
 
-  test('TS-008-23 verify の順番: gitleaks → lint → typecheck → test → build:all → check:size → check:assets', () => {
+  // verify は E2E まで 1 つのジョブ（Actions の分数の削減 A1。org/10_development/devops/2026-09-29_actions-minutes.md）
+  test('TS-008-23 verify の順番: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets → check-e2e-dist → Playwright → test:e2e', () => {
     const v = job('verify');
     const order = [
       /"\$RUNNER_TEMP\/gitleaks" git /,
@@ -600,9 +603,14 @@ describe('ci.yml', () => {
       /run: npm run lint$/m,
       /run: npm run typecheck$/m,
       /run: npm run test$/m,
+      /run: npm run test:checks$/m,
       /run: npm run build:all$/m,
+      /run: npm run build:e2e$/m,
       /run: npm run check:size$/m,
       /run: npm run check:assets$/m,
+      /run: node scripts\/check-e2e-dist\.mjs$/m,
+      /run: npx playwright install --with-deps chromium$/m,
+      /run: npm run test:e2e$/m,
     ].map((re) => {
       const i = v.search(re);
       assert.ok(i >= 0, `verify に ${re} がない`);
@@ -611,56 +619,74 @@ describe('ci.yml', () => {
     for (let i = 1; i < order.length; i++) assert.ok(order[i - 1] < order[i], `順番が違う（${i} 番目）`);
   });
 
-  test('TS-008-23 前の手順が失敗したら後ろは動かない（continue-on-error・always() なし、後ろのジョブは needs）', () => {
-    const v = job('verify');
-    assert.doesNotMatch(v, /continue-on-error:\s*true/);
-    assert.doesNotMatch(v, /if:.*(always|failure|cancelled)\(\)/);
-    assert.match(job('e2e'), /needs:\s*verify/);
-    assert.match(job('deploy-preview'), /needs:\s*\[verify, e2e\]/);
-    assert.match(job('deploy-staging'), /needs:\s*\[verify, e2e\]/);
+  test('TS-008-23 前の手順が失敗したら後ろは動かない（continue-on-error なし、failure() は記録の 2 つだけ、後ろのジョブは needs: verify）', () => {
+    // failure()・always()・continue-on-error・step の順番・記録の保存の検査は assertFailureReportPolicy（下の BL-099 の describe）
+    assert.doesNotMatch(job('verify'), /continue-on-error:\s*true/);
+    assert.deepEqual(names(ci), ['verify', 'deploy-preview', 'deploy-staging'], 'ジョブは verify（E2E を含む）と 2 つのデプロイだけ（A1）');
+    assert.match(job('deploy-preview'), /^ {4}needs: verify(?:\s+#.*)?$/m);
+    assert.match(job('deploy-staging'), /^ {4}needs: verify(?:\s+#.*)?$/m);
   });
 
-  test('決定 0007（QA の条件 1）: main への push でも e2e が PR と同じ npm run test:e2e で動き、deploy-staging は e2e の緑を待つ', () => {
-    const e = job('e2e');
-    // ジョブの if: で push（や main）を外していない。e2e に if: を足すなら、push で動くことをこの検査で確かめ直す
-    const jobIf = /^ {4}if: (.*)$/m.exec(e)?.[1] ?? '';
-    assert.doesNotMatch(jobIf, /push|refs\/heads\/main|github\.ref/, `e2e ジョブの if: が main への push を外している: ${jobIf}`);
+  test('決定 0007（QA の条件 1）: main への push でも PR と同じ npm run test:e2e が動き、deploy-staging はその緑（E2E を含む verify）を待つ', () => {
+    const v = job('verify');
+    // ジョブの if: は「preview 以外のラベルの run では動かない」だけ。push（や main）を外していない
+    const jobIf = /^ {4}if: (.*)$/m.exec(v)?.[1] ?? '';
+    assert.equal(jobIf, "github.event.action != 'labeled' || github.event.label.name == 'preview'", `verify の if: が変わった（push で E2E が動くか確かめ直す）: ${jobIf}`);
     assert.match(ci, /^on:\n(?: {2}.*\n| {4}.*\n)*? {2}push:\n {4}branches: \[main\]\n/m, 'main への push で ci.yml が動かない');
-    assert.match(e, /^ +run: npm run test:e2e$/m, 'e2e ジョブが PR と同じ npm run test:e2e を流さない');
+    // test:e2e の step 自体に if: がない（push で飛ばされない）
+    const st = steps(v).find((s) => /^ +run: npm run test:e2e$/m.test(s));
+    assert.ok(st, 'verify に npm run test:e2e の step がない');
+    assert.doesNotMatch(st, /^ {6}(?:- | {2})if:/m, 'test:e2e の step に if: がある（main の push で飛ばしうる）');
     const staging = job('deploy-staging');
-    assert.match(staging, /^ {4}needs: \[verify, e2e\](?:\s+#.*)?$/m, 'deploy-staging が e2e を待たない');
-    assert.doesNotMatch(staging, /^ {4}if: .*(always|failure|cancelled)\(\)/m, 'deploy-staging が e2e の失敗でも動く');
+    assert.match(staging, /^ {4}needs: verify(?:\s+#.*)?$/m, 'deploy-staging が E2E を含む verify を待たない');
+    assert.doesNotMatch(staging, /^ {4}if: .*(always|failure|cancelled)\(\)/m, 'deploy-staging が E2E の失敗でも動く');
+  });
+
+  test('A2: deploy-preview は preview のラベルの付いた PR だけ。preview 以外のラベルを付けただけの run は何もせず、実行中の CI を取り消さない', () => {
+    assert.match(ci, /^ {2}pull_request:\n {4}branches: \[main\]\n(?: {4}#.*\n)* {4}types: \[opened, synchronize, reopened, labeled\]\n/m, 'pull_request の types に labeled（ほかは既定の 3 つ）');
+    assert.match(job('deploy-preview'), /^ {4}if: .*&& contains\(github\.event\.pull_request\.labels\.\*\.name, 'preview'\)$/m, 'deploy-preview が preview のラベルを条件にしない');
+    assert.match(
+      ci,
+      /^ {2}group: ci-\$\{\{ github\.ref \}\}\$\{\{ github\.event\.action == 'labeled' && github\.event\.label\.name != 'preview' && format\('-label-\{0\}', github\.run_id\) \|\| '' \}\}$/m,
+      'preview 以外のラベルの run が、同じ PR の実行中の CI を取り消す',
+    );
+  });
+
+  test('A3: Playwright のブラウザは actions/cache で package-lock.json をキーにキャッシュし、その後に install --with-deps する', () => {
+    const ss = steps(job('verify'));
+    const cache = ss.findIndex((s) => /uses: actions\/cache@\S+/.test(s));
+    const install = ss.findIndex((s) => /^ +run: npx playwright install --with-deps chromium$/m.test(s));
+    assert.ok(cache >= 0 && install > cache, 'キャッシュの step が Playwright の導入の前にない');
+    assert.match(ss[cache], /^ {10}path: ~\/\.cache\/ms-playwright$/m);
+    assert.match(ss[cache], /^ {10}key: playwright-\$\{\{ runner\.os \}\}-\$\{\{ hashFiles\('package-lock\.json'\) \}\}$/m);
+    assert.equal((ci.match(/uses: actions\/cache@/g) ?? []).length, 1, 'キャッシュは Playwright の 1 つだけ');
   });
 
   test('npm に統一（npm ci・cache: npm・npx playwright・PW_CHANNEL=chromium、pnpm なし）', () => {
     assert.doesNotMatch(ci, /pnpm/);
     assert.match(ci, /cache: npm/);
-    const e = job('e2e');
-    assert.match(e, /run: npx playwright install --with-deps chromium/);
-    assert.match(e, /PW_CHANNEL: chromium/);
+    const v = job('verify');
+    assert.match(v, /run: npx playwright install --with-deps chromium/);
+    assert.match(v, /PW_CHANNEL: chromium/);
   });
 
-  // ---- e2e ジョブへのビルドの受け渡し（BL-095。e2e 系 2 種と本番 4 種。PoC の分岐は撤去） ----
+  // ---- E2E が配信するビルド（BL-095 から e2e 系 2 種と本番 4 種。A1 で同じジョブで作る） ----
   /** コメント行を除いた本文（注記に書いた語で検査が通ったり落ちたりしないように） */
   const code = (body) => body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
 
-  test('verify は E2E_JOB_TARGETS の 6 つだけを dist-e2e として e2e ジョブに渡す（PoC の dist/e2e・e2e-poki はない）', () => {
-    const st = steps(job('verify')).find((s) => s.includes('name: dist-e2e'));
-    assert.ok(st, 'verify に dist-e2e の upload-artifact がない');
-    const block = /^ {10}path: \|\n((?: {12}\S.*\n)+)/m.exec(code(st));
-    assert.ok(block, 'dist-e2e の path が複数行の一覧になっていない');
-    const paths = block[1].trim().split('\n').map((l) => l.trim());
-    for (const p of paths) assert.match(p, /^dist\/[a-z0-9-]+\/$/, `dist-e2e の path が dist/<名前>/ の形でない: ${p}`);
-    assert.deepEqual(paths.map((p) => p.slice(5, -1)).sort(), [...E2E_JOB_TARGETS].sort(), 'dist-e2e の path が E2E_JOB_TARGETS と一致しない');
-    assert.match(st, /if-no-files-found: error/);
-    assert.match(st, /retention-days: 1\n/, '保存は 1 日（500MB の枠）');
-    const e = job('e2e');
-    assert.match(e, /name: dist-e2e\n {10}path: dist\/\n/, 'e2e ジョブは dist-e2e を dist/ に受け取る');
+  test('A1: dist-e2e の受け渡しはない（E2E は同じジョブのビルドを使う）。保存するのはデプロイ用の dist-web（1 日）と失敗したときの記録だけ', () => {
+    const c = code(ci);
+    assert.doesNotMatch(c, /dist-e2e|download-artifact@\S+\n {8}with:\n {10}name: (?!dist-web\n)/, 'dist-e2e の保存・受け取りが残っている');
+    const st = steps(job('verify')).find((s) => /^ {10}name: dist-web$/m.test(s));
+    assert.ok(st, 'verify に dist-web の upload-artifact がない');
+    assert.match(st, /^ {10}path: dist\/web\/$/m);
+    assert.match(st, /^ {10}retention-days: 1$/m, '保存は 1 日（500MB の枠）');
+    assert.match(st, /^ {10}if-no-files-found: error$/m);
   });
 
-  test('e2e ジョブは受け取ったビルドを check-e2e-dist.mjs で確かめてから（Playwright の導入より前）、常に npm run test:e2e を流す', () => {
-    const e = job('e2e');
-    const c = code(e);
+  test('verify は check-e2e-dist.mjs で E2E が配信する 6 つ（E2E_JOB_TARGETS）を Playwright の導入の前に確かめ、常に npm run test:e2e を流す', () => {
+    const v = job('verify');
+    const c = code(v);
     for (const [re, why] of [
       [/PW_DIST/, 'PW_DIST を渡さない（serve.mjs で mode の outDir より優先され、S2 の PW_MODE=e2e-crazygames を上書きする）'],
       [/smoke\.spec\.ts/, 'PoC のスモークだけを流す分岐は撤去済み'],
@@ -668,19 +694,19 @@ describe('ci.yml', () => {
       [/pick-e2e-dist/, 'pick-e2e-dist.mjs は check-e2e-dist.mjs に置き換えた'],
     ])
       assert.doesNotMatch(c, re, why);
-    const ss = steps(e);
+    const ss = steps(v);
     const at = (re, what) => {
       const i = ss.findIndex((s) => re.test(s));
-      assert.ok(i >= 0, `e2e ジョブに ${what} がない`);
+      assert.ok(i >= 0, `verify に ${what} がない`);
       return i;
     };
     const order = [
-      at(/uses: actions\/download-artifact@\S+\n {8}with:\n {10}name: dist-e2e\n/, 'dist-e2e の受け取り'),
+      at(/^ +run: npm run build:e2e$/m, 'build:e2e'),
       at(/^ +run: node scripts\/check-e2e-dist\.mjs$/m, 'check-e2e-dist.mjs'),
       at(/^ +run: npx playwright install --with-deps chromium$/m, 'Playwright の導入'),
       at(/^ +run: npm run test:e2e$/m, 'npm run test:e2e（1 行だけの run）'),
     ];
-    for (let i = 1; i < order.length; i++) assert.ok(order[i - 1] < order[i], `e2e ジョブの step の順番が違う（${i} 番目）`);
+    for (let i = 1; i < order.length; i++) assert.ok(order[i - 1] < order[i], `verify の E2E の step の順番が違う（${i} 番目）`);
   });
 
   // ---- コードレビュー PR #1 の Must: CI から本番（Pages の本番ブランチ main）に出さない ----
@@ -695,6 +721,24 @@ describe('ci.yml', () => {
 
   test('本番に出さない: PR は main をベースにしたものだけで動く（head が main の PR を作れないようにする）', () => {
     assert.match(ci, /^on:\n {2}pull_request:\n {4}branches: \[main\]\n/m);
+  });
+
+  test('本番に出さない（PR #25 のレビュー S-2）: pages deploy は deploy-preview・deploy-staging の 2 つだけで、どちらも --branch を明示する。secrets を参照するのもこの 2 つだけ', () => {
+    // --branch がないと wrangler は git のブランチ（main の push では main＝Pages の本番ブランチ）を使いうる【一般知見・要確認】
+    const all = [...code(ci).matchAll(/pages deploy[^\n]*/g)].map((m) => m[0]);
+    assert.equal(all.length, 2, `pages deploy が 2 か所でない: ${all.join(' / ')}`);
+    for (const name of names(ci)) {
+      const body = code(job(name));
+      if (name === 'deploy-preview' || name === 'deploy-staging') {
+        const d = /pages deploy[^\n]*/.exec(body)?.[0];
+        assert.ok(d, `${name} に pages deploy がない`);
+        assert.match(d, / --branch=\S+/, `${name} の pages deploy が --branch を明示しない: ${d}`);
+      } else {
+        assert.doesNotMatch(body, /pages deploy/, `${name} に pages deploy がある`);
+        assert.doesNotMatch(body, /\bsecrets\b/, `${name} が secrets を参照している（secrets はデプロイの 2 つのジョブだけ）`);
+      }
+    }
+    assert.doesNotMatch(code(ci.slice(0, ci.indexOf('\njobs:'))), /\bsecrets\b/, 'ワークフロー直下（env: など）で secrets を参照している');
   });
 
   test('本番に出さない: deploy-preview は同じリポジトリの PR だけ。空・main・staging・production のブランチ名を、同じ step で deploy の前に拒否する', () => {
@@ -765,11 +809,19 @@ const HTML_REPORT = "hashFiles('playwright-report/index.html')";
  * （index.html がないとき）だけ。成功した回には何も残さない。failure()・always() を使うのはこの 2 つの step だけ。
  * テストの step には、ジョブより短い timeout-minutes（ジョブのタイムアウトで止まると failure() の step も動かず、何も残らない）
  */
-function assertFailureReportPolicy(body, label, testRuns) {
+function assertFailureReportPolicy(body, label, testRuns, allowUploads = []) {
   const ss = stepsOf(body);
   // step の最初の行が `- if:` の形でも `- name:` の下の `if:` でも捕まえる（PR #9 のレビュー S-2 (1)）
   const ifOf = (s) => /^ {6}(?:- | {2})if: (.*)$/m.exec(s)?.[1] ?? '';
-  const uploads = ss.filter((s) => /uses: actions\/upload-artifact@/.test(s));
+  const artifactOf = (s) => /^ {10}name: (\S+)$/m.exec(s)?.[1];
+  // 記録以外に許す保存（名前で明示。例: ci.yml の verify のデプロイ用の dist-web。A1）は、条件なし・1 日
+  const others = ss.filter((s) => /uses: actions\/upload-artifact@/.test(s) && allowUploads.includes(artifactOf(s)));
+  assert.equal(others.length, allowUploads.length, `${label}: 許した保存（${allowUploads.join('・')}）がない`);
+  for (const s of others) {
+    assert.equal(ifOf(s), '', `${label}: ${artifactOf(s)} の保存に if: がある`);
+    assert.match(s, /^ {10}retention-days: 1$/m, `${label}: ${artifactOf(s)} の保存は 1 日`);
+  }
+  const uploads = ss.filter((s) => /uses: actions\/upload-artifact@/.test(s) && !others.includes(s));
   // このジョブの保存は記録の 2 つだけ（3 つ目を足すなら、この検査を明示的に変える。S-2 (2)）
   assert.equal(uploads.length, 2, `${label}: upload-artifact の step が 2 つでない（${uploads.length}）。失敗したときの記録の 2 つ以外に保存を足していないか`);
   const report = uploads.filter((s) => /^ {10}path: playwright-report\/$/m.test(s));
@@ -861,12 +913,12 @@ describe('失敗したときの E2E の記録（BL-099。決定 0006-4・QA 判�
   const ci = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8').replaceAll('\r\n', '\n');
   const pw = readFileSync(join(root, 'playwright.config.ts'), 'utf8');
 
-  test('ci.yml の e2e ジョブ: playwright-report/ だけを 3 日、HTML レポートができなかったときだけ test-results/。failure() はこの 2 つだけ', () => {
-    assertFailureReportPolicy(jobOf(ci, 'e2e'), 'ci.yml の e2e', ['npm run test:e2e']);
+  test('ci.yml の verify（E2E を含む。A1）: playwright-report/ だけを 3 日、HTML レポートができなかったときだけ test-results/。failure() はこの 2 つだけ', () => {
+    assertFailureReportPolicy(jobOf(ci, 'verify'), 'ci.yml の verify', ['npm run test:e2e'], ['dist-web']);
   });
 
   test('ci.yml の成果物の名前: HTML レポートは e2e-report、test-results/ は e2e-test-results（手順書・実行記録の名前と合わせる）', () => {
-    const ss = stepsOf(jobOf(ci, 'e2e'));
+    const ss = stepsOf(jobOf(ci, 'verify'));
     const nameOf = (path) => {
       const st = ss.find((s) => new RegExp(`^ {10}path: ${escRe(path)}$`, 'm').test(s));
       assert.ok(st, `${path} の upload がない`);
