@@ -18,12 +18,16 @@
 //   ポートは 4174（4173 は preview:web・preview:lan の iPhone 確認で使うので避ける）。PW_PORT で変えられる。
 //   本番のビルドは e2e/support/serve-prod.mjs が 4175（PW_PROD_PORT）の /html/123/<target>/ で配信する（ビルドはしない。先に `npm run build:all`）。
 //   ビルドが無くてもサーバーは起動し、prod-builds のテストだけが理由つきで失敗する。
+//   e2e-crazygames のビルドは同じ serve.mjs を PW_MODE=e2e-crazygames で 4176（PW_CG_PORT）に立てる（BL-072）。
+//   build:e2e は e2e-web と e2e-crazygames の両方を作るので、片方だけが無いことはない（無ければ serve.mjs が理由を出して止まる）。
 // ブラウザ: 既定は Playwright の Chromium（channel chromium。CI と同じ）。PW_CHANNEL=chrome でインストール済みの Chrome。
 import { defineConfig, devices, type Project } from '@playwright/test';
 
 const HOST = process.env.PW_HOST ?? '127.0.0.1';
 const PORT = Number(process.env.PW_PORT ?? 4174);
 const PROD_PORT = Number(process.env.PW_PROD_PORT ?? 4175);
+/** e2e-crazygames のビルドの配信（BL-072。e2e/support/crazygames.ts の CG_PORT と同じ既定） */
+const CG_PORT = Number(process.env.PW_CG_PORT ?? 4176);
 const CI = !!process.env.CI;
 const CHANNEL = process.env.PW_CHANNEL ?? 'chromium';
 
@@ -107,6 +111,17 @@ export default defineConfig({
       url: `http://${HOST}:${PROD_PORT}/__health`,
       reuseExistingServer: process.env.PW_REUSE === '1',
       timeout: 30_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      // e2e-crazygames のビルド（BL-072。dist/e2e-crazygames。build:e2e が e2e-web と一緒に作る）。SDK は page.route でモックに差し替える
+      // （e2e/support/crazygames.ts。使う spec は test.use({ baseURL: CG_BASE_URL })）。ポートは PW_CG_PORT（既定 4176）
+      command: 'node e2e/support/serve.mjs',
+      env: { PW_MODE: 'e2e-crazygames', PW_PORT: String(CG_PORT) },
+      url: `http://${HOST}:${CG_PORT}`,
+      reuseExistingServer: process.env.PW_REUSE === '1',
+      timeout: 60_000,
       stdout: 'pipe',
       stderr: 'pipe',
     },
