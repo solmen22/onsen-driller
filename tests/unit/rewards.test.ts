@@ -19,6 +19,7 @@ import {
   gainTickets,
   incomePerSec,
   manualRate,
+  normalizeBoostClock,
   num,
   offlineClaimView,
   stateHash,
@@ -29,6 +30,7 @@ import {
   type GameEvent,
   type GameState,
   type SaveGame,
+  type TicketSource,
 } from '../../src/core/index.ts';
 import { decodeSave, makeEnvelope } from '../../src/save/codec.ts';
 import { parseGame } from '../../src/save/schema.ts';
@@ -151,8 +153,25 @@ describe('温泉チケット（TS-058-01〜05）', () => {
   });
 });
 
+/**
+ * 温泉チケットを得る出来事の種類（QA の条件 3。Q-36 (a)）。src（TICKET_SOURCES・TicketSource）から import せず、ここに文字どおり書く。
+ * src に 5 つ目を足すと、下のテストと型の検査が赤になる。**この一覧を変えるには QA リードの同意が要る**（BL-121。PR #34 のレビュー S-2）
+ */
+const QA_SOURCES = ['guestFirstVisit', 'achievement', 'prestige', 'vein'] as const;
+type QaSource = (typeof QA_SOURCES)[number];
+// 型でも両方向に一致させる（src の TicketSource に足しても、ここから消しても typecheck が赤になる）
+const _sourcesExact: [TicketSource, QaSource] extends [QaSource, TicketSource] ? true : never = true;
+void _sourcesExact;
+
+describe('BL-121 QA の条件 3: チケットの source は 4 つに閉じる（一覧はテストに文字どおり書く）', () => {
+  it('TICKET_SOURCES は QA の 4 つと集合として一致する（順番は問わない・重複なし）', () => {
+    expect(new Set(TICKET_SOURCES).size).toBe(TICKET_SOURCES.length);
+    expect([...TICKET_SOURCES].sort()).toEqual([...QA_SOURCES].sort());
+  });
+});
+
 describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条件 1〜4）', () => {
-  const FIXED: Record<string, number> = {
+  const FIXED: Record<QaSource, number> = {
     guestFirstVisit: PARAMS.tickets.guestFirstVisit,
     achievement: PARAMS.tickets.achievement,
     prestige: PARAMS.tickets.prestige,
@@ -231,7 +250,7 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
           }
           const gained = ofType(events, 'TicketGained');
           for (const e of gained) {
-            expect(TICKET_SOURCES).toContain(e.source); // ① source は 4 つに閉じる
+            expect(QA_SOURCES).toContain(e.source); // ① source は QA の 4 つに閉じる（src の一覧ではなく、テストの一覧と比べる。BL-121）
             expect(e.n + e.overflow).toBe(FIXED[e.source]); // ③ 量は固定（購入の個数・コインの額で変わらない）
             if (e.source === 'guestFirstVisit') guestFirst++;
             if (e.source === 'vein') veinTickets++;
@@ -411,6 +430,76 @@ describe('R2 掘削ブースト（TS-058-06〜12）', () => {
     advance(s, MIN);
     dispatch(s, { type: 'prestige' });
     expect(s.run.boost).toEqual({ remainingMs: 4 * MIN, readyAtWallMs: T0 + 15 * MIN });
+  });
+});
+
+describe('BL-120 休みの残りは 15 分を超えない（normalizeBoostClock。PR #34 のレビュー S-1）', () => {
+  const CD = PARAMS.boost.cooldownMs; // 15 分
+  const HOUR = 60 * MIN;
+  const DAY = 24 * HOUR;
+  /** 時計が進んだ端末（T0）で R2 を使った状態 */
+  const usedAt = (wallMs: number): GameState => {
+    const s = stateWith({ depth: 10 });
+    expect(dispatch(s, { type: 'useBoost', source: 'ad', wallMs }).ok).toBe(true);
+    return s;
+  };
+
+  it('前提: 休みの長さは PARAMS の 15 分', () => {
+    expect(CD).toBe(15 * MIN);
+  });
+
+  for (const [name, back] of [
+    ['1 時間', HOUR],
+    ['1 日', DAY],
+  ] as const)
+    it(`時計が ${name}戻ると、休みの残りは 15 分に切り詰める（その 15 分後に使える）`, () => {
+      const s = usedAt(T0);
+      const now = T0 - back;
+      expect(boostView(s, now).cooldownLeftMs).toBe(CD + back); // 正規化の前は上限なし
+      expect(normalizeBoostClock(s, now)).toBe(true);
+      expect(s.run.boost).toEqual({ remainingMs: PARAMS.boost.durationMs, readyAtWallMs: now + CD }); // 効果の残りは変えない
+      expect(boostView(s, now).cooldownLeftMs).toBe(CD);
+      expect(dispatch(s, { type: 'useBoost', source: 'ad', wallMs: now + CD - 1 }).ok).toBe(false);
+      advance(s, PARAMS.boost.durationMs); // 効果を終わらせる（休みは壁時計なので、ロジックの時間では進まない）
+      expect(boostView(s, now + CD - 1)).toMatchObject({ reason: 'cooldown', cooldownLeftMs: 1 });
+      expect(dispatch(s, { type: 'useBoost', source: 'ad', wallMs: now + CD }).ok).toBe(true);
+    });
+
+  it('境界: 残りがちょうど 15 分なら変えない、15 分 + 1ms なら 15 分に戻す', () => {
+    const exact = usedAt(T0);
+    const h = stateHash(exact);
+    expect(normalizeBoostClock(exact, T0)).toBe(false);
+    expect(stateHash(exact)).toBe(h);
+    expect(exact.run.boost.readyAtWallMs).toBe(T0 + CD);
+
+    const over = usedAt(T0);
+    expect(normalizeBoostClock(over, T0 - 1)).toBe(true);
+    expect(over.run.boost.readyAtWallMs).toBe(T0 - 1 + CD);
+    expect(boostView(over, T0 - 1).cooldownLeftMs).toBe(CD);
+  });
+
+  it('休みでない状態（残り 0・休みが終わった後・使ったことがない）と、15 分以内の休みは変えない', () => {
+    const cases: [string, GameState, number][] = [
+      ['残り 0（ちょうど休みが終わる時刻）', usedAt(T0), T0 + CD],
+      ['休みが終わった後', usedAt(T0), T0 + CD + DAY],
+      ['休みの途中（残り 1ms）', usedAt(T0), T0 + CD - 1],
+      ['使ったことがない（readyAtWallMs = 0）', stateWith({ depth: 10 }), T0],
+    ];
+    for (const [name, s, now] of cases) {
+      const before = { ...s.run.boost };
+      const h = stateHash(s);
+      expect(normalizeBoostClock(s, now), name).toBe(false);
+      expect(s.run.boost, name).toEqual(before);
+      expect(stateHash(s), name).toBe(h);
+    }
+  });
+
+  it('何度呼んでも同じ（2 回目は変えない）', () => {
+    const s = usedAt(T0);
+    expect(normalizeBoostClock(s, T0 - DAY)).toBe(true);
+    const h = stateHash(s);
+    expect(normalizeBoostClock(s, T0 - DAY)).toBe(false);
+    expect(stateHash(s)).toBe(h);
   });
 });
 
