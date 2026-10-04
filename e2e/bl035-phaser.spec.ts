@@ -188,7 +188,8 @@ test.describe('BL-035 Phaser の骨格', () => {
     const g = await bootGame(page, { seed: SEED_A });
     // 前提: Phaser が WebGL で描いている（AUTO は WebGL、だめなら Canvas）。GPU のない Linux の Firefox（毎晩の CI）は WebGL が使えず
     // Canvas で描く（2026-09-29 の毎晩 run 36524469312: webgl=false）。Canvas にはコンテキストの喪失がないので、そのときだけ理由つきで対象外。
-    // Chromium（PR の e2e。CI は SwiftShader で WebGL）は WebGL を必須のまま（ここが Canvas になったら不具合として赤にする）
+    // skip は Firefox だけ（QA の記録 org/30_quality/qa-lead/2026-10-04_pr31-ts-035-09-skip.md の条件 1）。Chromium（PR の e2e。CI は
+    // SwiftShader で WebGL）と WebKit 系（毎晩。実機でコンテキストを失いやすい iOS の代わり）は WebGL を必須のまま（Canvas になったら赤）
     const renderer = await page.evaluate(() => {
       const c = document.querySelector('[data-testid="stage"] canvas') as HTMLCanvasElement;
       if (c.getContext('webgl2') ?? c.getContext('webgl')) return 'webgl';
@@ -196,7 +197,7 @@ test.describe('BL-035 Phaser の骨格', () => {
     });
     test.info().annotations.push({ type: '描画の方式', description: renderer });
     test.skip(
-      renderer === 'canvas' && browserName !== 'chromium',
+      renderer === 'canvas' && browserName === 'firefox',
       `${browserName} のこの環境は WebGL が使えず Phaser が Canvas で描いている（コンテキストの喪失は起きない）。Canvas での描画・入力は TS-035-10（S3）`,
     );
     expect(renderer, 'Phaser が WebGL で描いている').toBe('webgl');
