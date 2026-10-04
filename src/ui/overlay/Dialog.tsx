@@ -5,6 +5,10 @@
 // - Esc・×ボタン・背景（ステージを含むダイアログの外）の押下で onDismiss（dismissable が false の間は無効。要求中など）
 // - 開いている間は modal-state に数える（app が掘削の入力を止める。1〜5・Shift は App が使わない）
 // - 背景は画面全体を覆うので、閉じるための押下はステージに届かない（掘削に数えない）
+// - 背景は click で閉じる（pointerdown では閉じない）。タッチでは pointerdown で背景を消すと、後に来る click が
+//   後ろのボタンに届くため（PR #32 のレビューの S-1）。pointerdown は preventDefault だけ（ステージ・フォーカスに届けない）
+// - フォーカスがダイアログの外に落ちたとき（要求中に押したボタンが disabled になる・消える）は本体に戻す。
+//   落ちた後の Esc・Tab も document で拾う（一番上のダイアログだけ。PR #32 のレビューの S-2）
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import { t } from '../../i18n/index.ts';
@@ -28,6 +32,7 @@ const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select
 
 export function Dialog({ testId, titleId, title, onDismiss, dismissable = true, variant = 'modal', children }: DialogProps) {
   const body = useRef<HTMLDivElement>(null);
+  const layer = useRef<HTMLDivElement>(null);
   const dismiss = useRef({ onDismiss, dismissable });
   dismiss.current = { onDismiss, dismissable };
 
@@ -42,11 +47,34 @@ export function Dialog({ testId, titleId, title, onDismiss, dismissable = true, 
     };
   }, []);
 
+  // 描画のたびに: フォーカスが外に落ちていたら（body・中の disabled のボタン）本体に戻す（S-2 (a)）
+  useEffect(() => {
+    const b = body.current;
+    if (!b) return;
+    const a = document.activeElement as HTMLElement | null;
+    if (!a || a === document.body || (b.contains(a) && (a as HTMLButtonElement).disabled === true)) b.focus();
+  });
+
+  // フォーカスがダイアログの外にあるときの Esc・Tab（S-2 (b)）。中にあるときは下の onKeyDown が扱う
+  useEffect(() => {
+    const onDocKeyDown = (e: KeyboardEvent): void => {
+      const l = layer.current;
+      if (!l || !body.current || (e.target instanceof Node && l.contains(e.target))) return;
+      if (e.key !== 'Escape' && e.key !== 'Tab') return;
+      const layers = document.querySelectorAll('.overlay');
+      if (layers[layers.length - 1] !== l) return; // 一番上のダイアログだけ
+      body.current.focus();
+      onKeyDown(e);
+    };
+    document.addEventListener('keydown', onDocKeyDown, true);
+    return () => document.removeEventListener('keydown', onDocKeyDown, true);
+  }, []);
+
   const tryDismiss = (): void => {
     if (dismiss.current.dismissable) dismiss.current.onDismiss();
   };
 
-  const onKeyDown = (e: KeyboardEvent): void => {
+  function onKeyDown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault();
       tryDismiss();
@@ -69,14 +97,16 @@ export function Dialog({ testId, titleId, title, onDismiss, dismissable = true, 
       e.preventDefault();
       first.focus();
     }
-  };
+  }
 
   return (
-    <div class={`overlay overlay-${variant}`} data-testid={`${testId}-layer`} onKeyDown={onKeyDown}>
-      <div class="overlay-backdrop" data-testid={`${testId}-backdrop`} onPointerDown={(e) => {
-        e.preventDefault();
-        tryDismiss();
-      }} />
+    <div class={`overlay overlay-${variant}`} data-testid={`${testId}-layer`} onKeyDown={onKeyDown} ref={layer}>
+      <div
+        class="overlay-backdrop"
+        data-testid={`${testId}-backdrop`}
+        onPointerDown={(e) => e.preventDefault()}
+        onClick={tryDismiss}
+      />
       <div
         class={`dialog dialog-${variant}`}
         data-testid={testId}

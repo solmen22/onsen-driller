@@ -74,6 +74,14 @@ const pointerdown = (el: Element): void => {
   });
 };
 
+/** 背景を押して離す（pointerdown → click）。閉じるのは click（PR #32 のレビューの S-1） */
+const tap = (el: Element): void => {
+  pointerdown(el);
+  void act(() => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  });
+};
+
 describe('ご褒美のシート（R2・R3）', () => {
   it('TS-046-01 動画が使える・チケット 3 枚: btn-boost でシートが開き、動画（アイコン付き）・チケット（枚数）・閉じるが同じ部品で並ぶ', () => {
     const w = wired();
@@ -163,7 +171,7 @@ describe('ご褒美のシート（R2・R3）', () => {
     expect(m.get('sheet-ticket').hasAttribute('disabled')).toBe(true);
     m.key({ key: 'Escape' }, 'keydown', m.get('sheet-reward'));
     m.click('sheet-reward-x');
-    pointerdown(m.get('sheet-reward-backdrop'));
+    tap(m.get('sheet-reward-backdrop'));
     expect(m.q('sheet-reward')).not.toBeNull();
     w.setAvailable(false);
     await w.finish('failed');
@@ -265,7 +273,7 @@ describe('おかえり（M1。TS-046-06・07）', () => {
   it.each([
     ['Esc', (mm: Mounted) => mm.key({ key: 'Escape' }, 'keydown', mm.get('modal-welcome'))],
     ['×', (mm: Mounted) => mm.click('modal-welcome-x')],
-    ['背景', (mm: Mounted) => pointerdown(mm.get('modal-welcome-backdrop'))],
+    ['背景', (mm: Mounted) => tap(mm.get('modal-welcome-backdrop'))],
   ])('TS-046-06 %s で閉じても「受け取る」（×1）と同じ', (_name, close) => {
     const got = mountWelcome(wired().ctx, 1);
     close(m as Mounted);
@@ -396,7 +404,7 @@ describe('確認（M3。TS-046-12）', () => {
   it.each([
     ['Esc', (mm: Mounted) => mm.key({ key: 'Escape' }, 'keydown', mm.get('modal-confirm'))],
     ['×', (mm: Mounted) => mm.click('modal-confirm-x')],
-    ['背景', (mm: Mounted) => pointerdown(mm.get('modal-confirm-backdrop'))],
+    ['背景', (mm: Mounted) => tap(mm.get('modal-confirm-backdrop'))],
     ['いいえ', (mm: Mounted) => mm.click('confirm-cancel')],
   ])('%s は取り消し（はいの操作をしない）', (_name, close) => {
     const got: string[] = [];
@@ -472,13 +480,52 @@ describe('ダイアログの属性・フォーカス・入力（TS-046-13・14�
     m.click('btn-boost');
     press();
     expect(hits()).toBe(0);
-    pointerdown(m.get('sheet-reward-backdrop')); // 背景（ステージに重なる）で閉じる
+    pointerdown(m.get('sheet-reward-backdrop')); // 押しただけでは閉じない（S-1。タッチで後ろに click が抜けないように）
+    expect(m.q('sheet-reward')).not.toBeNull();
+    tap(m.get('sheet-reward-backdrop')); // 背景（ステージに重なる）を押して離すと閉じる
     expect(m.q('sheet-reward')).toBeNull();
     expect(hits()).toBe(0);
     press();
     expect(hits()).toBe(1);
     off();
     input.dispose();
+  });
+});
+
+describe('要求中・失敗の後のフォーカスと Esc（PR #32 のレビューの S-2。TS-046-13 の追加）', () => {
+  it('動画を押す → ボタンが disabled になりフォーカスが落ちても、本体に戻る。失敗の後に Esc（フォーカスは外）で閉じる', async () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx });
+    m.click('btn-boost');
+    const d = m.get('sheet-reward');
+    const video = m.get('sheet-video');
+    void act(() => video.focus());
+    m.click('sheet-video'); // 要求中: 動画のボタンは disabled
+    expect(video.hasAttribute('disabled')).toBe(true);
+    expect(document.activeElement).toBe(d); // disabled のボタンに残さず本体へ
+    void act(() => d.blur()); // ブラウザがフォーカスを body に落とした状態を作る
+    expect(document.activeElement).toBe(document.body);
+    w.setAvailable(false);
+    await w.finish('failed'); // 失敗の後の描画で本体に戻る
+    expect(document.activeElement).toBe(d);
+    void act(() => d.blur());
+    m.key({ key: 'Escape' }, 'keydown', document.body); // フォーカスが外（body）でも Esc で閉じる
+    expect(m.q('sheet-reward')).toBeNull();
+  });
+
+  it('要求中にフォーカスが外（body）にあるときの Esc は閉じない。Tab は中のボタンに戻す', () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx });
+    m.click('btn-boost');
+    const d = m.get('sheet-reward');
+    m.click('sheet-video');
+    void act(() => d.blur());
+    m.key({ key: 'Escape' }, 'keydown', document.body);
+    expect(m.q('sheet-reward')).not.toBeNull(); // Q-41 (b)
+    void act(() => d.blur());
+    m.key({ key: 'Tab' }, 'keydown', document.body);
+    expect(d.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
   });
 });
 
