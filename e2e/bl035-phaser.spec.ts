@@ -244,7 +244,7 @@ test.describe('BL-035 Phaser の骨格', () => {
     expect(hitsOf(s2)).toBeGreaterThan(hitsOf(s1));
     expect(Number(s2.run.coins)).toBeGreaterThan(Number(s0.run.coins));
     // 捕まえていない例外がない
-    expect(harness.pageErrors).toEqual([]);
+    expect(await harness.uncaughtErrors()).toEqual([]);
     expect(await g.errors()).toEqual([]);
   });
 });

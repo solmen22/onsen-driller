@@ -158,7 +158,7 @@ test.describe('E5 保存と再開', () => {
       await threeSaves(page, harness, g);
       const r = await reopenWithBrokenNewer(page, harness, (raw, ls, key) => ls.set(key, raw.slice(0, Math.floor(raw.length / 2))));
       expect(await r.g.getState()).toEqual(r.slots[r.y].env!.game);
-      expect(harness.pageErrors).toEqual([]);
+      expect(await harness.uncaughtErrors()).toEqual([]);
     });
 
     test('TS-E5-10 壊れた枠から復元した後の保存は、壊れていた X に書かれ、Y は 1 バイトも変わらない', async ({ page, harness }) => {
@@ -198,7 +198,7 @@ test.describe('E5 保存と再開', () => {
       ls.set(SLOT_KEYS.b, broken.b);
     });
     const g2 = await bootGame(reopened.page, { startPaused: true });
-    expect(harness.pageErrors).toEqual([]);
+    expect(await harness.uncaughtErrors()).toEqual([]);
     await expect(reopened.page.getByTestId('hud-coins')).toBeVisible();
     // 新しいゲーム
     const s = await g2.getState();
@@ -249,7 +249,7 @@ test.describe('E5 保存と再開', () => {
     await reloadGame(reopened.page);
 
     const after = await readLocalStorage(reopened.context, harness.origin);
-    expect(harness.pageErrors, '捕まえていない例外がない').toEqual([]);
+    expect(await harness.uncaughtErrors(), '捕まえていない例外がない').toEqual([]);
     expect(after.get(SLOT_KEYS[x]), 'X（新しい版の枠）の生の文字列が 1 バイトも変わらない').toBe(futureRaw);
     expect(after.get(SLOT_KEYS[y]) ?? null, 'Y も変わらない').toBe(yRaw);
     expect(after.has(BROKEN_SLOT_KEY), 'onsen-driller:save:broken ができない').toBe(false);

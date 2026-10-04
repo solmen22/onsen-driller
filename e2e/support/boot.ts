@@ -18,7 +18,11 @@
 //   - 再読み込みの後も時計は止まったまま（Playwright が時計の操作を新しい文書で再生する）。
 //   - Clock API の偽のタイマー・rAF の中の例外は window の error にならない（2026-09-29 の実測・PR #15 のレビュー連絡 1）:
 //     時計を止めている間は runFor・fastForward の呼び出し元に投げ返され（テストが失敗する）、流れている間（起動中・pauseClock: false）は
-//     console.error にだけ出る（pageErrors・__game.errors() には入らない）。本物のタイマーの例外が要るテストは skipClockInstall で起動する
+//     console.error にだけ出る（pageErrors・__game.errors() には入らない）。「捕まえていない例外がない」は harness.uncaughtErrors() で
+//     見る（pageErrors に加えて、Clock API が console.error に出したこの例外も数える。BL-108）。
+//     本物のタイマーの例外が要るテストは `skipClockInstall: true, pauseClock: false` で起動する（両方が要る。page.clock.pauseAt は
+//     Clock API が入っていなければその場で入れる〔_installIfNeeded()〕ので、skipClockInstall だけでは起動の後のタイマーが黙って
+//     偽のタイマーになる。PR #15 のレビュー N-5）
 import type { Frame, Page } from '@playwright/test';
 import { hooks, type Hooks, type HookTarget } from './hooks.ts';
 
