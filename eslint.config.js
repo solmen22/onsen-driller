@@ -279,6 +279,8 @@ export default defineConfig(
   },
   // 性質テスト（fast-check）は呼び出しごとに fcRuns を通す（BL-090。PR #14 のレビュー S-1。tests/unit/lint-fc-runs.test.ts で確かめる）
   // （同じ規則を別の設定で重ねると上書きになるので、ファイルの組ごとに 1 つの設定にまとめる）
+  // tests/ では無効化のコメント（eslint-disable）を効かせない（レビューの見落としでも機械で止める。PR #14 の追加の差分のレビュー N-4）
+  { files: ['tests/**'], linterOptions: { noInlineConfig: true } },
   {
     files: ['tests/**/*.test.?(c|m)[jt]s?(x)'],
     ignores: ['tests/helpers/fc-runs.test.ts'],

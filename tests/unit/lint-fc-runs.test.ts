@@ -105,6 +105,12 @@ describe('S-1 fcRuns を通さない呼び出しは、呼び出しごとにエ�
       expect(await rules(f, `${HEAD}export const check = (): void => fc.assert(p, fcRuns(1));`), f).toContain(RULE);
   });
 
+  it('無効化のコメント（eslint-disable）は tests/ では効かない（N-4）', async () => {
+    for (const d of ['// eslint-disable-next-line no-restricted-syntax\n', '/* eslint-disable */\n', '// eslint-disable-next-line\n'])
+      for (const f of [TEST, 'tests/arbitraries/__fixture__.ts', 'tests/helpers/fc-runs.ts', 'tests/helpers/fc-runs.test.ts'])
+        expect(await rules(f, `${HEAD}${d}fc.assert(p, { numRuns: 5 });`), `${f}: ${d}`).toContain(RULE);
+  });
+
   it('ヘルパーのテスト（numRuns の語を使う）でも、fcRuns を通さない呼び出しはエラー', async () => {
     expect(await rules('tests/helpers/fc-runs.test.ts', `${HEAD}fc.assert(p);`)).toContain(RULE);
     expect(await rules('tests/helpers/fc-runs.test.ts', `export const o = { numRuns: 1 };`)).toEqual([]);
