@@ -12,17 +12,45 @@
 //   PW_MODE           配信するビルドの mode（既定 e2e。出力先は vite.config.ts の mode の outDir に従う。S2 から e2e-crazygames も）
 //   PW_DIST           配信するディレクトリを直接指定する（PoC の sdk-live.spec.ts 用。mode の outDir より優先）
 //   PW_HOST / PW_PORT 待ち受けのホストとポート（既定 127.0.0.1:4174）
+//
+// ほかに返すもの: ポータルの枠を模した親ページ（PARENT_PATH。BL-101 の別オリジンの版 TS-012-26・27 が
+// http://localhost:<port>/__e2e_parent?... で読む）。page.route で返すと Chromium の Local Network Access で枠が止まるため
+// （e2e/support/portal-page.ts の注）。中身は問い合わせの文字列で決まり、ゲームのビルドとは関係しない
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { preview } from 'vite';
+import { PARENT_PATH, parentFromQuery, parentHtml } from './portal-page.ts';
 
 const mode = process.env.PW_MODE ?? 'e2e';
 const host = process.env.PW_HOST ?? '127.0.0.1';
 const port = Number(process.env.PW_PORT ?? 4174);
 const dist = process.env.PW_DIST;
 
+/** @type {import('vite').Plugin} */
+const portalParent = {
+  name: 'e2e-portal-parent',
+  configurePreviewServer(server) {
+    server.middlewares.use((req, res, next) => {
+      const u = new URL(req.url ?? '/', 'http://e2e.invalid');
+      if (u.pathname !== PARENT_PATH) return next();
+      try {
+        const body = parentHtml(parentFromQuery(u.searchParams));
+        res.statusCode = 200;
+        res.setHeader('content-type', 'text/html; charset=utf-8');
+        res.setHeader('cache-control', 'no-store');
+        res.end(body);
+      } catch (e) {
+        res.statusCode = 400;
+        res.setHeader('content-type', 'text/plain; charset=utf-8');
+        res.end(String(e instanceof Error ? e.message : e));
+      }
+    });
+  },
+};
+
 const server = await preview({
   mode,
+  plugins: [portalParent],
   ...(dist ? { build: { outDir: dist } } : {}),
   preview: { host, port, strictPort: true, open: false },
   logLevel: 'info',
