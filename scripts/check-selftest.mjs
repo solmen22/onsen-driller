@@ -1124,7 +1124,7 @@ function assertFailureReportPolicy(body, label, testRuns, allowUploads = []) {
 
 describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別のジョブ。決定 0006-2）', () => {
   const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
-  const e = jobOf(nightly, 'e2e');
+  const e = jobOf(nightly, 'e2e-nightly');
 
   test('E2E のジョブは balance・property を呼ばず、ほかのジョブを待たない（BL-090 がそろう前から動く）', () => {
     const c = codeOf(e);
@@ -1156,20 +1156,39 @@ describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別の�
     assert.doesNotMatch(c, /PW_DIST/, 'PW_DIST を渡さない（serve.mjs で mode の outDir より優先される）');
   });
 
-  test('package.json の test:e2e:nightly は WebKit・Firefox を含み、PR ごとの chromium を重ねない', () => {
-    const projects = [...pkg.scripts['test:e2e:nightly'].matchAll(/--project=([\w-]+)/g)].map((m) => m[1]);
-    for (const p of ['webkit', 'firefox']) assert.ok(projects.includes(p), `test:e2e:nightly に ${p} がない`);
-    assert.ok(!projects.includes('chromium'), 'test:e2e:nightly に chromium（PR ごとの test:e2e と同じ）がある');
+  test('package.json の test:e2e:nightly は WebKit・Firefox・モバイル 2 種で、PR ごとの chromium・prod-builds を重ねず、失敗の件数に上限がある（PR #9 のレビュー S-1・N-6）', () => {
+    const script = pkg.scripts['test:e2e:nightly'];
+    const projects = [...script.matchAll(/--project=([\w-]+)/g)].map((m) => m[1]);
+    for (const p of ['webkit', 'firefox', 'mobile-safari', 'mobile-chrome']) assert.ok(projects.includes(p), `test:e2e:nightly に ${p} がない`);
+    for (const p of ['chromium', 'prod-builds'])
+      assert.ok(!projects.includes(p), `test:e2e:nightly に ${p}（PR ごとの test:e2e で流しているもの）がある`);
+    // 上限は playwright.config.ts の maxFailures（PW_MAX_FAILURES）で決める。スクリプトの引数では上書きしない
+    assert.doesNotMatch(script, /--max-failures/, 'test:e2e:nightly の --max-failures（上限は nightly.yml の PW_MAX_FAILURES で決める）');
+  });
+
+  test('毎晩の E2E は PW_MAX_FAILURES=25 で失敗の件数に上限がある（全体が落ちたときのレポートと分数を抑える。PR #9 のレビュー S-1。実行・修復エンジニアの決定）', () => {
+    const env = /^ {4}env:\n((?: {6}.*\n)+)/m.exec(e)?.[1] ?? '';
+    const m = /^ {6}PW_MAX_FAILURES: (\d+)(?:\s+#.*)?$/m.exec(env);
+    assert.ok(m, 'nightly.yml の e2e-nightly ジョブの env に PW_MAX_FAILURES がない（全体が落ちるとレポートが 0.1〜0.4GB になりうる。infra §4-3）');
+    assert.equal(Number(m[1]), 25, `PW_MAX_FAILURES=${m[1]}（実行・修復エンジニアの決定は 25）`);
+    assert.equal((codeOf(nightly).match(/PW_MAX_FAILURES/g) ?? []).length, 1, 'PW_MAX_FAILURES を 2 か所以上で決めている');
   });
 
   test('失敗したときの記録: playwright-report/ だけを 3 日、HTML レポートができなかったときだけ test-results/（BL-099 と同じ方針）', () => {
-    assertFailureReportPolicy(e, 'nightly.yml の e2e', ['npm run test:e2e:nightly', 'npm run test:e2e:full']);
+    assertFailureReportPolicy(e, 'nightly.yml の e2e-nightly', ['npm run test:e2e:nightly', 'npm run test:e2e:full']);
   });
 
-  test('schedule は週 2 回（月・木の 03:00 JST＝UTC の日・水 18:00。CEO 決定）。コメントのままでも値を固定する', () => {
+  test('schedule は週 2 回（月・木の 03:17 JST＝UTC の日・水 18:17。CEO 決定の 03:00 を毎時 0 分からずらした。PR #9 のレビュー N-3）', () => {
     const crons = [...nightly.matchAll(/cron: '([^']+)'/g)].map((m) => m[1]);
     assert.ok(crons.length >= 1, 'cron の行がない');
-    for (const c of crons) assert.equal(c, '0 18 * * 0,3');
+    for (const c of crons) assert.equal(c, '17 18 * * 0,3');
+  });
+
+  test('schedule は on: の下にあり、workflow_dispatch と並ぶ（字下げを誤るとワークフロー全体が無効になる。PR #9 のレビュー N-4）', () => {
+    const on = /^on:\n((?: {2}.*\n|\s*\n)+)/m.exec(codeOf(nightly))?.[1] ?? '';
+    assert.match(on, /^ {2}schedule:\n {4}- cron: '17 18 \* \* 0,3'/m, 'on: の直下に schedule: と - cron: がない');
+    assert.match(on, /^ {2}workflow_dispatch:$/m, 'on: の直下に workflow_dispatch: がない（手動実行ができなくなる）');
+    assert.equal((codeOf(nightly).match(/^\s*schedule:/gm) ?? []).length, 1, 'schedule: が on: の外にもある');
   });
 });
 
