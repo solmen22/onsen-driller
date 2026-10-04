@@ -17,6 +17,7 @@ import {
   type GameEvent,
   type GameState,
 } from '../../src/core/index.ts';
+import { measure } from '../support/cpu-time.ts';
 import { stateWith } from '../support/states.ts';
 
 const hits = (s: GameState): number => s.stats.hits;
@@ -291,19 +292,17 @@ describe('TS-012-12 1 ステップで複数のブロックが壊れる', () => {
 
 describe('TS-012-13 極端な威力でも 1 ステップが短時間で終わる', () => {
   it('ドリル Lv10000（威力 1e120 超）: 50ms 以内・結果が決定的', () => {
-    const run = (): { ms: number; hash: string } => {
-      const s = stateWith({ seed: 4, depth: 450, drill: 10_000, tool: 7 });
-      const t0 = performance.now();
-      dispatch(s, { type: 'tap' });
-      return { ms: performance.now() - t0, hash: stateHash(s) };
-    };
-    // 実時間の判定を安定させる（全体の実行・CI では 1 回目の JIT やごみ集めで 60ms 台になることがあった。PM の指摘）:
-    // 1 回温めてから 5 回測り、中央値で判定する
-    const first = run();
-    const runs = Array.from({ length: 5 }, run);
-    for (const r of runs) expect(r.hash).toBe(first.hash);
-    const median = runs.map((r) => r.ms).sort((x, y) => x - y)[2] ?? Number.POSITIVE_INFINITY;
-    expect(median).toBeLessThan(50);
+    const make = (): GameState => stateWith({ seed: 4, depth: 450, drill: 10_000, tool: 7 });
+    // 1 回温める（1 回目の JIT やごみ集めを外す。PM の指摘）
+    const first = make();
+    dispatch(first, { type: 'tap' });
+    // 判定は 5 回続けた dispatch のこのスレッドの CPU 時間 ÷ 5（BL-118。実時間は PC の負荷で伸びるため。CPU が測れなければ実時間の中央値）
+    const states = Array.from({ length: 5 }, make);
+    const t = measure('TS-012-13', 5, (i) => {
+      dispatch(states[i]!, { type: 'tap' });
+    });
+    for (const s of states) expect(stateHash(s)).toBe(stateHash(first));
+    expect(t.ms, `${t.method} で判定`).toBeLessThan(50);
   });
 });
 

@@ -27,6 +27,7 @@ import {
 import { decompressUriBounded } from '../../src/save/lz-bounded.ts';
 import { MAX_ID_LIST, parseGame, SAVE_SCHEMA_VERSION } from '../../src/save/schema.ts';
 import { gameStateArb } from '../arbitraries/state.ts';
+import { measureOnce } from '../support/cpu-time.ts';
 import { stateWith } from '../support/states.ts';
 
 const APP = '0.0.1';
@@ -351,12 +352,17 @@ describe('TS-026-21 schema の境界（新しい版・今の版・版として�
 
 describe('TS-026-14 巨大・深すぎる入力で落ちず、すぐ拒否する', () => {
   it('5MB の文字列 → tooLarge、深さ 10,000 の入れ子 → shape、どちらも 1 秒以内', () => {
-    const t0 = performance.now();
-    expect(decodeSave('x'.repeat(5_000_000))).toEqual({ ok: false, reason: 'tooLarge' });
-    expect(decodeSave(`${'['.repeat(10_000)}${']'.repeat(10_000)}`)).toEqual({ ok: false, reason: 'shape' });
+    const big = 'x'.repeat(5_000_000);
+    const nested = `${'['.repeat(10_000)}${']'.repeat(10_000)}`;
     const deep = `{"schema":1,"seq":1,"savedAt":0,"appVersion":"x","checksum":"00000000","game":${'{"a":'.repeat(5000)}1${'}'.repeat(5000)}}`;
-    expect(decodeSave(deep)).toEqual({ ok: false, reason: 'shape' });
-    expect(performance.now() - t0).toBeLessThan(1000);
+    // 判定はこのスレッドの CPU 時間（BL-118。CPU が測れなければ実時間）
+    const { value: out, timing: t } = measureOnce('TS-026-14', () => [big, nested, deep].map((input) => decodeSave(input)));
+    expect(out).toEqual([
+      { ok: false, reason: 'tooLarge' },
+      { ok: false, reason: 'shape' },
+      { ok: false, reason: 'shape' },
+    ]);
+    expect(t.ms, `${t.method} で判定`).toBeLessThan(1000);
   });
 });
 
@@ -507,10 +513,10 @@ function lzBomb(k: number): string {
 }
 
 describe('TS-026-24 展開の膨張・長すぎる入力（セキュリティ。展開しながら上限で止める）', () => {
-  const timed = (input: string): { reason: string; ms: number } => {
-    const t0 = performance.now();
-    const r = importString(input);
-    return { reason: reasonOf(r), ms: performance.now() - t0 };
+  /** 展開の時間はこのスレッドの CPU 時間で測る（BL-118。CPU が測れなければ実時間） */
+  const timed = (input: string, label = 'TS-026-24'): { reason: string; ms: number } => {
+    const { value: r, timing: t } = measureOnce(label, () => importString(input));
+    return { reason: reasonOf(r), ms: t.ms };
   };
   it('準備: lzBomb の圧縮部は lz-string 自身の展開でも同じ文字列になる', () => {
     for (const k of [1, 2, 5, 100]) expect(LZString.decompressFromEncodedURIComponent(lzBomb(k))).toBe('a'.repeat((k * (k + 1)) / 2));
@@ -521,7 +527,7 @@ describe('TS-026-24 展開の膨張・長すぎる入力（セキュリティ。
       expect(total).toBeGreaterThan(MAX_SAVE_CHARS);
       const packed = lzBomb(k);
       expect(packed.length).toBeLessThan(MAX_IMPORT_CHARS);
-      const r = timed(`ODR1:${packed}.00000000`);
+      const r = timed(`ODR1:${packed}.00000000`, `TS-026-24 ${total} 文字`);
       expect(r.reason, `${total} 文字`).toBe('tooLarge');
       expect(r.ms, `${total} 文字`).toBeLessThan(1000);
     }
@@ -667,12 +673,11 @@ describe('レビュー S-5: ID の配列の重複除去は O(n) で、長さに�
     g.run.upgrades = ids;
     g.meta.perks = ids;
     g.collection.achievements = ids;
-    const t0 = performance.now();
-    const r = parseGame(g);
-    const ms = performance.now() - t0;
+    // 判定はこのスレッドの CPU 時間（BL-118。CPU が測れなければ実時間）
+    const { value: r, timing: t } = measureOnce('S-5 15 万個の ID', () => parseGame(g));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(ms).toBeLessThan(1000);
+    expect(t.ms, `${t.method} で判定`).toBeLessThan(1000);
     expect(r.state.run.upgrades).toHaveLength(MAX_ID_LIST);
     expect(r.state.run.upgrades.slice(0, 3)).toEqual(['u0', 'u1', 'u2']);
     expect(r.state.meta.perks).toHaveLength(MAX_ID_LIST);
@@ -690,9 +695,9 @@ describe('レビュー S-5: ID の配列の重複除去は O(n) で、長さに�
     const junk = Object.fromEntries(Array.from({ length: 100_000 }, (_, i) => [`k${i}`, 1]));
     g.collection.ores = { ...junk, quartz: 3 };
     g.run.springs = { ...junk, simple: { pump: 2 } };
-    const t0 = performance.now();
-    const r = parseGame(g);
-    expect(performance.now() - t0).toBeLessThan(1000);
+    // 判定はこのスレッドの CPU 時間（BL-118。CPU が測れなければ実時間）
+    const { value: r, timing: t } = measureOnce('S-5 10 万キーの表', () => parseGame(g));
+    expect(t.ms, `${t.method} で判定`).toBeLessThan(1000);
     expect(r.ok && r.state.collection.ores).toEqual({ quartz: 3 });
     expect(r.ok && r.state.run.springs).toEqual({ simple: { pump: 2 } });
   });
