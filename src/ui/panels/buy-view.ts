@@ -70,7 +70,7 @@ export function etaOf(s: GameState, cost: Num, lang: Lang): BuyEta {
     const n = formatShortfall(lack, lang); // 不足額だけ切り上げ（足りないのに「あと 0 コイン」と見せない。BL-011）
     return { seconds: null, lack: toStr(lack), text: tn('eta.coins', n, { n }) }; // 英語の単数「1 coin short」（B-N7）
   }
-  // 足りない間は 1 秒以上（Decimal の引き算で差が消えると secondsUntil が 0 を返すため。「あと 0 秒」を出さない。QA の条件 (c)）
+  // 念のため 1 秒以上（secondsUntil は足りない間 1 以上を返す。BL-113。「あと 0 秒」を出さない。QA の条件 (c)）
   const sec = Math.max(1, seconds);
   const p = etaParts(sec);
   return { seconds: sec, lack: toStr(lack), text: t(`eta.${p.unit}`, { n: p.n }) };

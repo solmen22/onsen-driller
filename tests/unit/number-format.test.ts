@@ -181,6 +181,11 @@ describe('表記と「買えるか」の一致（TS-011-09。Q-33）', () => {
           const eta = etaOf(s, cost, lang);
           expect(eta.text).not.toMatch(/(^|\s)0(\s|s|$)/);
           if (eta.seconds !== null) expect(eta.seconds).toBeGreaterThanOrEqual(1);
+          if (!withIncome) {
+            // 収入 0 なら秒の目安はなく（secondsUntil が null。BL-113）、コインの形で出す（PR #38 のレビューの S-1）
+            expect(eta.seconds).toBeNull();
+            expect(eta.text).toMatch(/^(あと \S+ コイン|\S+ coins? short)$/); // 文言の言語は今の setLang（lang は数の表記だけ）
+          }
         },
       ),
       { numRuns: 400, seed: 112 },
