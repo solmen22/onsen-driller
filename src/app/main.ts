@@ -5,10 +5,11 @@ import { createInitialState, interludeLeftMs, type GameState } from '../core/ind
 import { loadPlatform } from '../platform/index.ts';
 import { moveLegacySlots } from '../save/legacy.ts';
 import { SaveSlots } from '../save/slots.ts';
-import { detectLang, setLang, type Lang } from '../i18n/index.ts';
+import { resolveLang, setLang, type Lang } from '../i18n/index.ts';
 import { App } from '../ui/App.tsx';
 import { applyLayout, layoutOf } from '../ui/layout.ts';
 import { Ctx } from '../ui/hooks/use-game.ts';
+import { onModalChange } from '../ui/overlay/modal-state.ts';
 import { playBreak, playHit, resumeAudio, setMuted, unlockAudio } from '../audio/sfx.ts';
 import { startAutosave } from './autosave.ts';
 import { createAppClock } from './clock.ts';
@@ -20,7 +21,8 @@ import { setupInput } from './input.ts';
 import { createLifecycle, signalsHidden } from './lifecycle.ts';
 import { startLoop } from './loop.ts';
 import type { PerfMonitor } from './perf.ts';
-import { loadSettings, saveSettings } from './settings.ts';
+import { makePersistSettings, saveDisplay } from './save-display.ts';
+import { loadSettings } from './settings.ts';
 import { GameStore } from './store.ts';
 import '../styles/global.css';
 
@@ -67,7 +69,7 @@ async function boot(): Promise<void> {
   const storage = platform.storage;
   // 設定（別のキー。壊れていたら初期値）と言語（設定 → platform.locale → navigator.language → 英語。arch §13）
   const settings = loadSettings(storage);
-  setLang(settings.lang === 'auto' ? detectLang(platform.locale()) : settings.lang);
+  setLang(resolveLang(settings.lang, platform.locale())); // 判定は resolveLang の 1 か所（PR #11 のレビュー S-1）
   setMuted(platform.isMuted());
   platform.onMutedChange(setMuted);
 
@@ -87,7 +89,10 @@ async function boot(): Promise<void> {
     state.input.hold = true;
   }
   const store = new GameStore(state);
-  store.setSaveStatus(slots.status);
+  // 読み取り専用（新しい版のセーブ）なら起動直後から readonly（Q-26。最初の保存の前、UI の最初の描画の前）
+  store.setSaveStatus(saveDisplay(slots.status, slots.readOnly));
+  // 設定を書く唯一の口。読み取り専用の間は書かない（Q-26 ③）
+  const persistSettings = makePersistSettings(storage, settings, () => slots.readOnly);
   // 祝いの合図（CrazyGames の happytime。最初の源泉・お客さんの初来訪・転生の完了だけ。app/happy-time.ts）
   store.onEvents((evs) => {
     for (const e of evs) if (isHappyMoment(e, store.state)) platform.happyTime();
@@ -111,10 +116,13 @@ async function boot(): Promise<void> {
   // タッチでは pointerdown が利用者の操作とみなされないブラウザがあるので、pointerup・touchend でも呼ぶ（running なら何もしない）
   for (const type of ['pointerdown', 'pointerup', 'touchend', 'keydown']) window.addEventListener(type, resumeAudio, true);
 
+  // モーダル・シートの表示中は掘削の入力を止める（ゲームは止めない。Q-37 (e)。BL-046）
+  onModalChange((open) => input.setBlocked('modal', open));
+
   // 広告の再生中はループ・入力・音を止め、gameplay も止める
   platform.ads.onPlaying((playing) => {
     life.setPaused('ad', playing);
-    input.setEnabled(!playing);
+    input.setBlocked('ad', playing);
     setMuted(playing || platform.isMuted());
     if (playing) loop.pause();
     else loop.resume();
@@ -127,7 +135,7 @@ async function boot(): Promise<void> {
     win: window,
     doc: document,
     isSuppressed: () => settings.recordingMode || slots.readOnly || params.demo,
-    onStatus: (st) => store.setSaveStatus(st),
+    onStatus: (st) => store.setSaveStatus(saveDisplay(st, slots.readOnly)),
   });
   // タブを隠したら gameplay とループを止める（保存は autosave が先に行う。戻ったときの早送りは S3 の BL-030）。
   // 見えるようになったら、ほかに止まる理由がなければ gameplay を再開する（CrazyGames は gameplay の合図を送らず、ループだけ止める）
@@ -142,9 +150,10 @@ async function boot(): Promise<void> {
 
   const onLangChange = (l: Lang): void => {
     settings.lang = l;
-    saveSettings(storage, settings);
+    persistSettings();
   };
-  render(h(Ctx.Provider, { value: { store, platform, version: APP_VERSION, onLangChange } }, h(App, {})), uiRoot);
+  const now = (): number => clock.wallNow();
+  render(h(Ctx.Provider, { value: { store, platform, version: APP_VERSION, onLangChange, now } }, h(App, {})), uiRoot);
 
   const contextEvents: string[] = [];
   // 描画（Phaser）の起動。チャンクの読み込みや起動の失敗は記録に残し（errors()・S3 の「エラー情報をコピー」）、

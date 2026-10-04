@@ -4,7 +4,13 @@ import { useContext, useEffect, useRef, useState } from 'preact/hooks';
 import type { GameState } from '../../core/index.ts';
 import type { GameStore } from '../../app/store.ts';
 import type { Lang } from '../../i18n/index.ts';
-import type { Platform } from '../../platform/types.ts';
+import type { Platform, RewardPlacement, RewardResult } from '../../platform/types.ts';
+
+/** ご褒美の core の口（BL-058 がつなぐ。ない間はチケットで使うボタンを押せない） */
+export interface RewardHooks {
+  /** R2: 温泉チケット 1 枚で掘削ブーストを使う（core の useBoost('ticket')） */
+  useBoostTicket(): void;
+}
 
 export interface UiContext {
   store: GameStore;
@@ -12,6 +18,15 @@ export interface UiContext {
   version: string;
   /** 言語を選んだ（app が設定に保存する） */
   onLangChange?: (l: Lang) => void;
+  /** 壁時計（ms。ブーストの休みの残りの表示。既定は Date.now） */
+  now?: () => number;
+  /** ご褒美の core の口（BL-058）。ない間はチケットのボタンを押せない */
+  rewards?: RewardHooks;
+  /**
+   * 動画のご褒美を要求する（BL-059。Q-41）。結果が返るまでシートは閉じない。ない間は動画のボタンを出さない（web と同じ）。
+   * 'rewarded' のときの報酬の付与は BL-059 の側で行う
+   */
+  requestReward?: (p: RewardPlacement) => Promise<RewardResult>;
 }
 
 export const Ctx = createContext<UiContext | null>(null);
@@ -59,7 +74,7 @@ export function useGame<T>(selector: (s: GameState) => T, equals: (a: T, b: T) =
   return value;
 }
 
-/** 保存の状態（'ok' | 'failing' | 'unavailable'）。store の通知で読み直す（BL-027 の save-warning） */
+/** 保存の状態（'ok' | 'failing' | 'unavailable' | 'readonly'）。store の通知で読み直す（BL-027 の save-warning・BL-046） */
 export function useSaveStatus(): GameStore['saveStatus'] {
   const { store } = useUi();
   const [value, setValue] = useState(store.saveStatus);
