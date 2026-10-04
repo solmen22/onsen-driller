@@ -91,6 +91,21 @@ export function useBoost(s: GameState, source: 'ad' | 'ticket', wallMs: number, 
   return null;
 }
 
+/**
+ * 休みの残り（readyAtWallMs − wallMs）を休みの長さ（PARAMS.boost.cooldownMs、15 分）以下に戻す（BL-120。PR #34 のレビュー S-1）。
+ * 休みは壁時計なので、時計が進んだ端末で使い、後で時計が戻る（自動の時刻合わせ・別の端末への書き出しと読み込み）と、
+ * 残りが上限なしに長くなる（その間 R2 が広告でもチケットでも使えない）。休みの残りは 15 分を超えないという不変条件をここで保つ。
+ * 超えていなければ（休みでない・ちょうど 15 分を含む）何も変えない。変えたら true。
+ * 呼び出し（起動時・復帰時）は BL-030 で app から入れる。効果の残り（remainingMs。ロジックの時間）には触れない
+ */
+export function normalizeBoostClock(s: GameState, wallMs: number): boolean {
+  const b = s.run.boost;
+  const cap = wallMs + B.cooldownMs;
+  if (!(b.readyAtWallMs > cap)) return false;
+  b.readyAtWallMs = cap;
+  return true;
+}
+
 /** ステップの終わりに、効果の残りをロジックの時間で減らす（step が効果の終わりでステップを分けるので、終わりをまたがない） */
 export function tickBoost(s: GameState, dtMs: number, out: GameEvent[]): void {
   const b = s.run.boost;
