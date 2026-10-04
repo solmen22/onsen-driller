@@ -30,8 +30,10 @@ export function Toasts() {
   useEffect(() => {
     const q = new ToastQueue((v) => setVisible(v));
     queue.current = q;
-    const offEvent = store.onEvent((e) => {
-      if (e.type === 'GuestArrived' && e.first) q.push('guest', e.guest, { guest: e.guest, ticket: ticketOnFirst });
+    const offEvent = store.onEvents((evs) => {
+      for (const e of evs) {
+        if (e.type === 'GuestArrived' && e.first) q.push('guest', e.guest, { guest: e.guest, ticket: ticketOnFirst });
+      }
     });
     let prev = store.saveStatus;
     const offSave = store.subscribe(() => {

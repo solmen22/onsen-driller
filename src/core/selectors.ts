@@ -1,6 +1,7 @@
 // UI・描画用の派生値（arch §5: view が import してよい core の入口）。状態を読むだけで、書き換えない
 // - buyQuote: 表示と購入で同じ関数を使う（「買えるように見えて買えない」を防ぐ。arch §6-2・Q-09）
 // - incomePerSec: HUD の「毎秒の収入」と「あと N 秒」の共通の値（入湯料/秒＋自動の掘削のコイン/秒。手動は含めない）
+import { GUESTS, type GuestCondition, type GuestEffect, type GuestId } from '../content/guests.ts';
 import { PARAMS } from '../content/params.ts';
 import { SPRING_BY_ID, SPRINGS, type SpringEffect, type SpringId } from '../content/springs.ts';
 import { TOOLS } from '../content/tools.ts';
@@ -265,6 +266,37 @@ export function bathView(s: Readonly<GameState>): BathView {
     ),
     offlineEfficiency: offlineEfficiency(s, m),
   };
+}
+
+/** お客さん 1 種の表示用の値（湯宿タブ T2 の「お客さんの一覧と来訪条件」。BL-017）。読み取り専用 */
+export interface GuestView {
+  readonly id: GuestId;
+  /** 今来ている（効果が効いている） */
+  readonly present: boolean;
+  /** 図鑑に記録がある（どこかの周回で来たことがある） */
+  readonly seen: boolean;
+  /** 初来訪の壁時計（UTC の ms）。来たことがない・時刻が記録されていない（0）なら null */
+  readonly firstSeenAt: number | null;
+  /** 来訪の条件（内容定義そのもの。書き換えない）。進み具合は springViews（枠・ポンプの Lv）と bathView（埋まった枠）で出す */
+  readonly condition: Readonly<GuestCondition>;
+  /** 来ている間だけ効く効果（内容定義そのもの。書き換えない） */
+  readonly effect: Readonly<GuestEffect>;
+}
+
+/** お客さんの表示用の値（content/guests.ts の順。来ていないお客さんも含む） */
+export function guestViews(s: Readonly<GameState>): GuestView[] {
+  return GUESTS.map((g) => {
+    const seen = Object.hasOwn(s.collection.guestsSeen, g.id);
+    const t = s.collection.guestsSeen[g.id];
+    return {
+      id: g.id,
+      present: s.run.guests.includes(g.id),
+      seen,
+      firstSeenAt: seen && typeof t === 'number' && t > 0 ? t : null,
+      condition: g.condition,
+      effect: g.effect,
+    };
+  });
 }
 
 /** 今の深さの地温（表示用の ℃ の整数。HUD の深さの横） */

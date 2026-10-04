@@ -4,6 +4,7 @@
 import {
   advance,
   dispatch,
+  stampGuestsSeen,
   step,
   type AdvanceOptions,
   type ActionResult,
@@ -45,12 +46,15 @@ export class GameStore {
   /** 保存の状態（app/autosave が更新する。UI の save-warning。ok 以外の間は表示する。readonly は BL-046） */
   saveStatus: SaveDisplayStatus = 'ok';
   private readonly subs = new Set<() => void>();
-  private readonly eventSubs = new Set<(e: GameEvent) => void>();
+  /** ドメインイベントの購読者（onEvents） */
+  private readonly eventSubs = new Set<(evs: readonly GameEvent[]) => void>();
   private viewQueue: ViewEvent[] = [];
   private readonly recent: GameEvent[] = [];
   private readonly uiIntervalMs: number;
   private readonly onError: (e: unknown) => void;
   private nextNotifyAt: number | null = null;
+  /** 壁時計（初来訪の時刻を図鑑に入れる。startLoop が app の時計をつなぐ。つながっていなければ時刻は 0＝不明のまま） */
+  private wallNow: (() => number) | null = null;
 
   constructor(state: GameState, opts: StoreOptions = {}) {
     this.state = state;
@@ -114,19 +118,36 @@ export class GameStore {
     this.notify();
   }
 
+  /** 壁時計をつなぐ（app/loop.ts の startLoop が app の時計で呼ぶ。テスト用フックの setClock もこの時計に効く） */
+  useWallClock(wallNow: () => number): void {
+    this.wallNow = wallNow;
+  }
+
+  /** イベントを記録する（描画の列・フックの events）。お客さんの初来訪があれば、その時刻を図鑑に入れる（BL-017） */
   pushEvents(evs: readonly GameEvent[]): void {
+    if (this.wallNow && evs.some((e) => e.type === 'GuestArrived' && e.first)) stampGuestsSeen(this.state, evs, this.wallNow());
     for (const e of evs) {
       this.pushView(e);
       this.recent.push(e);
-      for (const fn of this.eventSubs) {
-        try {
-          fn(e);
-        } catch (err) {
-          this.onError(err);
-        }
-      }
     }
     if (this.recent.length > EVENTS_KEEP) this.recent.splice(0, this.recent.length - EVENTS_KEEP);
+    if (evs.length === 0) return;
+    for (const fn of this.eventSubs) {
+      try {
+        fn(evs);
+      } catch (e) {
+        this.onError(e);
+      }
+    }
+  }
+
+  /**
+   * 起きたドメインイベントを受け取る（ステップ・アクション・フックの付与のたびに、起きた順の配列で呼ぶ）。
+   * app の副作用（CrazyGames の happytime など。BL-057）に使う。1 つが例外を投げても、ほかには届ける。戻り値で購読をやめる
+   */
+  onEvents(fn: (evs: readonly GameEvent[]) => void): () => void {
+    this.eventSubs.add(fn);
+    return () => this.eventSubs.delete(fn);
   }
 
   private pushView(e: ViewEvent): void {
@@ -152,15 +173,6 @@ export class GameStore {
   events(limit: number = EVENTS_DEFAULT_LIMIT): GameEvent[] {
     const n = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : EVENTS_DEFAULT_LIMIT;
     return n === 0 ? [] : this.recent.slice(-n);
-  }
-
-  /**
-   * core のイベントを 1 つずつ受け取る（UI のトースト〔お客さんの初来訪〕。BL-046）。ステップの中から同期で呼ぶので、
-   * 受け手は軽い処理（状態の積み上げ）だけにする。例外は onError に渡し、ほかの受け手・ループは続ける
-   */
-  onEvent(fn: (e: GameEvent) => void): () => void {
-    this.eventSubs.add(fn);
-    return () => this.eventSubs.delete(fn);
   }
 
   subscribe(fn: () => void): () => void {

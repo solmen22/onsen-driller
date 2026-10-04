@@ -14,12 +14,15 @@
 //   mix.crazygames / mix.poki / mix.hooks / mix.headers（SDK・テスト用フック・_headers の混入と欠落）
 //   mix.fakeads（偽の広告の混入。偽の広告が入るはずの e2e では目印の欠落。目印は check-lib.mjs の FAKE_AD）
 //   headers.diff（dist/web/_headers が deploy/web/_headers と違う）
+//   net.beacon / net.keepalive / net.preconnect / net.url / sw（外部への送信と Service Worker。BL-096・TS-007-10。
+//     テキストのファイル〔.map を除く〕の sendBeacon・keepalive・preconnect・dns-prefetch・serviceWorker、
+//     check-lib.mjs の EXTERNAL_URL_ALLOW にない外部の絶対 URL、sw.js・service-worker.js・workbox の名前のファイル）
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
-  BUDGET, FAKE_AD, HOOK, MB, PRODUCTION_TARGETS, SDK, TARGETS, UNKNOWN_TARGET,
-  extOf, fmtKB, fmtMB, isExcludedFromInitial, transferSize, walk,
+  BUDGET, COMPRESSIBLE, EXTERNAL_URL, FAKE_AD, HOOK, MB, NET_WORDS, PRODUCTION_TARGETS, SDK, SERVICE_WORKER, TARGETS, UNKNOWN_TARGET,
+  extOf, fmtKB, fmtMB, isExcludedFromInitial, transferSize, urlAllowed, walk,
 } from './check-lib.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -110,6 +113,18 @@ for (const t of targets) {
     }
 
     const ext = extOf(rel);
+    // 外部への送信・Service Worker（BL-096）。実行されるテキストだけを見る（.map は DevTools しか読まない。本番の .map は sourcemap で失敗）
+    if (SERVICE_WORKER.file.test(basename(rel))) fail('sw', `Service Worker らしい名前のファイル: ${rel}（MVP では入れない。TS-007-10）`);
+    if (COMPRESSIBLE.has(ext) && ext !== '.map') {
+      const text = buf.toString('utf8');
+      for (const w of NET_WORDS) {
+        const hits = [...new Set(text.match(w.re) ?? [])];
+        if (hits.length) fail(w.rule, `${rel}: ${hits.join('・')}（${w.why}）`);
+      }
+      if (text.includes(SERVICE_WORKER.text)) fail('sw', `${rel}: ${SERVICE_WORKER.text}（Service Worker は MVP では入れない。TS-007-10）`);
+      const urls = [...new Set(text.match(EXTERNAL_URL) ?? [])].filter((u) => !urlAllowed(u, t));
+      if (urls.length) fail('net.url', `${rel}: 許可リストにない外部の URL ${urls.join('・')}（scripts/check-lib.mjs の EXTERNAL_URL_ALLOW。足すならコードレビュアーと QA リードの確認）`);
+    }
     if (ext === '.html' || ext === '.htm' || ext === '.svg' || ext === '.css') {
       for (const h of findAbsolutePaths(buf.toString('utf8'), ext !== '.css'))
         fail('path.absolute', `${rel}: ${h}（相対パス ./ にする）`);

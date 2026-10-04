@@ -68,11 +68,19 @@ export function contentProblems(): string[] {
     const prev = PARAMS.pumpMilestones[i - 1];
     if (!(lv > 1 && (prev === undefined || lv > prev))) p.push(`params: pumpMilestones の ${lv} が前より大きくない`);
   });
+  // お客さん: 条件の源泉がある・Lv は 1 以上の整数・ネコの枠の数は枠の最大以下（届く条件）・名前のキー（BL-017）
   for (const g of GUESTS) {
     const c = g.condition;
-    if (c.kind === 'slottedLevel' && !Object.hasOwn(SPRING_BY_ID, c.spring)) p.push(`guests: ${g.id} の条件の源泉 ${c.spring} がない`);
+    if (c.kind === 'slottedLevel') {
+      if (!Object.hasOwn(SPRING_BY_ID, c.spring)) p.push(`guests: ${g.id} の条件の源泉 ${c.spring} がない`);
+      if (!(Number.isInteger(c.level) && c.level >= 1 && c.level <= PARAMS.levelMax)) p.push(`guests: ${g.id} の条件の Lv が 1〜上限の整数でない`);
+    }
+    if (c.kind === 'allSlotsDistinct' && !(Number.isInteger(c.slots) && c.slots >= 1 && c.slots <= PARAMS.bath.slotsAtLevel.length))
+      p.push(`guests: ${g.id} の条件の枠の数が 1〜枠の最大でない（届かない）`);
+    if (g.nameKey !== `guest.${g.id}`) p.push(`guests: ${g.id} の名前のキーが guest.${g.id} でない`);
     p.push(...effectProblems(`guests: ${g.id}`, g.effect));
   }
+  for (const d of dupes(GUESTS.map((g) => g.id))) p.push(`guests: id ${d} が重複`);
   // 湯船の枠: Lv0 で 1 枠から、枠が増える Lv は増えていく（BL-016）。オフライン効率の基本は 0〜上限
   const at = PARAMS.bath.slotsAtLevel;
   if (at[0] !== 0) p.push('params: bath.slotsAtLevel は Lv0（1 枠目）から');

@@ -68,6 +68,10 @@ describe('TS-052-12 言語の切り替え（T5 の lang-toggle）', () => {
 
     m.click('tab-1');
     expect(m.q('buy-drill-name').textContent).toContain(en['item.drill']);
+    // HUD とキャンバスの下のボタンも切り替わる（PR #11 のレビュー N-4: memo 化などで HUD だけ古い言語で残る退行を見張る）
+    expect(m.q('btn-settings').getAttribute('aria-label')).toBe(en['hud.settings']);
+    expect(m.q('toggle-auto-dig').textContent).toContain(en['item.autoDig']);
+    expect(m.q('toggle-auto-dig').textContent).not.toContain(ja['item.autoDig']);
   });
 
   it('英語から日本語に戻すと日本語になり、onLangChange に ja が渡る', () => {

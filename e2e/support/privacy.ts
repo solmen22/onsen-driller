@@ -178,11 +178,17 @@ export class ContextMonitor {
   readonly context: BrowserContext;
   readonly allowedOrigins: readonly string[];
   readonly foreignKeys: ReadonlySet<string>;
+  /**
+   * テストのモックが応答を返した URL（完全一致。例: e2e-crazygames の SDK の script。BL-072）。オリジンの許可リストには足さず、
+   * **モックが実際に答えた URL だけ**を許す（差し替えを忘れると、その要求は許可リスト外として中止・記録され TS-COM-01 になる。TS-072-04）
+   */
+  readonly mockedUrls: ReadonlySet<string>;
 
-  constructor(context: BrowserContext, allowedOrigins: readonly string[], foreignKeys: ReadonlySet<string>) {
+  constructor(context: BrowserContext, allowedOrigins: readonly string[], foreignKeys: ReadonlySet<string>, mockedUrls: ReadonlySet<string> = new Set()) {
     this.context = context;
     this.allowedOrigins = allowedOrigins;
     this.foreignKeys = foreignKeys;
+    this.mockedUrls = mockedUrls;
   }
 
   async attach(): Promise<void> {
@@ -242,7 +248,7 @@ export class ContextMonitor {
     const journal = await this.netJournal();
     const kindOf = new Map(journal.map((e) => [e.url, e.kind] as const));
     for (const r of this.requests) {
-      if (isAllowedUrl(r.url, this.allowedOrigins) || seen.has(r.url)) continue;
+      if (isAllowedUrl(r.url, this.allowedOrigins) || this.mockedUrls.has(r.url) || seen.has(r.url)) continue;
       seen.add(r.url);
       const kind = kindOf.get(r.url);
       const isBeacon = kind ? kind === 'beacon' : r.type === 'ping' || r.type === 'beacon';
