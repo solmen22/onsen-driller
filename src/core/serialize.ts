@@ -31,6 +31,8 @@ export interface SaveGame {
     guests: GuestId[];
     boost: { remainingMs: number; readyAtWallMs: number };
     vein: { nextAtMs: number; active: null | { depth: number; hits: number; expiresAtMs: number } };
+    /** 未受け取りのオフライン収入（BL-058。coins は Decimal の文字列） */
+    pendingOffline: { coins: string; ms: number } | null;
     stratumSeen: number[];
   };
   meta: {
@@ -78,6 +80,7 @@ export function toSaveGame(s: GameState): SaveGame {
       guests: [...r.guests],
       boost: { remainingMs: r.boost.remainingMs, readyAtWallMs: r.boost.readyAtWallMs },
       vein: { nextAtMs: r.vein.nextAtMs, active: r.vein.active ? { ...r.vein.active } : null },
+      pendingOffline: r.pendingOffline ? { coins: toStr(r.pendingOffline.coins), ms: r.pendingOffline.ms } : null,
       stratumSeen: [...r.stratumSeen],
     },
     meta: {
@@ -115,7 +118,12 @@ export function fromSaveGameTrusted(g: SaveGame): GameState {
   return {
     ...clone,
     rng: { run: clone.rng.run as Sfc32State },
-    run: { ...clone.run, coins: num(clone.run.coins), blockDmg: num(clone.run.blockDmg) },
+    run: {
+      ...clone.run,
+      coins: num(clone.run.coins),
+      blockDmg: num(clone.run.blockDmg),
+      pendingOffline: clone.run.pendingOffline ? { coins: num(clone.run.pendingOffline.coins), ms: clone.run.pendingOffline.ms } : null,
+    },
     meta: { ...clone.meta, yunohana: { lifetime: num(clone.meta.yunohana.lifetime), spent: num(clone.meta.yunohana.spent) } },
     stats: { ...clone.stats, totalCoins: num(clone.stats.totalCoins) },
     input: createInput(),

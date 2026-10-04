@@ -18,6 +18,7 @@ import {
 } from './formulas.ts';
 import { admitManualHits, manualRate, setHold } from './input.ts';
 import { add, lt, mul, sub, toStr, ZERO } from './num.ts';
+import { countVeinHits, gainTickets, tickBoost, tickVein } from './rewards.ts';
 import type { GameState } from './state.ts';
 
 /** 端数の比較の許容（0.1 × 10 などの浮動小数の誤差で 1 打を落とさないため） */
@@ -31,7 +32,8 @@ const carryOf = (f: number, n: number): number => (Number.isFinite(f) ? Math.max
 
 /**
  * お客さんの顔ぶれを条件から決め直す（抽選なし。乱数を使わない）。来た・帰ったお客さんを GuestArrived・GuestLeft で出す（定義の順）。
- * 呼ぶのは状態が変わるアクション（buy・assignSlot）と源泉の発見の直後。初来訪は図鑑に 0（時刻不明）を入れ、app が stampGuestsSeen で埋める
+ * 呼ぶのは状態が変わるアクション（buy・assignSlot）と源泉の発見の直後。初来訪は図鑑に 0（時刻不明）を入れ、app が stampGuestsSeen で埋める。
+ * 初来訪（セーブ全体で種類ごとに 1 回）は温泉チケット 1 枚（BL-058。GuestArrived の後に TicketGained）
  */
 export function refreshGuests(s: GameState, out: GameEvent[]): void {
   const next = computeGuests(s);
@@ -40,6 +42,7 @@ export function refreshGuests(s: GameState, out: GameEvent[]): void {
       const first = !Object.hasOwn(s.collection.guestsSeen, g);
       if (first) s.collection.guestsSeen[g] = 0; // 初来訪の壁時計は app が埋める（core は時刻を読まない。arch §8-2）
       out.push({ type: 'GuestArrived', guest: g, first });
+      if (first) gainTickets(s, 'guestFirstVisit', PARAMS.tickets.guestFirstVisit, out);
     }
   }
   for (const g of s.run.guests) if (!next.includes(g)) out.push({ type: 'GuestLeft', guest: g });
@@ -189,7 +192,9 @@ export function step(s: GameState, dtMs: number, out: GameEvent[] = []): GameEve
   if (!(dtMs > 0) || !Number.isFinite(dtMs)) return out;
   let left = dtMs;
   while (left > 0) {
-    const dt = Math.min(PARAMS.maxStepMs, left);
+    // 掘削ブーストの効果の終わりをまたがないように分ける（×2 の打撃が刻み幅によらない。BL-058）
+    const boost = s.run.boost.remainingMs;
+    const dt = Math.min(PARAMS.maxStepMs, left, boost > 0 ? boost : Infinity);
     stepOnce(s, dt, out);
     left -= dt;
   }
@@ -197,6 +202,7 @@ export function step(s: GameState, dtMs: number, out: GameEvent[] = []): GameEve
 }
 
 function stepOnce(s: GameState, dtMs: number, out: GameEvent[]): void {
+  const startMs = s.clock.playedMs;
   s.clock.playedMs += dtMs;
   const r = s.run;
   let digMs = dtMs;
@@ -216,6 +222,8 @@ function stepOnce(s: GameState, dtMs: number, out: GameEvent[]): void {
     s.run.coins = add(s.run.coins, g);
     s.stats.totalCoins = add(s.stats.totalCoins, g);
   }
+  tickBoost(s, dtMs, out); // 効果はオンライン中のロジックの時間だけ減る（BL-058）
+  tickVein(s, startMs, out); // ラッキー鉱脈の消滅・出現（ロジックの時間。BL-058）
 }
 
 /** advance の入力（テスト用フック・リプレイ・E2E。Q-16） */
@@ -290,13 +298,17 @@ export function advance(s: GameState, ms: number, stepOrOpts: number | AdvanceOp
   return out;
 }
 
-/** タップ n 回（アクション tap の本体）。入った打数を返す（上限・幕間で 0 もありうる） */
+/**
+ * タップ n 回（アクション tap の本体）。入った打数を返す（上限・幕間で 0 もありうる）。
+ * 入った打数だけラッキー鉱脈に数える（鉱脈を開けるのはタップだけ。長押し・自動掘り・自動掘削機は dig を通るので数えない。Q-36 (b)）
+ */
 export function tapHits(s: GameState, n: number, out: GameEvent[]): number {
   if (s.run.interludeMs > 0) return 0;
   const k = admitManualHits(s, n, s.clock.playedMs);
   if (k > 0) {
     s.stats.taps = addCount(s.stats.taps, k);
     applyHits(s, k, out);
+    countVeinHits(s, k, out);
   }
   return k;
 }
