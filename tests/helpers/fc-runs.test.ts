@@ -1,5 +1,5 @@
-// BL-090: 性質テストの試行回数・シードの共通のヘルパー（tests/helpers/fc-runs.ts）と、すべての性質テストがそれを通すことの検査
-import { readdirSync, readFileSync } from 'node:fs';
+// BL-090: 性質テストの試行回数・シードの共通のヘルパー（tests/helpers/fc-runs.ts）。
+// すべての性質テストがそれを通すことは、ESLint が呼び出しごとに見る（tests/unit/lint-fc-runs.test.ts。PR #14 のレビュー S-1）
 import { describe, expect, it } from 'vitest';
 import { fcRunsFrom } from './fc-runs.ts';
 
@@ -43,22 +43,5 @@ describe('fcRunsFrom — test:property:full（毎晩）の上書き', () => {
       expect(() => fcRunsFrom(env, 100, 1), JSON.stringify(env)).toThrow(/tests\/helpers\/fc-runs\.ts/);
     }
     expect(() => fcRunsFrom({}, 0)).toThrow();
-  });
-});
-
-describe('すべての性質テストが fcRuns を通す（直書きの numRuns を残さない。BL-090）', () => {
-  const root = new URL('../', import.meta.url);
-  const files = readdirSync(root, { recursive: true, encoding: 'utf8' })
-    .map((f) => f.replaceAll('\\', '/'))
-    .filter((f) => f.endsWith('.ts') && !f.startsWith('helpers/fc-runs'));
-  const read = (f: string): string => readFileSync(new URL(f, root), 'utf8');
-
-  it('tests/ の中に numRuns の直書きがない', () => {
-    expect(files.filter((f) => /\bnumRuns\b/.test(read(f)))).toEqual([]);
-  });
-  it('fc.assert を使うファイルはすべて fcRuns を使う（test:property:full が回数を増やせる）', () => {
-    const users = files.filter((f) => read(f).includes('fc.assert('));
-    expect(users.length, '前提: 性質テストがある').toBeGreaterThanOrEqual(9);
-    expect(users.filter((f) => !read(f).includes('fcRuns('))).toEqual([]);
   });
 });

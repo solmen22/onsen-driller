@@ -40,8 +40,6 @@ const bigArb: fc.Arbitrary<Num> = fc.oneof(
   },
 );
 
-const RUNS = fcRuns(300, 20260928);
-
 describe('TS-009-01 演算の結果が健全（NaN・Infinity・負のゼロなし、上限以下）', () => {
   it('加減乗除・pow・比較（property）', () => {
     fc.assert(
@@ -55,7 +53,7 @@ describe('TS-009-01 演算の結果が健全（NaN・Infinity・負のゼロな�
         expect(lt(a, b) !== gte(a, b)).toBe(true);
         expect(Math.sign(cmp(a, b)) + Math.sign(cmp(b, a))).toBe(0);
       }),
-      RUNS,
+      fcRuns(300, 20260928),
     );
   });
 });
@@ -145,7 +143,7 @@ describe('TS-009-07 文字列の往復', () => {
         expect(b.mantissa).toBe(a.mantissa);
         expect(b.exponent).toBe(a.exponent);
       }),
-      RUNS,
+      fcRuns(300, 20260928),
     );
     for (const s of ['1.23e45', '1.23e+45', '0', '1', '123.5', '1e308']) expect(num(s).eq(num(Number(s) || s))).toBe(true);
     expect(toStr(num('1.23e45'))).toBe('1.23e45');

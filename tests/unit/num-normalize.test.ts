@@ -3,6 +3,7 @@
 import Decimal from 'break_infinity.js';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import { add, div, isHealthy, mul, num, NUM_EXP_MAX, NUM_MAX, sanitize, sub, toStr, ZERO } from '../../src/core/num.ts';
 import { createInitialState, stateHash } from '../../src/core/index.ts';
 import { decodeSave, encodeSave } from '../../src/save/codec.ts';
@@ -65,6 +66,8 @@ describe('num.ts の正規化（仮数を [1, 10) に戻す）', () => {
     expect(sanitize(Decimal.fromMantissaExponent_noNormalize(0.5, -NUM_EXP_MAX)).eq(ZERO)).toBe(true);
   });
 
+  // 下の 3 つの性質のシード 20261007 は、修正の前の num.ts（f9c72cf）で 3 つともに赤になるもの（2000 回。手元で確認。
+  // PR #22 のレビュー N-1: PR の CI でも回帰を確実に捕まえる）。毎晩の test:property:full ではシードを毎回変える
   it('性質: 和が 10 のべき乗のすぐ下になる足し算（壊れやすい所）の結果はいつも健全（fast-check。修正前は約 3% が仮数 1 未満）', () => {
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 40 }), fc.integer({ min: 1, max: 200 }), fc.integer({ min: 1, max: 9 }), (k, j, x) => {
@@ -72,7 +75,7 @@ describe('num.ts の正規化（仮数を [1, 10) に戻す）', () => {
         const r = add(num(x), s - x);
         return isHealthy(r) && CANONICAL.test(toStr(r)) && num(toStr(r)).eq(r);
       }),
-      { numRuns: 2000 },
+      fcRuns(2000, 20261007),
     );
   });
 
@@ -95,7 +98,7 @@ describe('num.ts の正規化（仮数を [1, 10) に戻す）', () => {
           }
         return true;
       }),
-      { numRuns: 2000 },
+      fcRuns(2000, 20261007),
     );
   });
 
@@ -113,7 +116,7 @@ describe('num.ts の正規化（仮数を [1, 10) に戻す）', () => {
         }
         return true;
       }),
-      { numRuns: 2000 },
+      fcRuns(2000, 20261007),
     );
   });
 });

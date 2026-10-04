@@ -1,6 +1,6 @@
 // BL-090: fast-check の性質テストの試行回数とシードを 1 か所で決める。
 // 性質テストはすべて `fc.assert(..., fcRuns(<既定の回数>, <既定のシード>))` と書き、直書きの numRuns を残さない
-// （tests/helpers/fc-runs.test.ts が検査する）。
+// （ESLint の no-restricted-syntax が呼び出しごとに検査する。eslint.config.js の BL-090 のブロック・tests/unit/lint-fc-runs.test.ts）。
 // - PR・手元の `npm run test`: 環境変数がなければ、各テストが渡した既定の回数・シードのまま（今までと同じ。時間を増やさない）
 // - `npm run test:property:full`（毎晩の nightly.yml。vitest.property.config.ts）: 既定の回数 × 5、シードは実行ごとに変える
 // 環境変数（どちらのコマンドでも効く。空の文字列は「指定なし」）

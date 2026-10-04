@@ -2,6 +2,7 @@
 // TS-016-19（標準ボットの #6）は BL-033 の目標表の判定（それまでは npm run sim のレポート）
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import { PARAMS } from '../../src/content/params.ts';
 import { SPRINGS, SPRING_BY_ID } from '../../src/content/springs.ts';
 import type { Effect } from '../../src/content/effects.ts';
@@ -198,7 +199,7 @@ describe('TS-016-05〜09・16 入れ替えは無料・いつでも、ポンプ�
           s.run.springs.co2?.pump === 2
         );
       }),
-      { numRuns: 300 },
+      fcRuns(300),
     );
   });
 });
@@ -354,7 +355,7 @@ describe('BL-016 倍率を集める場所（改良の口）', () => {
           SPRING_IDS.every((id) => close(a.springIncome[id], b.springIncome[id]))
         );
       }),
-      { numRuns: 200 },
+      fcRuns(200),
     );
   });
 });
@@ -394,7 +395,7 @@ describe('BL-016 bathView（湯宿タブ T2 の湯船の枠）', () => {
           return same && (total === 0 ? sum === 0 : rel(sum, total) < 1e-9);
         },
       ),
-      { numRuns: 200 },
+      fcRuns(200),
     );
   });
 
