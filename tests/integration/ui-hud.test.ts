@@ -63,7 +63,7 @@ describe('HUD の更新（TS-042-07）', () => {
     expect(m.get('hud-depth').dataset['value']).toBe('0');
     m.run((st) => st.tick(200));
     expect(m.get('hud-coins').dataset['value']).toBe('1.234e3');
-    expect(m.get('hud-coins').textContent).toContain('1,234');
+    expect(m.get('hud-coins').textContent).toContain('1.23K'); // 英語は 1,000 から単位（BL-011。S1 の仮の表記は「1,234」）
     expect(m.get('hud-depth').dataset['value']).toBe('10');
     expect(m.get('hud-max-depth').dataset['value']).toBe('10');
     expect(m.get('hud-temp').dataset['value']).toBe(String(temperatureAt(10)));

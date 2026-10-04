@@ -1,7 +1,7 @@
 // BL-043: UI のキー操作（ui/keys.ts。Q-09）と「あと N 秒」・コストの表示（ui/format.ts）
 import { describe, expect, it } from 'vitest';
 import { num } from '../../src/core/index.ts';
-import { etaParts, formatCost, formatRate } from '../../src/ui/format.ts';
+import { etaParts, formatNum, formatRate, formatShortfall } from '../../src/ui/format.ts';
 import { isEditable, keyCommand, nextQty, QTY_ORDER } from '../../src/ui/keys.ts';
 
 describe('keyCommand（1〜5 でタブ、Shift で購入数。TS-043-12・13 の元）', () => {
@@ -59,14 +59,17 @@ describe('etaParts（「あと N 秒」の単位。Q-09・TS-043-05）', () => {
   });
 });
 
-describe('formatCost・formatRate（S1 の仮の表示）', () => {
-  it('コストは 1 万未満を切り上げる（所持コインは切り捨てなので「買えるように見えて買えない」を防ぐ）', () => {
-    expect(formatCost(num(3), 'ja')).toBe('3');
-    expect(formatCost(num(5.8), 'ja')).toBe('6');
-    expect(formatCost(num('106.60735'), 'en')).toBe('107');
-    expect(formatCost(num(9999.2), 'en')).toBe('10,000');
-    expect(formatCost(num(0), 'en')).toBe('0');
-    expect(formatCost(num(1.5e6), 'en')).toBe('1.50M');
+describe('formatNum・formatShortfall・formatRate（UI の入口。規則の詳細は tests/unit/number-format.test.ts）', () => {
+  it('コストは所持コインと同じ切り捨て（BL-011。Q-33 の CEO の方針で S1 の「コストは切り上げ」をやめた）。不足額だけ切り上げ', () => {
+    expect(formatNum(num(3), 'ja')).toBe('3');
+    expect(formatNum(num(5.8), 'ja')).toBe('5');
+    expect(formatNum(num('106.60735'), 'en')).toBe('106');
+    expect(formatNum(num(9999.2), 'en')).toBe('9.99K');
+    expect(formatNum(num(0), 'en')).toBe('0');
+    expect(formatNum(num(1.5e6), 'en')).toBe('1.5M');
+    expect(formatShortfall(num(5.8), 'ja')).toBe('6');
+    expect(formatShortfall(num('106.60735'), 'en')).toBe('107');
+    expect(formatShortfall(num(9999.2), 'en')).toBe('10K');
   });
   it('毎秒の量は 100 未満を小数 2 桁まで（切り捨て）。それ以上は整数の表記', () => {
     expect(formatRate(num(0.4467), 'ja')).toBe('0.44');

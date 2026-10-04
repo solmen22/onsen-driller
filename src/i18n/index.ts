@@ -51,8 +51,11 @@ export type Dictionaries = Readonly<Record<Lang, Readonly<Record<string, string 
  * （同じ変数が何度出てもすべて。値のない変数は {名前} のまま残し、余った変数は使わない。Q-34 (a)）
  */
 export function translate(d: Dictionaries, l: Lang, key: string, vars?: TextVars): string {
-  return fill(d[l][key] ?? d.en[key] ?? key, vars);
+  return fill(pick(d[l], key) ?? pick(d.en, key) ?? key, vars);
 }
+
+/** 辞書の自分のキーだけを引く（'constructor'・'toString' など prototype の名前を拾わない。PR #11 のレビュー N-3） */
+const pick = (m: Readonly<Record<string, string | undefined>>, k: string): string | undefined => (Object.hasOwn(m, k) ? m[k] : undefined);
 
 /** 今の言語で文を引く */
 export function t(key: TextKey, vars?: TextVars): string {
@@ -69,7 +72,7 @@ export const isOne = (count: number | string): boolean => (typeof count === 'num
  */
 export function tn(key: TextKey, count: number | string, vars?: TextVars): string {
   const one = `${key}.one`;
-  return isOne(count) && one in dict.en ? t(one as TextKey, vars) : t(key, vars);
+  return isOne(count) && Object.hasOwn(dict.en, one) ? t(one as TextKey, vars) : t(key, vars);
 }
 
 function fill(s: string, vars: TextVars | undefined): string {
