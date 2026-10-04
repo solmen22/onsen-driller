@@ -8,6 +8,7 @@ import { bootGame, centerOf } from './support/boot.ts';
 import { pngColorStats } from './support/dom.ts';
 import { hitsOf, type Hooks } from './support/hooks.ts';
 import { SEED_A } from '../tests/helpers/seeds.ts';
+import { armStaleSizes, knownBl114Shape } from './support/known-bug-bl114.ts'; // BL-114 の印（修正の PR で消す）
 
 /** 大きさの変更の後に描画のフレームを回す時間（ms。ロジックは __game.pause() で止めておく） */
 const SETTLE_MS = 300;
@@ -18,25 +19,6 @@ type Fit = { canvas: { w: number; h: number }; stage: { w: number; h: number }; 
 const fitsStage = (f: Fit): boolean => Math.abs(f.canvas.w - f.stage.w) <= 1 && Math.abs(f.canvas.h - f.stage.h) <= 1;
 
 /**
- * BL-114（S2。QA 2026-09-29_bug-canvas-resize-severity.md §2）の既知の形を見分けるため、変更の前のキャンバスの大きさと、
- * window の resize の時点のステージの大きさ（新しいレイアウトに切り替わる前）を、ページに記録する
- */
-async function armStaleSizes(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const w = window as unknown as { __e2eStale?: number[][]; __e2eStaleArmed?: boolean };
-    const rect = (sel: string): number[] => {
-      const r = document.querySelector(sel)!.getBoundingClientRect();
-      return [r.width, r.height];
-    };
-    w.__e2eStale = [rect('[data-testid="stage"] canvas')];
-    if (!w.__e2eStaleArmed) {
-      w.__e2eStaleArmed = true;
-      addEventListener('resize', () => w.__e2eStale?.push(rect('[data-testid="stage"]')));
-    }
-  });
-}
-
-/**
  * ビューポートの大きさを変え、DOM のレイアウト（ResizeObserver で data-layout が変わる。実時間で動く）が新しい大きさに
  * 追いついてから、描画のフレームを回して Phaser の RESIZE を追いつかせる（Clock API で止めた時計の rAF。先に回すと古いステージの大きさを測る）。
  * 遅いランナーでは、レイアウトが変わらない変更（横 → 横など）で Phaser が大きさを読むのが遅れ、SETTLE_MS では「変更の前の大きさ」のまま
@@ -44,7 +26,7 @@ async function armStaleSizes(page: Page): Promise<void> {
  * 合うまでフレームを回す。それでも合わなければそのまま判定に進む（BL-114 か、ほかの不具合）
  */
 async function resizeTo(page: Page, vp: { width: number; height: number }): Promise<void> {
-  await armStaleSizes(page);
+  await armStaleSizes(page); // BL-114 の印（修正の PR で消す）
   await page.setViewportSize(vp);
   await expect(page.getByTestId('app-root')).toHaveAttribute('data-layout', vp.width / vp.height >= 1.1 ? 'landscape' : 'portrait');
   await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([vp.width, vp.height]);
@@ -52,31 +34,13 @@ async function resizeTo(page: Page, vp: { width: number; height: number }): Prom
   for (let t = SETTLE_MS; t < SETTLE_MAX_MS && !fitsStage(await fitOf(page)); t += 100) await page.clock.runFor(100);
 }
 
-/** 既知の不具合の印（test-strategy 第3.5版 §4-3 のときどき起きる既知の不具合の扱い）。期限を過ぎたら印は効かず、テストは失敗する */
-const KNOWN_BUG_BL_114 = { type: 'KNOWN_BUG_BL-114', project: 'mobile-safari', until: Date.UTC(2026, 9, 8) } as const;
-
 /**
- * 大きさの変更の後の TS-035-03・07 の確認。BL-114 の印は **mobile-safari の、キャンバスとステージの大きさの比較だけ**に効き、
- * キャンバスが「古い大きさ（変更の前のキャンバス、または window の resize の時点のステージ）のまま」の既知の形だけを許して
- * 数値を注記に残す（QA の条件 1・2）。ほかの形のずれ・ほかのプロジェクト・ほかの確認（ステージが見える・横スクロールなし）は今までどおり
+ * 大きさの変更の後の TS-035-03・07 の確認。合っていなければ、BL-114 の既知の不具合の印（e2e/support/known-bug-bl114.ts。
+ * mobile-safari の「古い大きさのまま」の形だけ・期限 2026-10-08）に当たるかを見て、当たらなければ今までどおり失敗させる
  */
 async function expectFitsAfterResize(page: Page, label: string): Promise<void> {
   const f = await fitOf(page);
-  if (!fitsStage(f) && test.info().project.name === KNOWN_BUG_BL_114.project) {
-    const stale = await page.evaluate(() => (window as unknown as { __e2eStale?: number[][] }).__e2eStale ?? []);
-    const match = stale.find(([w = -1, h = -1]) => Math.abs(f.canvas.w - w) <= 1 && Math.abs(f.canvas.h - h) <= 1);
-    if (match) {
-      expect(Date.now(), `${KNOWN_BUG_BL_114.type} の印の期限（S2 の末）を過ぎた。BL-114 を直して印を消すか、QA リードが扱いを決め直す`).toBeLessThan(KNOWN_BUG_BL_114.until);
-      test.info().annotations.push({
-        type: KNOWN_BUG_BL_114.type,
-        description: `${label}: キャンバス ${f.canvas.w}×${f.canvas.h}・ステージ ${f.stage.w}×${f.stage.h}（古い大きさ ${match.map((x) => Math.round(x)).join('×')} のまま）`,
-      });
-      expect(f.stage.w, `${label}: ステージが見える`).toBeGreaterThan(0);
-      expect(f.stage.h, `${label}: ステージが見える`).toBeGreaterThan(0);
-      expect(f.scrollWidth, `${label}: 横スクロールが出ない`).toBeLessThanOrEqual(f.innerWidth);
-      return;
-    }
-  }
+  if (!fitsStage(f) && (await knownBl114Shape(page, f, label))) return; // BL-114 の印（修正の PR で消す）
   expectFits(f, label);
 }
 
