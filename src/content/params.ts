@@ -43,7 +43,20 @@ export const PARAMS = {
   offline: { eff: 0.5, maxEff: 1 },
   pumpMilestones: [10, 25, 50, 100],
   prestige: { unlockDepth: 150, divisor: 50, bonusPerYunohana: 0.02 },
-  tickets: { initial: 2, max: 10 },
+  /**
+   * 温泉チケット（gdd §5-9。BL-058）: 新しいゲームに initial 枚、上限 max 枚。上限を超えた分は「毎秒の収入 × overflowIncomeSec 秒」のコイン。
+   * 1 回の出来事で得る量は固定（購入の個数・払ったコインで変わらない。QA §3-2(b)・Q-36 (a) の条件 1）
+   */
+  tickets: { initial: 2, max: 10, overflowIncomeSec: 60, guestFirstVisit: 1, achievement: 1, prestige: 2, vein: 1 },
+  /** 掘削ブースト R2（gdd §5-9）: ドリル威力と自動掘削機の打数 ×mult を durationMs（ロジックの時間）。使ってから cooldownMs（壁時計）は使えない */
+  boost: { mult: 2, durationMs: 300_000, cooldownMs: 900_000 },
+  /**
+   * ラッキー鉱脈 R3（gdd §5-9）: 出現の間隔は [minIntervalMs, maxIntervalMs)（ロジックの時間。周回の擬似乱数）、lifeMs で消える。
+   * タップの打撃 hits 回で開く。報酬は「毎秒の収入 × incomeSec 秒」のコインと、ticketChance で温泉チケット
+   */
+  vein: { minIntervalMs: 300_000, maxIntervalMs: 480_000, lifeMs: 60_000, hits: 15, incomeSec: 90, ticketChance: 0.25 },
+  /** おかえり ×2（R1）を受け取れるオフラインの経過時間（壁時計 ms。収入の額ではない。Q-36 (d)） */
+  offlineDoubleMinMs: 60_000,
   /** 新しい帯に入ったときの幕間（ロジックの時間。Q-06） */
   interludeMs: 1500,
   /** 1 ステップで壊せるブロックの上限（異常な状態での暴走を防ぐ。残りのダメージは捨てる） */

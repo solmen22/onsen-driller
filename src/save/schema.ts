@@ -140,6 +140,8 @@ const RunSchema = v.object({
       isRecord(x) ? { depth: int(0)(x.depth), hits: int(0)(x.hits), expiresAtMs: nonNeg()(x.expiresAtMs) } : null,
     ),
   }),
+  // 未受け取りのオフライン収入（BL-058）。オブジェクトでなければ null。ms は 0 以上の有限の数（読めなければ 0）
+  pendingOffline: field((x) => (isRecord(x) ? { coins: dec(x.coins), ms: nonNeg()(x.ms) } : null)),
   stratumSeen: field((x) => {
     const seen = new Set<number>([0]); // 帯 1（0）は常に見たことにする
     if (Array.isArray(x)) for (const b of x as unknown[]) if (typeof b === 'number' && Number.isInteger(b) && b >= 0 && b < STRATA.length) seen.add(b);

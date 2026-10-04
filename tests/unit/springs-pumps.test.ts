@@ -102,7 +102,8 @@ describe('TS-015-02・03 深さに届くと源泉を発見し、ポンプ Lv1 �
     const s = createInitialState(1);
     const coinsBefore = s.run.coins;
     const ev = reach(s, 30);
-    expect(ev.map((e) => e.type)).toEqual(['BlockBroken', 'StratumEntered', 'SpringFound', 'GuestArrived']);
+    // タヌキの初来訪で温泉チケット 1 枚（BL-058。GuestArrived の後に TicketGained）
+    expect(ev.map((e) => e.type)).toEqual(['BlockBroken', 'StratumEntered', 'SpringFound', 'GuestArrived', 'TicketGained']);
     expect(found(ev)).toEqual([{ type: 'SpringFound', spring: 'simple', depth: 30 }]);
     expect(ev).toContainEqual({ type: 'StratumEntered', band: 1 });
     expect(s.run.springs.simple).toEqual({ pump: 1 });

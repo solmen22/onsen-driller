@@ -8,7 +8,6 @@ import { bootGame, centerOf } from './support/boot.ts';
 import { pngColorStats } from './support/dom.ts';
 import { hitsOf, type Hooks } from './support/hooks.ts';
 import { SEED_A } from '../tests/helpers/seeds.ts';
-import { armStaleSizes, knownBl114Shape } from './support/known-bug-bl114.ts'; // BL-114 の印（修正の PR で消す）
 
 /** 大きさの変更の後に描画のフレームを回す時間（ms。ロジックは __game.pause() で止めておく） */
 const SETTLE_MS = 300;
@@ -26,7 +25,6 @@ const fitsStage = (f: Fit): boolean => Math.abs(f.canvas.w - f.stage.w) <= 1 && 
  * 合うまでフレームを回す。それでも合わなければそのまま判定に進む（BL-114 か、ほかの不具合）
  */
 async function resizeTo(page: Page, vp: { width: number; height: number }): Promise<void> {
-  await armStaleSizes(page); // BL-114 の印（修正の PR で消す）
   await page.setViewportSize(vp);
   await expect(page.getByTestId('app-root')).toHaveAttribute('data-layout', vp.width / vp.height >= 1.1 ? 'landscape' : 'portrait');
   await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([vp.width, vp.height]);
@@ -40,7 +38,6 @@ async function resizeTo(page: Page, vp: { width: number; height: number }): Prom
  */
 async function expectFitsAfterResize(page: Page, label: string): Promise<void> {
   const f = await fitOf(page);
-  if (!fitsStage(f) && (await knownBl114Shape(page, f, label))) return; // BL-114 の印（修正の PR で消す）
   expectFits(f, label);
 }
 
@@ -244,7 +241,7 @@ test.describe('BL-035 Phaser の骨格', () => {
     expect(hitsOf(s2)).toBeGreaterThan(hitsOf(s1));
     expect(Number(s2.run.coins)).toBeGreaterThan(Number(s0.run.coins));
     // 捕まえていない例外がない
-    expect(harness.pageErrors).toEqual([]);
+    expect(await harness.uncaughtErrors()).toEqual([]);
     expect(await g.errors()).toEqual([]);
   });
 });

@@ -229,9 +229,6 @@ describe('BL-052 受け入れ基準 3: 文章は en.json・ja.json にあり、�
    * まだ文を入れていないお客さんは、入れるチケットを書いて除く（入れたら消す）
    */
   const PENDING_KEYS: Readonly<Record<string, string>> = {
-    'guest.monkey': 'BL-017',
-    'guest.capybara': 'BL-017',
-    'guest.fox': 'BL-017',
     'guest.cat': 'BL-019',
     'guest.redPanda': 'BL-019',
   };
