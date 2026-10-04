@@ -1,7 +1,7 @@
 // 起動と組み立て（arch §3-1）
 import { render } from 'preact';
 import { h } from 'preact';
-import { createInitialState, type GameState } from '../core/index.ts';
+import { createInitialState, interludeLeftMs, type GameState } from '../core/index.ts';
 import { loadPlatform } from '../platform/index.ts';
 import { SaveSlots } from '../save/slots.ts';
 import { detectLang, setLang, type Lang } from '../i18n/index.ts';
@@ -15,6 +15,7 @@ import type { View } from '../view/game.ts';
 import type { DevParams } from './dev-params.ts';
 import { captureErrors, createErrorLog } from './errors.ts';
 import { setupInput } from './input.ts';
+import { createLifecycle } from './lifecycle.ts';
 import { startLoop } from './loop.ts';
 import type { PerfMonitor } from './perf.ts';
 import { loadSettings, saveSettings } from './settings.ts';
@@ -47,7 +48,7 @@ const clockSeed = (): number => (clock.wallNow() ^ Math.floor(clock.monoNow() * 
 async function boot(): Promise<void> {
   const params: DevParams = DEV_BUILD
     ? (await import('./dev-params.ts')).readDevParams(location.search)
-    : { fps: false, particles: 0, auto: false, demo: false, seed: null };
+    : { fps: false, particles: 0, auto: false, demo: false, seed: null, debug: false };
   const perf: PerfMonitor | null = DEV_BUILD ? new (await import('./perf.ts')).PerfMonitor() : null;
   const root = document.getElementById('app');
   const stage = document.getElementById('stage');
@@ -56,7 +57,9 @@ async function boot(): Promise<void> {
   layout(root);
 
   const platform = await loadPlatform();
-  platform.loadingStart();
+  // ポータルへの loading・gameplay の合図（arch §7。BL-056）。gameplay は最初の入力の後、止まる理由がない間だけ
+  const life = createLifecycle(platform);
+  life.loadingStart();
   await platform.init();
   const storage = platform.storage;
   // 設定（別のキー。壊れていたら初期値）と言語（設定 → platform.locale → navigator.language → 英語。arch §13）
@@ -88,14 +91,17 @@ async function boot(): Promise<void> {
   // （リスナーを付けた順。長押しの終わりで端数が変わった後の状態を保存する。以前の順番と同じ）
   const input = setupInput({ stage, win: window, doc: document }, store, {
     onFirstInput: () => {
-      unlockAudio();
-      platform.gameplayStart(); // Poki の要件: 最初の入力で gameplayStart
+      // 拒否しない（音が使えないときは音なしで続ける。BL-102）。AudioContext がない環境は黙る。ZzFX のチャンクが届かない等の
+      // 失敗は errors() に残す（描画のチャンクの失敗と同じ。console には出さない）
+      void unlockAudio((e) => errorLog.push(e));
+      life.firstInput(); // Poki の要件: 最初の入力で gameplayStart（読み込みの途中なら loadingStop の後）
     },
     onPress: (ts) => perf?.markInput(ts),
   });
 
-  // 広告の再生中はループ・入力・音を止める
+  // 広告の再生中はループ・入力・音を止め、gameplay も止める
   platform.ads.onPlaying((playing) => {
+    life.setPaused('ad', playing);
     input.setEnabled(!playing);
     setMuted(playing || platform.isMuted());
     if (playing) loop.pause();
@@ -111,15 +117,16 @@ async function boot(): Promise<void> {
     isSuppressed: () => settings.recordingMode || slots.readOnly || params.demo,
     onStatus: (st) => store.setSaveStatus(st),
   });
-  // タブを隠したらループを止める（保存は autosave が先に行う。戻ったときの早送りは S3 の BL-030）
+  // タブを隠したら gameplay とループを止める（保存は autosave が先に行う。戻ったときの早送りは S3 の BL-030）。
+  // 見えるようになったら、ほかに止まる理由がなければ gameplay を再開する
+  life.setPaused('hidden', document.hidden);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      platform.gameplayStop();
-      loop.pause();
-    } else {
-      loop.resume();
-    }
+    life.setPaused('hidden', document.hidden);
+    if (document.hidden) loop.pause();
+    else loop.resume();
   });
+  // 幕間（新しい帯に入った直後の 1.5 秒。ドリルが止まる）の間は gameplay を止める（ストアの通知は 200ms ごと）
+  store.subscribe(() => life.setPaused('interlude', interludeLeftMs(store.state) > 0));
 
   const onLangChange = (l: Lang): void => {
     settings.lang = l;
@@ -159,7 +166,7 @@ async function boot(): Promise<void> {
     lastBlocks = s.blocks;
   });
 
-  platform.loadingStop();
+  life.loadingStop();
   root.dataset.ready = 'true';
 
   if (DEV_BUILD && perf && params.fps && view) {
@@ -169,6 +176,7 @@ async function boot(): Promise<void> {
         `${v.rendererName().slice(0, 40)}\ndpr ${devicePixelRatio} ${innerWidth}x${innerHeight} ${root.dataset.layout}\nparticles ${v.aliveParticles()} depth ${store.state.run.depth}m`,
     );
   }
+  if (DEV_BUILD && params.debug) (await import('./dev-panel.ts')).mountDevPanel({ store, platform });
   if (import.meta.env.VITE_TEST_HOOKS === 'true') {
     const m = await import('./test-hooks.ts');
     if (view) m.install({ store, loop, perf, platform, view, contextEvents, clock, autosave, slots, errors: errorLog });

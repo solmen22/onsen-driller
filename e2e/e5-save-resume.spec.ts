@@ -1,6 +1,6 @@
 // E2E E5 保存と再開（e2e_E5_save-resume.md）
 // PR: TS-E5-01・02・03・05・10・11・16（S1）。毎晩: TS-E5-04（BL-089）。
-// 保留: TS-E5-13（S3）、TS-E5-14（S2）。TS-E5-15 は手動（オーナーの iPhone）。
+// 保留: TS-E5-13（S2。BL-046 の後に BL-103 で）、TS-E5-14（S2）。TS-E5-15 は手動（オーナーの iPhone）。
 // 欠番: TS-E5-06〜09（壊れ方の種類は integration の TS-027-05・07 に統合。E2E は TS-E5-05 が代表）、TS-E5-12（TS-027-20・TS-COM-04）。
 //
 // 壊れた枠の試験は、context.storageState() を書き換えて新しい context で開き直す（reopenWithStorage）。
@@ -222,7 +222,7 @@ test.describe('E5 保存と再開', () => {
   });
 
   test('TS-E5-16 ロールバックの再現: v1 から見て壊れた新しい版（schema 2）の枠があるセッションは、どの枠も書き換えない（M-1）', async ({ page, harness }) => {
-    // 本体は integration の TS-027-22（4 通り）。E2E は代表 1 件。案内の表示とストレージ全体の比較は S3 の TS-E5-13
+    // 本体は integration の TS-027-22（4 通り）。E2E は代表 1 件。案内の表示とストレージ全体の比較は S2 の TS-E5-13（BL-046）
     const { g } = await prepare(page, harness);
     await threeSaves(page, harness, g);
     const slots = await readSlots(page.context(), harness.origin);
@@ -257,7 +257,7 @@ test.describe('E5 保存と再開', () => {
   });
 
   test('TS-E5-13 新しい版のセーブで読み取り専用になり、ストレージを書き換えない', () => {
-    later('S3:newerSave');
+    later('S2:newerSave');
   });
 
   test('TS-E5-14 e2e-crazygames で data モジュールに保存・移行する', () => {

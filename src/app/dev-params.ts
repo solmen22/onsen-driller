@@ -11,9 +11,11 @@ export interface DevParams {
   demo: boolean;
   /** 最初のシード（なければ時計から作る） */
   seed: number | null;
+  /** 左下にデバッグパネル（状態・時間を進める・付与・偽の広告の結果。app/dev-panel.ts。BL-056） */
+  debug: boolean;
 }
 
-export const NO_DEV_PARAMS: DevParams = { fps: false, particles: 0, auto: false, demo: false, seed: null };
+export const NO_DEV_PARAMS: DevParams = { fps: false, particles: 0, auto: false, demo: false, seed: null, debug: false };
 
 export function readDevParams(search: string): DevParams {
   const p = new URLSearchParams(search);
@@ -27,5 +29,6 @@ export function readDevParams(search: string): DevParams {
     auto: p.has('auto'),
     demo: p.has('demo'),
     seed: n('seed'),
+    debug: p.has('debug'),
   };
 }
