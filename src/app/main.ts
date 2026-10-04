@@ -3,19 +3,21 @@ import { render } from 'preact';
 import { h } from 'preact';
 import { createInitialState, interludeLeftMs, type GameState } from '../core/index.ts';
 import { loadPlatform } from '../platform/index.ts';
+import { moveLegacySlots } from '../save/legacy.ts';
 import { SaveSlots } from '../save/slots.ts';
 import { detectLang, setLang, type Lang } from '../i18n/index.ts';
 import { App } from '../ui/App.tsx';
 import { applyLayout, layoutOf } from '../ui/layout.ts';
 import { Ctx } from '../ui/hooks/use-game.ts';
-import { playBreak, playHit, setMuted, unlockAudio } from '../audio/sfx.ts';
+import { playBreak, playHit, resumeAudio, setMuted, unlockAudio } from '../audio/sfx.ts';
 import { startAutosave } from './autosave.ts';
 import { createAppClock } from './clock.ts';
 import type { View } from '../view/game.ts';
 import type { DevParams } from './dev-params.ts';
 import { captureErrors, createErrorLog } from './errors.ts';
+import { isHappyMoment } from './happy-time.ts';
 import { setupInput } from './input.ts';
-import { createLifecycle } from './lifecycle.ts';
+import { createLifecycle, signalsHidden } from './lifecycle.ts';
 import { startLoop } from './loop.ts';
 import type { PerfMonitor } from './perf.ts';
 import { loadSettings, saveSettings } from './settings.ts';
@@ -57,8 +59,9 @@ async function boot(): Promise<void> {
   layout(root);
 
   const platform = await loadPlatform();
-  // ポータルへの loading・gameplay の合図（arch §7。BL-056）。gameplay は最初の入力の後、止まる理由がない間だけ
-  const life = createLifecycle(platform);
+  // ポータルへの loading・gameplay の合図（arch §7。BL-056）。gameplay は最初の入力の後、止まる理由がない間だけ。
+  // CrazyGames ではタブの非表示を合図にしない（ポータルが扱う。BL-057・PR #16 のレビュー S-1）
+  const life = createLifecycle(platform, { signalHidden: signalsHidden(platform.target) });
   life.loadingStart();
   await platform.init();
   const storage = platform.storage;
@@ -68,6 +71,8 @@ async function boot(): Promise<void> {
   setMuted(platform.isMuted());
   platform.onMutedChange(setMuted);
 
+  // CrazyGames: SDK が読めなかった起動で localStorage に保存した枠を、data モジュールへ移す（arch §11。BL-057。移せなければ次の起動で）
+  if (platform.legacyStorage) moveLegacySlots(platform.legacyStorage, storage);
   // 読み込み（2 枠。arch §11・Q-11）。起動時からメモリだけなら unavailable（save-warning を起動直後に出す）
   const slots = new SaveSlots(storage, { appVersion: APP_VERSION, now: () => clock.wallNow(), unavailable: storage.kind === 'memory' });
   const loaded = params.demo ? null : slots.load();
@@ -83,6 +88,10 @@ async function boot(): Promise<void> {
   }
   const store = new GameStore(state);
   store.setSaveStatus(slots.status);
+  // 祝いの合図（CrazyGames の happytime。最初の源泉・お客さんの初来訪・転生の完了だけ。app/happy-time.ts）
+  store.onEvents((evs) => {
+    for (const e of evs) if (isHappyMoment(e, store.state)) platform.happyTime();
+  });
   perf?.start();
   const loop = startLoop(store, clock);
 
@@ -98,6 +107,9 @@ async function boot(): Promise<void> {
     },
     onPress: (ts) => perf?.markInput(ts),
   });
+  // 止まった音（iOS のバックグラウンドからの復帰・電話の後など）を、次の入力のハンドラの中で同期に戻す（BL-104）。
+  // タッチでは pointerdown が利用者の操作とみなされないブラウザがあるので、pointerup・touchend でも呼ぶ（running なら何もしない）
+  for (const type of ['pointerdown', 'pointerup', 'touchend', 'keydown']) window.addEventListener(type, resumeAudio, true);
 
   // 広告の再生中はループ・入力・音を止め、gameplay も止める
   platform.ads.onPlaying((playing) => {
@@ -118,7 +130,7 @@ async function boot(): Promise<void> {
     onStatus: (st) => store.setSaveStatus(st),
   });
   // タブを隠したら gameplay とループを止める（保存は autosave が先に行う。戻ったときの早送りは S3 の BL-030）。
-  // 見えるようになったら、ほかに止まる理由がなければ gameplay を再開する
+  // 見えるようになったら、ほかに止まる理由がなければ gameplay を再開する（CrazyGames は gameplay の合図を送らず、ループだけ止める）
   life.setPaused('hidden', document.hidden);
   document.addEventListener('visibilitychange', () => {
     life.setPaused('hidden', document.hidden);
