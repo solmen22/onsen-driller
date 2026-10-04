@@ -1,8 +1,8 @@
 // E2E E1 初回起動 → 最初の強化（e2e_E1_first-play.md）
-// PR: TS-E1-01・02・05・06・08〜13・17（S1）。毎晩: TS-E1-07・15（BL-089）。
+// PR: TS-E1-01〜06・08〜13・17（S1。03・04 と TS-071-17 は S2 の BL-056 で有効にした）。毎晩: TS-E1-07・15（BL-089）。
 // シナリオの「実装のまとめ方」は 1 つの流れを勧めているが、ここでは ID ごとにテストを分けた（起動は 1 回 約 0.5 秒で、
 // 分けても PR は 1 分未満。いまのビルドに無いフック・機能による保留を ID ごとに付けられ、失敗の場所も分かる）。
-// 保留: TS-E1-03・04・TS-071-17（S2。CEO 決定 Q-01）、TS-E1-14（S3）、TS-E1-16（S2）。
+// 保留: TS-E1-14（S3）、TS-E1-16（S2）。
 // いまのビルドに無いフック・機能を使うテストは needs() で保留になる（e2e/support/gaps.ts）。
 // 技術リードの回答（traceability.md §5-2）に合わせた前提
 // - Q-02: 0〜4m は鉱石にしない → 最初の強化はどのシードでも 14.5 秒。TS-E1-07 も #2 の範囲（5〜15 秒）で判定する（記録のみをやめた）。
@@ -80,7 +80,6 @@ test.describe('E1 初回起動 → 最初の強化', () => {
 
   test.describe('ライフサイクル（S2）', () => {
     test('TS-E1-03 入力がない間は loadingStart → loadingStop だけ', async ({ page }) => {
-      later('S2:lifecycle');
       const g = await bootGame(page);
       const names = (await g.calls()).map((c) => c.name);
       expect(names.indexOf('loadingStart')).toBeGreaterThanOrEqual(0);
@@ -90,7 +89,6 @@ test.describe('E1 初回起動 → 最初の強化', () => {
 
     test('TS-E1-04 最初のクリックで gameplayStart が loadingStop の後にちょうど 1 回（冪等）', async ({ page }) => {
       // 最初のクリックで 1 打が入ることは TS-012-15（S1）で確かめる（QA レビュー §3-1 で前半を削った）
-      later('S2:lifecycle');
       needs('hook:rect');
       const g = await bootGame(page);
       const c = centerOf((await g.rect('drill'))!);
@@ -105,7 +103,6 @@ test.describe('E1 初回起動 → 最初の強化', () => {
     });
 
     test('TS-071-17 platform.calls() が呼び出しを順番どおりに記録する', async ({ page }) => {
-      later('S2:lifecycle');
       needs('hook:rect');
       const g = await bootGame(page);
       const before = await g.calls();

@@ -8,7 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, describe, test } from 'node:test';
-import { BUDGET, E2E_JOB_TARGETS, FAKE_AD, MB, PRODUCTION_TARGETS, transferSize } from './check-lib.mjs';
+import { BUDGET, E2E_JOB_TARGETS, EXTERNAL_URL_ALLOW, FAKE_AD, MB, PRODUCTION_TARGETS, SDK, TARGETS, transferSize } from './check-lib.mjs';
 import { readZip } from './package-zip.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -345,6 +345,102 @@ describe('check:size', () => {
     assert.match(r.out, /\[target\.unknown\]/);
   });
 
+  // ---- 外部への送信と Service Worker（BL-096。コードレビュー PR #4 の M-1・N-10、TS-007-10） ----
+  const SIX = ['web', 'crazygames', 'itch', 'poki', 'e2e-web', 'e2e-crazygames'];
+
+  test('BL-096 sendBeacon・keepalive・preconnect・dns-prefetch は、6 ターゲットのどれの JS・HTML に 1 つあっても失敗する（24 件）', () => {
+    const cases = [
+      ['net.beacon', 'js', 'addEventListener("pagehide",()=>navigator.sendBeacon(u,d))'],
+      ['net.keepalive', 'js', 'fetch(u,{method:"POST",body:d,keepalive:!0})'],
+      ['net.preconnect', 'html', '<link rel="preconnect" href="./">'],
+      ['net.preconnect', 'html', '<link rel="DNS-Prefetch" href="./">'],
+    ];
+    let n = 0;
+    for (const t of SIX)
+      for (const [rule, kind, snippet] of cases) {
+        const d = newDist();
+        const dir = makeTarget(d, t);
+        if (kind === 'js') write(join(dir, 'assets', 'x-abcd1234.js'), snippet);
+        else write(join(dir, 'index.html'), html(t, snippet));
+        assertFail(size(d, t), new RegExp(`FAIL ${escRe(t)}: \\[${escRe(rule)}\\] (assets/x-abcd1234\\.js|index\\.html): `));
+        n++;
+      }
+    assert.equal(n, 24);
+  });
+
+  test('BL-096 許可リストにない外部の絶対 URL（http・https・ws・wss）は失敗。似た名前・パス違いも失敗', () => {
+    for (const url of [
+      'https://www.google-analytics.com/g/collect',
+      'http://example.com/pixel.gif',
+      'wss://example.com/socket',
+      'https://phaser.io.example.com/',
+      'https://phaser.io/x',
+      'http://www.w3.org/2000/svg2',
+      'HTTPS://example.com/',
+    ]) {
+      const d = newDist();
+      write(join(makeTarget(d, 'web'), 'assets', 'x-abcd1234.js'), `const u="${url}";`);
+      assertFail(size(d, 'web'), new RegExp(`\\[net\\.url\\] assets/x-abcd1234\\.js: 許可リストにない外部の URL ${escRe(url)}`));
+    }
+    // HTML・CSS の中も見る
+    const d = newDist();
+    const dir = makeTarget(d, 'itch');
+    write(join(dir, 'assets', 'index-abcd1234.css'), 'body{background:url("https://example.com/bg.png")}');
+    assertFail(size(d, 'itch'), /\[net\.url\] assets\/index-abcd1234\.css: 許可リストにない外部の URL https:\/\/example\.com\/bg\.png/);
+  });
+
+  test('BL-096 許可リストの URL はそのターゲットでだけ通る（XML 名前空間・Phaser の文字列は全部、SDK は SDK を持つターゲットだけ）', () => {
+    const common = EXTERNAL_URL_ALLOW.filter((a) => a.targets === 'all').map((a) => a.url);
+    for (const t of SIX) {
+      const d = newDist();
+      write(join(makeTarget(d, t), 'assets', 'x-abcd1234.js'), common.map((u) => `a("${u}");`).join(''));
+      assertPass(size(d, t));
+    }
+    // SDK の URL を SDK のないターゲットに書くと、mix の検査に加えて net.url でも失敗する
+    const d = newDist();
+    write(join(makeTarget(d, 'itch'), 'assets', 'x-abcd1234.js'), `load("${CG}");load("${POKI}")`);
+    const r = size(d, 'itch');
+    assertFail(r, new RegExp(`\\[net\\.url\\] assets/x-abcd1234\\.js: 許可リストにない外部の URL ${escRe(CG)}・${escRe(POKI)}`));
+  });
+
+  test('BL-096 許可リストは各行に理由があり、SDK の URL は SDK を持つターゲット（check-lib の TARGETS）だけに許す', () => {
+    for (const a of EXTERNAL_URL_ALLOW) {
+      assert.match(a.url, /^(?:https?|wss?):\/\/[^\s"'`<>()\\,;{}[\]]+$/, `許可リストの URL の形: ${a.url}`);
+      assert.ok(a.why && a.why.length >= 10, `理由がない: ${a.url}`);
+      assert.ok(a.targets === 'all' || (Array.isArray(a.targets) && a.targets.length > 0), `targets: ${a.url}`);
+      for (const [key, host] of [['cg', SDK.crazygames], ['poki', SDK.poki]])
+        if (a.url.includes(host)) {
+          assert.notEqual(a.targets, 'all', `${a.url} を全ターゲットに許している`);
+          for (const t of a.targets) assert.ok(TARGETS[t]?.[key], `${a.url} を SDK のないターゲット ${t} に許している`);
+        }
+    }
+  });
+
+  test('TS-007-10 Service Worker: serviceWorker の API 名と、sw.js・service-worker.js・workbox の名前のファイルは失敗する', () => {
+    for (const t of SIX) {
+      const d = newDist();
+      write(join(makeTarget(d, t), 'assets', 'x-abcd1234.js'), 'navigator.serviceWorker.register("./sw.js")');
+      assertFail(size(d, t), /\[sw\] assets\/x-abcd1234\.js: serviceWorker/);
+    }
+    for (const name of ['sw.js', 'service-worker.js', 'serviceworker.js', 'workbox-abcd1234.js', 'assets/sw-abcd1234.js']) {
+      const d = newDist();
+      write(join(makeTarget(d, 'web'), name), 'console.log(1)');
+      assertFail(size(d, 'web'), new RegExp(`\\[sw\\] Service Worker らしい名前のファイル: ${escRe(name)}`));
+    }
+    // 名前が似ているだけのものは通す
+    const d = newDist();
+    write(join(makeTarget(d, 'web'), 'assets', 'swing-abcd1234.js'), 'console.log(1)');
+    assertPass(size(d, 'web'));
+  });
+
+  test('BL-096 ソースマップ（.map。e2e 系だけにありうる）の中の語・URL は見ない。画像などのバイナリも見ない', () => {
+    const d = newDist();
+    const dir = makeTarget(d, 'e2e-web');
+    write(join(dir, 'assets', 'index-abcd1234.js.map'), JSON.stringify({ sourcesContent: ['// https://github.com/x/y sendBeacon keepalive preconnect serviceWorker'] }));
+    write(join(dir, 'assets', 'atlas-abcd1234.png'), Buffer.from('\x89PNG https://example.com/ sendBeacon', 'latin1'));
+    assertPass(size(d, 'e2e-web'));
+  });
+
   test('dist がないと失敗', () => {
     assertFail(size(join(tmpRoot, 'nothing'), 'web'), /\[dist\.missing\]/);
   });
@@ -591,8 +687,11 @@ describe('ci.yml', () => {
   };
   /** ジョブの本文を step ごとに分ける */
   const steps = (body) => body.split(/\n(?= {6}- )/);
+  /** ワークフローのジョブの名前の一覧（jobs: の直下） */
+  const names = (text) => [...(/^jobs:\n([\s\S]*)$/m.exec(text)?.[1] ?? '').matchAll(/^ {2}([a-z][\w-]*):\n/gm)].map((m) => m[1]);
 
-  test('TS-008-23 verify の順番: gitleaks → lint → typecheck → test → build:all → check:size → check:assets', () => {
+  // verify は E2E まで 1 つのジョブ（Actions の分数の削減 A1。org/10_development/devops/2026-09-29_actions-minutes.md）
+  test('TS-008-23 verify の順番: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets → check-e2e-dist → Playwright → test:e2e', () => {
     const v = job('verify');
     const order = [
       /"\$RUNNER_TEMP\/gitleaks" git /,
@@ -600,9 +699,14 @@ describe('ci.yml', () => {
       /run: npm run lint$/m,
       /run: npm run typecheck$/m,
       /run: npm run test$/m,
+      /run: npm run test:checks$/m,
       /run: npm run build:all$/m,
+      /run: npm run build:e2e$/m,
       /run: npm run check:size$/m,
       /run: npm run check:assets$/m,
+      /run: node scripts\/check-e2e-dist\.mjs$/m,
+      /run: npx playwright install --with-deps chromium$/m,
+      /run: npm run test:e2e$/m,
     ].map((re) => {
       const i = v.search(re);
       assert.ok(i >= 0, `verify に ${re} がない`);
@@ -611,44 +715,74 @@ describe('ci.yml', () => {
     for (let i = 1; i < order.length; i++) assert.ok(order[i - 1] < order[i], `順番が違う（${i} 番目）`);
   });
 
-  test('TS-008-23 前の手順が失敗したら後ろは動かない（continue-on-error・always() なし、後ろのジョブは needs）', () => {
+  test('TS-008-23 前の手順が失敗したら後ろは動かない（continue-on-error なし、failure() は記録の 2 つだけ、後ろのジョブは needs: verify）', () => {
+    // failure()・always()・continue-on-error・step の順番・記録の保存の検査は assertFailureReportPolicy（下の BL-099 の describe）
+    assert.doesNotMatch(job('verify'), /continue-on-error:\s*true/);
+    assert.deepEqual(names(ci), ['verify', 'deploy-preview', 'deploy-staging'], 'ジョブは verify（E2E を含む）と 2 つのデプロイだけ（A1）');
+    assert.match(job('deploy-preview'), /^ {4}needs: verify(?:\s+#.*)?$/m);
+    assert.match(job('deploy-staging'), /^ {4}needs: verify(?:\s+#.*)?$/m);
+  });
+
+  test('決定 0007（QA の条件 1）: main への push でも PR と同じ npm run test:e2e が動き、deploy-staging はその緑（E2E を含む verify）を待つ', () => {
     const v = job('verify');
-    assert.doesNotMatch(v, /continue-on-error:\s*true/);
-    assert.doesNotMatch(v, /if:.*(always|failure|cancelled)\(\)/);
-    assert.match(job('e2e'), /needs:\s*verify/);
-    assert.match(job('deploy-preview'), /needs:\s*\[verify, e2e\]/);
-    assert.match(job('deploy-staging'), /needs:\s*verify/);
+    // ジョブの if: は「preview 以外のラベルの run では動かない」だけ。push（や main）を外していない
+    const jobIf = /^ {4}if: (.*)$/m.exec(v)?.[1] ?? '';
+    assert.equal(jobIf, "github.event.action != 'labeled' || github.event.label.name == 'preview'", `verify の if: が変わった（push で E2E が動くか確かめ直す）: ${jobIf}`);
+    assert.match(ci, /^on:\n(?: {2}.*\n| {4}.*\n)*? {2}push:\n {4}branches: \[main\]\n/m, 'main への push で ci.yml が動かない');
+    // test:e2e の step 自体に if: がない（push で飛ばされない）
+    const st = steps(v).find((s) => /^ +run: npm run test:e2e$/m.test(s));
+    assert.ok(st, 'verify に npm run test:e2e の step がない');
+    assert.doesNotMatch(st, /^ {6}(?:- | {2})if:/m, 'test:e2e の step に if: がある（main の push で飛ばしうる）');
+    const staging = job('deploy-staging');
+    assert.match(staging, /^ {4}needs: verify(?:\s+#.*)?$/m, 'deploy-staging が E2E を含む verify を待たない');
+    assert.doesNotMatch(staging, /^ {4}if: .*(always|failure|cancelled)\(\)/m, 'deploy-staging が E2E の失敗でも動く');
+  });
+
+  test('A2: deploy-preview は preview のラベルの付いた PR だけ。preview 以外のラベルを付けただけの run は何もせず、実行中の CI を取り消さない', () => {
+    assert.match(ci, /^ {2}pull_request:\n {4}branches: \[main\]\n(?: {4}#.*\n)* {4}types: \[opened, synchronize, reopened, labeled\]\n/m, 'pull_request の types に labeled（ほかは既定の 3 つ）');
+    assert.match(job('deploy-preview'), /^ {4}if: .*&& contains\(github\.event\.pull_request\.labels\.\*\.name, 'preview'\)$/m, 'deploy-preview が preview のラベルを条件にしない');
+    assert.match(
+      ci,
+      /^ {2}group: ci-\$\{\{ github\.ref \}\}\$\{\{ github\.event\.action == 'labeled' && github\.event\.label\.name != 'preview' && format\('-label-\{0\}', github\.run_id\) \|\| '' \}\}$/m,
+      'preview 以外のラベルの run が、同じ PR の実行中の CI を取り消す',
+    );
+  });
+
+  test('A3: Playwright のブラウザは actions/cache で package-lock.json をキーにキャッシュし、その後に install --with-deps する', () => {
+    const ss = steps(job('verify'));
+    const cache = ss.findIndex((s) => /uses: actions\/cache@\S+/.test(s));
+    const install = ss.findIndex((s) => /^ +run: npx playwright install --with-deps chromium$/m.test(s));
+    assert.ok(cache >= 0 && install > cache, 'キャッシュの step が Playwright の導入の前にない');
+    assert.match(ss[cache], /^ {10}path: ~\/\.cache\/ms-playwright$/m);
+    assert.match(ss[cache], /^ {10}key: playwright-\$\{\{ runner\.os \}\}-\$\{\{ hashFiles\('package-lock\.json'\) \}\}$/m);
+    assert.equal((ci.match(/uses: actions\/cache@/g) ?? []).length, 1, 'キャッシュは Playwright の 1 つだけ');
   });
 
   test('npm に統一（npm ci・cache: npm・npx playwright・PW_CHANNEL=chromium、pnpm なし）', () => {
     assert.doesNotMatch(ci, /pnpm/);
     assert.match(ci, /cache: npm/);
-    const e = job('e2e');
-    assert.match(e, /run: npx playwright install --with-deps chromium/);
-    assert.match(e, /PW_CHANNEL: chromium/);
+    const v = job('verify');
+    assert.match(v, /run: npx playwright install --with-deps chromium/);
+    assert.match(v, /PW_CHANNEL: chromium/);
   });
 
-  // ---- e2e ジョブへのビルドの受け渡し（BL-095。e2e 系 2 種と本番 4 種。PoC の分岐は撤去） ----
+  // ---- E2E が配信するビルド（BL-095 から e2e 系 2 種と本番 4 種。A1 で同じジョブで作る） ----
   /** コメント行を除いた本文（注記に書いた語で検査が通ったり落ちたりしないように） */
   const code = (body) => body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
 
-  test('verify は E2E_JOB_TARGETS の 6 つだけを dist-e2e として e2e ジョブに渡す（PoC の dist/e2e・e2e-poki はない）', () => {
-    const st = steps(job('verify')).find((s) => s.includes('name: dist-e2e'));
-    assert.ok(st, 'verify に dist-e2e の upload-artifact がない');
-    const block = /^ {10}path: \|\n((?: {12}\S.*\n)+)/m.exec(code(st));
-    assert.ok(block, 'dist-e2e の path が複数行の一覧になっていない');
-    const paths = block[1].trim().split('\n').map((l) => l.trim());
-    for (const p of paths) assert.match(p, /^dist\/[a-z0-9-]+\/$/, `dist-e2e の path が dist/<名前>/ の形でない: ${p}`);
-    assert.deepEqual(paths.map((p) => p.slice(5, -1)).sort(), [...E2E_JOB_TARGETS].sort(), 'dist-e2e の path が E2E_JOB_TARGETS と一致しない');
-    assert.match(st, /if-no-files-found: error/);
-    assert.match(st, /retention-days: 1\n/, '保存は 1 日（500MB の枠）');
-    const e = job('e2e');
-    assert.match(e, /name: dist-e2e\n {10}path: dist\/\n/, 'e2e ジョブは dist-e2e を dist/ に受け取る');
+  test('A1: dist-e2e の受け渡しはない（E2E は同じジョブのビルドを使う）。保存するのはデプロイ用の dist-web（1 日）と失敗したときの記録だけ', () => {
+    const c = code(ci);
+    assert.doesNotMatch(c, /dist-e2e|download-artifact@\S+\n {8}with:\n {10}name: (?!dist-web\n)/, 'dist-e2e の保存・受け取りが残っている');
+    const st = steps(job('verify')).find((s) => /^ {10}name: dist-web$/m.test(s));
+    assert.ok(st, 'verify に dist-web の upload-artifact がない');
+    assert.match(st, /^ {10}path: dist\/web\/$/m);
+    assert.match(st, /^ {10}retention-days: 1$/m, '保存は 1 日（500MB の枠）');
+    assert.match(st, /^ {10}if-no-files-found: error$/m);
   });
 
-  test('e2e ジョブは受け取ったビルドを check-e2e-dist.mjs で確かめてから（Playwright の導入より前）、常に npm run test:e2e を流す', () => {
-    const e = job('e2e');
-    const c = code(e);
+  test('verify は check-e2e-dist.mjs で E2E が配信する 6 つ（E2E_JOB_TARGETS）を Playwright の導入の前に確かめ、常に npm run test:e2e を流す', () => {
+    const v = job('verify');
+    const c = code(v);
     for (const [re, why] of [
       [/PW_DIST/, 'PW_DIST を渡さない（serve.mjs で mode の outDir より優先され、S2 の PW_MODE=e2e-crazygames を上書きする）'],
       [/smoke\.spec\.ts/, 'PoC のスモークだけを流す分岐は撤去済み'],
@@ -656,19 +790,19 @@ describe('ci.yml', () => {
       [/pick-e2e-dist/, 'pick-e2e-dist.mjs は check-e2e-dist.mjs に置き換えた'],
     ])
       assert.doesNotMatch(c, re, why);
-    const ss = steps(e);
+    const ss = steps(v);
     const at = (re, what) => {
       const i = ss.findIndex((s) => re.test(s));
-      assert.ok(i >= 0, `e2e ジョブに ${what} がない`);
+      assert.ok(i >= 0, `verify に ${what} がない`);
       return i;
     };
     const order = [
-      at(/uses: actions\/download-artifact@\S+\n {8}with:\n {10}name: dist-e2e\n/, 'dist-e2e の受け取り'),
+      at(/^ +run: npm run build:e2e$/m, 'build:e2e'),
       at(/^ +run: node scripts\/check-e2e-dist\.mjs$/m, 'check-e2e-dist.mjs'),
       at(/^ +run: npx playwright install --with-deps chromium$/m, 'Playwright の導入'),
       at(/^ +run: npm run test:e2e$/m, 'npm run test:e2e（1 行だけの run）'),
     ];
-    for (let i = 1; i < order.length; i++) assert.ok(order[i - 1] < order[i], `e2e ジョブの step の順番が違う（${i} 番目）`);
+    for (let i = 1; i < order.length; i++) assert.ok(order[i - 1] < order[i], `verify の E2E の step の順番が違う（${i} 番目）`);
   });
 
   // ---- コードレビュー PR #1 の Must: CI から本番（Pages の本番ブランチ main）に出さない ----
@@ -683,6 +817,24 @@ describe('ci.yml', () => {
 
   test('本番に出さない: PR は main をベースにしたものだけで動く（head が main の PR を作れないようにする）', () => {
     assert.match(ci, /^on:\n {2}pull_request:\n {4}branches: \[main\]\n/m);
+  });
+
+  test('本番に出さない（PR #25 のレビュー S-2）: pages deploy は deploy-preview・deploy-staging の 2 つだけで、どちらも --branch を明示する。secrets を参照するのもこの 2 つだけ', () => {
+    // --branch がないと wrangler は git のブランチ（main の push では main＝Pages の本番ブランチ）を使いうる【一般知見・要確認】
+    const all = [...code(ci).matchAll(/pages deploy[^\n]*/g)].map((m) => m[0]);
+    assert.equal(all.length, 2, `pages deploy が 2 か所でない: ${all.join(' / ')}`);
+    for (const name of names(ci)) {
+      const body = code(job(name));
+      if (name === 'deploy-preview' || name === 'deploy-staging') {
+        const d = /pages deploy[^\n]*/.exec(body)?.[0];
+        assert.ok(d, `${name} に pages deploy がない`);
+        assert.match(d, / --branch=\S+/, `${name} の pages deploy が --branch を明示しない: ${d}`);
+      } else {
+        assert.doesNotMatch(body, /pages deploy/, `${name} に pages deploy がある`);
+        assert.doesNotMatch(body, /\bsecrets\b/, `${name} が secrets を参照している（secrets はデプロイの 2 つのジョブだけ）`);
+      }
+    }
+    assert.doesNotMatch(code(ci.slice(0, ci.indexOf('\njobs:'))), /\bsecrets\b/, 'ワークフロー直下（env: など）で secrets を参照している');
   });
 
   test('本番に出さない: deploy-preview は同じリポジトリの PR だけ。空・main・staging・production のブランチ名を、同じ step で deploy の前に拒否する', () => {
@@ -732,5 +884,184 @@ describe('ci.yml', () => {
       const p = (text.match(/persist-credentials: false/g) ?? []).length;
       assert.equal(p, n, `${name}: checkout ${n} 件のうち persist-credentials: false は ${p} 件`);
     }
+  });
+});
+
+// ---- 毎晩のジョブ（BL-084）と、失敗したときの E2E の記録（BL-099 と同じ方針。決定 0006-2・4、QA 判定書 S1 §6-2・§6-3） ----
+/** ワークフローの jobs: の下の 1 つのジョブの本文 */
+function jobOf(text, name) {
+  const m = new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  [a-z][\\w-]*:\\n|(?![\\s\\S]))`, 'm').exec(text);
+  assert.ok(m, `ジョブ ${name} がない`);
+  return m[1];
+}
+/** ジョブの本文を step ごとに分ける */
+const stepsOf = (body) => body.split(/\n(?= {6}- )/);
+/** コメント行を除いた本文 */
+const codeOf = (body) => body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+const HTML_REPORT = "hashFiles('playwright-report/index.html')";
+
+/**
+ * 失敗したときの記録の方針: playwright-report/ だけを 3 日。test-results/ は HTML レポートができなかったとき
+ * （index.html がないとき）だけ。成功した回には何も残さない。failure()・always() を使うのはこの 2 つの step だけ。
+ * テストの step には、ジョブより短い timeout-minutes（ジョブのタイムアウトで止まると failure() の step も動かず、何も残らない）
+ */
+function assertFailureReportPolicy(body, label, testRuns, allowUploads = []) {
+  const ss = stepsOf(body);
+  // step の最初の行が `- if:` の形でも `- name:` の下の `if:` でも捕まえる（PR #9 のレビュー S-2 (1)）
+  const ifOf = (s) => /^ {6}(?:- | {2})if: (.*)$/m.exec(s)?.[1] ?? '';
+  const artifactOf = (s) => /^ {10}name: (\S+)$/m.exec(s)?.[1];
+  // 記録以外に許す保存（名前で明示。例: ci.yml の verify のデプロイ用の dist-web。A1）は、条件なし・1 日
+  const others = ss.filter((s) => /uses: actions\/upload-artifact@/.test(s) && allowUploads.includes(artifactOf(s)));
+  assert.equal(others.length, allowUploads.length, `${label}: 許した保存（${allowUploads.join('・')}）がない`);
+  for (const s of others) {
+    assert.equal(ifOf(s), '', `${label}: ${artifactOf(s)} の保存に if: がある`);
+    assert.match(s, /^ {10}retention-days: 1$/m, `${label}: ${artifactOf(s)} の保存は 1 日`);
+  }
+  const uploads = ss.filter((s) => /uses: actions\/upload-artifact@/.test(s) && !others.includes(s));
+  // このジョブの保存は記録の 2 つだけ（3 つ目を足すなら、この検査を明示的に変える。S-2 (2)）
+  assert.equal(uploads.length, 2, `${label}: upload-artifact の step が 2 つでない（${uploads.length}）。失敗したときの記録の 2 つ以外に保存を足していないか`);
+  const report = uploads.filter((s) => /^ {10}path: playwright-report\/$/m.test(s));
+  const results = uploads.filter((s) => /^ {10}path: test-results\/$/m.test(s));
+  assert.equal(report.length, 1, `${label}: playwright-report/ を保存する step が 1 つでない（${report.length}）`);
+  assert.equal(results.length, 1, `${label}: test-results/ を保存する step が 1 つでない（${results.length}）`);
+  assert.equal(ifOf(report[0]), `failure() && ${HTML_REPORT} != ''`, `${label}: HTML レポートは失敗したときで index.html があるときだけ`);
+  assert.equal(ifOf(results[0]), `failure() && ${HTML_REPORT} == ''`, `${label}: test-results/ は HTML レポートができなかったときだけ`);
+  for (const s of [report[0], results[0]]) {
+    assert.match(s, /^ {10}retention-days: 3$/m, `${label}: 失敗したときの記録の保存は 3 日（500MB の枠。BL-099）`);
+    assert.doesNotMatch(s, /^ {10}path: \|/m, `${label}: 1 つの成果物に playwright-report/ と test-results/ を一緒に入れない`);
+  }
+  for (const s of ss) {
+    if (/(?:always|failure|cancelled)\(\)/.test(ifOf(s)))
+      assert.ok(s === report[0] || s === results[0], `${label}: failure()・always() を記録を残す step 以外に使っている:\n${s}`);
+    // `if:` をブロックスカラー（> や |）で書くと ifOf が読めない。1 行で書き、`${{ }}` で包まない（PR #19 のレビュー N-2）
+    assert.doesNotMatch(s, /^ {6}(?:- | {2})if:\s*[>|]/m, `${label}: if: をブロックスカラーで書いている:\n${s}`);
+    // continue-on-error は false 以外の値（true・`${{ true }}` など）をすべて拒む（N-2）
+    assert.doesNotMatch(s, /continue-on-error:\s*(?!false\s*(?:#.*)?$)\S/m, `${label}: continue-on-error`);
+  }
+  assert.doesNotMatch(body, /^ {4}continue-on-error:\s*(?!false\s*(?:#.*)?$)\S/m, `${label}: ジョブ単位の continue-on-error`);
+  const job = /^ {4}timeout-minutes: (\d+)(?:\s+#.*)?$/m.exec(body);
+  assert.ok(job, `${label}: ジョブに timeout-minutes がない`);
+  const lastRecord = Math.min(ss.indexOf(report[0]), ss.indexOf(results[0]));
+  for (const run of testRuns) {
+    const i = ss.findIndex((s) => new RegExp(`^ {8}run: ${escRe(run)}$`, 'm').test(s));
+    assert.ok(i >= 0, `${label}: run: ${run} の step がない`);
+    // 記録の step はテストの後（前にあると、テストが落ちても何も保存されない。S-2 (3)）
+    assert.ok(i < lastRecord, `${label}: 失敗したときの記録の step が ${run} より前にある`);
+    const t = /^ {8}timeout-minutes: (\d+)(?:\s+#.*)?$/m.exec(ss[i]);
+    assert.ok(t, `${label}: ${run} に timeout-minutes がない（ジョブのタイムアウトで止まると記録が残らない）`);
+    // 準備（npm ci・ブラウザの導入など）と記録の保存に使う時間を 10 分残す（PR #9 のレビュー N-2）
+    assert.ok(Number(job[1]) - Number(t[1]) >= 10, `${label}: ${run} の timeout-minutes（${t[1]}）とジョブ（${job[1]}）の差が 10 分より短い`);
+  }
+}
+
+describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別のジョブ。決定 0006-2）', () => {
+  const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
+  const e = jobOf(nightly, 'e2e');
+
+  test('E2E のジョブは balance・property を呼ばず、ほかのジョブを待たない（BL-090 がそろう前から動く）', () => {
+    const c = codeOf(e);
+    assert.doesNotMatch(c, /test:balance|test:property/);
+    assert.doesNotMatch(c, /^ {4}needs:/m);
+  });
+
+  test('npm ci → build:all → build:e2e → Playwright（chromium・webkit・firefox）→ mode ごとに test:e2e:nightly／test:e2e:full（PR #6 のレビュー S-3）', () => {
+    const ss = stepsOf(e);
+    const at = (re, what) => {
+      const i = ss.findIndex((s) => re.test(s));
+      assert.ok(i >= 0, `nightly.yml の e2e に ${what} がない`);
+      return i;
+    };
+    const order = [
+      at(/^ {8}run: npm ci$/m, 'npm ci'),
+      at(/^ {8}run: npm run build:all$/m, 'build:all（e2e-full の prod-builds が本番 4 種を使う）'),
+      at(/^ {8}run: npm run build:e2e$/m, 'build:e2e'),
+      at(/^ {8}run: npx playwright install --with-deps chromium webkit firefox$/m, 'Playwright の 3 ブラウザの導入'),
+    ];
+    const nightlyRun = at(/^ {8}run: npm run test:e2e:nightly$/m, 'test:e2e:nightly');
+    const fullRun = at(/^ {8}run: npm run test:e2e:full$/m, 'test:e2e:full');
+    for (let i = 1; i < order.length; i++) assert.ok(order[i - 1] < order[i], `nightly.yml の e2e の step の順番が違う（${i} 番目）`);
+    assert.ok(order.at(-1) < nightlyRun && order.at(-1) < fullRun, 'テストがビルドと Playwright の導入より前にある');
+    assert.match(ss[nightlyRun], /^ {8}if: .*inputs\.mode != 'full'$/m);
+    assert.match(ss[fullRun], /^ {8}if: .*inputs\.mode == 'full'$/m);
+    const c = codeOf(e);
+    assert.doesNotMatch(c, /^ {8}run: npm run test:e2e$/m, 'test:e2e（--project=chromium。PR ごとに流している）は毎晩に使わない');
+    assert.doesNotMatch(c, /PW_DIST/, 'PW_DIST を渡さない（serve.mjs で mode の outDir より優先される）');
+  });
+
+  test('package.json の test:e2e:nightly は WebKit・Firefox を含み、PR ごとの chromium を重ねない', () => {
+    const projects = [...pkg.scripts['test:e2e:nightly'].matchAll(/--project=([\w-]+)/g)].map((m) => m[1]);
+    for (const p of ['webkit', 'firefox']) assert.ok(projects.includes(p), `test:e2e:nightly に ${p} がない`);
+    assert.ok(!projects.includes('chromium'), 'test:e2e:nightly に chromium（PR ごとの test:e2e と同じ）がある');
+  });
+
+  test('失敗したときの記録: playwright-report/ だけを 3 日、HTML レポートができなかったときだけ test-results/（BL-099 と同じ方針）', () => {
+    assertFailureReportPolicy(e, 'nightly.yml の e2e', ['npm run test:e2e:nightly', 'npm run test:e2e:full']);
+  });
+
+  test('schedule は週 2 回（月・木の 03:00 JST＝UTC の日・水 18:00。CEO 決定）。コメントのままでも値を固定する', () => {
+    const crons = [...nightly.matchAll(/cron: '([^']+)'/g)].map((m) => m[1]);
+    assert.ok(crons.length >= 1, 'cron の行がない');
+    for (const c of crons) assert.equal(c, '0 18 * * 0,3');
+  });
+});
+
+describe('失敗したときの E2E の記録（BL-099。決定 0006-4・QA 判定書 S1 §6-3。500MB の保存量の枠）', () => {
+  const ci = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8').replaceAll('\r\n', '\n');
+  const pw = readFileSync(join(root, 'playwright.config.ts'), 'utf8');
+
+  test('ci.yml の verify（E2E を含む。A1）: playwright-report/ だけを 3 日、HTML レポートができなかったときだけ test-results/。failure() はこの 2 つだけ', () => {
+    assertFailureReportPolicy(jobOf(ci, 'verify'), 'ci.yml の verify', ['npm run test:e2e'], ['dist-web']);
+  });
+
+  test('ci.yml の成果物の名前: HTML レポートは e2e-report、test-results/ は e2e-test-results（手順書・実行記録の名前と合わせる）', () => {
+    const ss = stepsOf(jobOf(ci, 'verify'));
+    const nameOf = (path) => {
+      const st = ss.find((s) => new RegExp(`^ {10}path: ${escRe(path)}$`, 'm').test(s));
+      assert.ok(st, `${path} の upload がない`);
+      return /^ {10}name: (\S+)$/m.exec(st)?.[1];
+    };
+    assert.equal(nameOf('playwright-report/'), 'e2e-report');
+    assert.equal(nameOf('test-results/'), 'e2e-test-results');
+    // ほかのジョブ・複数行の path で同じものを保存し直していない（コメント行は除く）
+    const c = codeOf(ci);
+    // path の値（1 行の `path: x` と、`path: |` の下の一覧の行）だけを数える
+    assert.equal((c.match(/^\s+(?:path: )?playwright-report\/?$/gm) ?? []).length, 1, 'ci.yml で playwright-report/ を保存する場所が 1 つでない');
+    assert.equal((c.match(/^\s+(?:path: )?test-results\/?$/gm) ?? []).length, 1, 'ci.yml で test-results/ を保存する場所が 1 つでない');
+  });
+
+  test('nightly.yml は書き込みの権限と secrets を持たない（ワークフロー直下の contents: read だけ。PR #9 のレビュー S-3）', () => {
+    const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
+    const c = codeOf(nightly);
+    assert.match(c, /^permissions:\n {2}contents: read\n(?! )/m, 'ワークフロー直下の permissions が contents: read だけでない');
+    assert.equal((c.match(/permissions:/g) ?? []).length, 1, 'ジョブ単位の permissions がある（ワークフロー直下の 1 つだけにする）');
+    for (const [re, what] of [
+      [/\bsecrets\b/, 'secrets（`secrets.X`・`secrets[\'X\']`・`toJSON(secrets)`。PR #19 のレビュー N-1）'],
+      [/github\.token|GITHUB_TOKEN/, 'GitHub のトークン'],
+      [/wrangler|CLOUDFLARE_/, 'Cloudflare（デプロイ）'],
+      [/butler|BUTLER_/, 'itch.io（butler）'],
+    ])
+      assert.doesNotMatch(c, re, `nightly.yml に ${what} がある（schedule で main の上を人の目なしに動き、npm ci とテストのコードが動くジョブ）`);
+  });
+
+  test('playwright.config.ts: トレースは最初の実行の失敗だけ（retain-on-first-failure）、スクリーンショットは失敗したときだけ、動画なし（TS-073-02 を保ったまま小さく）', () => {
+    const code = pw.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    assert.match(code, /^\s+trace: 'retain-on-first-failure',$/m);
+    assert.match(code, /^\s+screenshot: 'only-on-failure',$/m);
+    assert.match(code, /^\s+video: 'off',$/m);
+    assert.equal((code.match(/\btrace:/g) ?? []).length, 1, 'trace の設定が 2 か所以上ある（project ごとの上書きを含む）');
+    assert.match(code, /\['html', \{ open: 'never', outputFolder: 'playwright-report' \}\]/, 'HTML レポートの出力先が playwright-report/ でない（ci.yml の hashFiles と合わない）');
+    // playwright.config.ts の外から trace・レポートの出力先を変えない（PR #19 のレビュー N-3）
+    for (const [name, s] of Object.entries(pkg.scripts).filter(([k]) => k.startsWith('test:e2e')))
+      assert.doesNotMatch(s, /--trace\b|--reporter\b/, `package.json の ${name} が --trace・--reporter で設定を上書きしている`);
+    for (const f of ['ci.yml', 'nightly.yml'])
+      assert.doesNotMatch(codeOf(readFileSync(join(root, '.github', 'workflows', f), 'utf8')), /PLAYWRIGHT_HTML_|PLAYWRIGHT_JSON_|PW_TEST_HTML_REPORT/, `${f} が環境変数で HTML レポートの出力先を変えている（hashFiles と合わなくなる）`);
+  });
+
+  test('playwright.config.ts: maxFailures は CI で 10・手元で 0（上限なし）、PW_MAX_FAILURES で変えられる（実行・修復エンジニアの決定。CEO 承認。PR 1 回の全体の失敗の時間とレポートを抑える）', () => {
+    const code = pw.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    assert.match(code, /^\s+maxFailures: Number\(process\.env\.PW_MAX_FAILURES \?\? \(CI \? 10 : 0\)\),$/m);
+    assert.equal((code.match(/\bmaxFailures:/g) ?? []).length, 1, 'maxFailures の設定が 2 か所以上ある');
+    for (const f of ['ci.yml'])
+      assert.doesNotMatch(codeOf(readFileSync(join(root, '.github', 'workflows', f), 'utf8')), /PW_MAX_FAILURES/, `${f} が PR の上限（10）を上書きしている`);
   });
 });

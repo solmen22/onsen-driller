@@ -1,9 +1,10 @@
 # CI（BL-008・BL-080。infra.md §4-3・付録 A-1 を npm に読み替えたもの）
 # - verify: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets
-#   同じジョブの連続した step なので、前が失敗したら後ろは動かない（TS-008-23）
-# - e2e: verify が緑のときだけ（needs）。PR と手動実行で動く。main への push では PR で実施済みなので省く
-#   verify のビルド（e2e 系 2 種と本番 4 種。成果物 dist-e2e）を受け取り、scripts/check-e2e-dist.mjs でそろっていることを
-#   確かめてから npm run test:e2e を流す（BL-095）
+#     → （dist/web をデプロイのジョブに渡す）→ check-e2e-dist → Playwright → test:e2e
+#   同じジョブの連続した step なので、前が失敗したら後ろは動かない（TS-008-23）。E2E は前の e2e ジョブをこのジョブに入れたもの
+#   （Actions の分数の削減 A1。org/10_development/devops/2026-09-29_actions-minutes.md。npm ci などの重複・dist-e2e の受け渡し・
+#   1 分単位の切り上げの損を 2 回 → 1 回に減らす）。PR・手動実行・main への push のすべてで E2E まで動く（決定 0007: main の push
+#   でも PR と同じ npm run test:e2e を流し、ステージングはその緑を待つ。マージの規則の案 L の前提。QA の条件 1）
 # - deploy-preview / deploy-staging: Actions の Variables の CF_PAGES_PROJECT が空のあいだはスキップされる（BL-080 で登録済み）
 #   このワークフローは本番ブランチ（main）には決して出さない。本番は release.yml（手動・G3 の後。BL-085）だけ
 #   - PR は main をベースにしたものだけ（head が main の PR は同じリポジトリでは作れない）
@@ -17,6 +18,8 @@ name: ci
 on:
   pull_request:
     branches: [main]
+    # labeled: preview のラベルを付けたときにプレビューを出すため（A2）。ほかのラベルでは verify も動かない（下の if:）
+    types: [opened, synchronize, reopened, labeled]
     paths-ignore: ['docs/**']
   push:
     branches: [main]
@@ -24,7 +27,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # preview 以外のラベルを付けただけの run（何もしない）が、同じ PR の実行中の CI を取り消さないように、別のグループにする
+  group: ci-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'preview' && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -32,8 +36,12 @@ permissions:
 
 jobs:
   verify:
+    # preview 以外のラベルを付けただけの run では何もしない（A2）
+    if: github.event.action != 'labeled' || github.event.label.name == 'preview'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30 # 検査とビルド 約 1.5 分＋test:e2e の step（15）＋準備と失敗したときの記録の保存に 10 分以上（BL-099）
+    env:
+      PW_CHANNEL: chromium # Playwright の Chromium（BL-073 から playwright.config.ts の既定も chromium。手元で Chrome を使うときだけ chrome）
     steps:
       - uses: actions/checkout@v7
         with:
@@ -79,70 +87,49 @@ jobs:
           path: dist/web/
           retention-days: 1
           if-no-files-found: error
-      - name: e2e 系と本番のビルドを e2e のジョブに渡す
-        uses: actions/upload-artifact@v7
-        with:
-          name: dist-e2e
-          # scripts/check-lib.mjs の E2E_JOB_TARGETS と同じ 6 つ（test:checks が一致を検査する）。BL-095
-          # - e2e 系: e2e-web（E1・E5・E9 など）・e2e-crazygames（S2 の PW_MODE=e2e-crazygames）
-          # - 本番の 4 種: 本番の起動の E2E（BL-097 の TS-007-03・09・13。__game なし）が配信する。dist-web（デプロイ用）とは別に持つ
-          #   （デプロイのジョブは今のまま dist-web だけを受け取る）。zip で約 2.6MB（e2e 系 0.9MB＋本番 1.7MB。2026-09-29 の実測からの推定）
-          # どれも dist/ からの相対パスで保存される（パスの共通の親が dist/）。ないものは飛ばされるので、e2e ジョブの check-e2e-dist.mjs で確かめる
-          path: |
-            dist/e2e-web/
-            dist/e2e-crazygames/
-            dist/web/
-            dist/crazygames/
-            dist/itch/
-            dist/poki/
-          retention-days: 1
-          if-no-files-found: error
-
-  e2e:
-    needs: verify
-    if: github.event_name != 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      PW_CHANNEL: chromium # Playwright の Chromium（BL-073 から playwright.config.ts の既定も chromium。手元で Chrome を使うときだけ chrome）
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - name: install
-        run: npm ci
-      - uses: actions/download-artifact@v8
-        with:
-          name: dist-e2e
-          path: dist/
-      - name: 受け取ったビルドの確認（e2e 系 2 種・本番 4 種。欠けていれば Playwright を入れる前に止める）
+      - name: ビルドの確認（E2E が配信する e2e 系 2 種・本番 4 種。欠けていれば Playwright を入れる前に止める）
         run: node scripts/check-e2e-dist.mjs
-      - name: Playwright の Chromium
+      - name: Playwright のブラウザのキャッシュ（A3。版は package-lock.json の @playwright/test で決まる）
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Playwright の Chromium（キャッシュがあればブラウザの取得は飛ばし、OS の部品だけ入れる）
         run: npx playwright install --with-deps chromium
       - name: test:e2e
-        # --project=chromium（PoC の道具と @nightly の印のテストは playwright.config.ts で除外）。配信は e2e/support/serve.mjs が
+        # --project=chromium と prod-builds（PoC の道具と @nightly の印のテストは playwright.config.ts で除外）。配信は e2e/support/serve.mjs が
         # mode（既定 e2e）の outDir（dist/e2e-web）を使う。配信先の上書きの環境変数はここでは渡さない（S2 の mode の切り替えを上書きするため）。
         # 本番の起動の E2E（BL-097）は、手元と同じ dist/web・crazygames・itch・poki を読む前提で test:e2e に含める（step を増やさない）。
         # 別の project・スクリプトにする場合は、ここに 1 行足して注記を直す（実行・修復エンジニアと合わせる。BL-095）
+        # timeout-minutes はジョブ（30）より 10 分以上短くする: ジョブのタイムアウトで止まると failure() の step も動かず、記録が何も残らない（BL-099）
+        timeout-minutes: 15
         run: npm run test:e2e
-      - name: 失敗したときの記録を残す
-        if: failure()
+      # 失敗したときの記録（BL-099。決定 0006-4・QA 判定書 S1 §6-3。nightly.yml も同じ方針）
+      # - playwright-report/ だけを 3 日。HTML レポートがトレース・スクリーンショットを自分の中に写すので、原因はこれで追える
+      #   （前は test-results/ も一緒に 7 日保存して同じものを 2 回持っていた。1 回 約 168MB。infra.md §4-3「成果物の保存量」）
+      # - test-results/ は HTML レポートができなかったとき（playwright-report/index.html がないとき。step のタイムアウトなど）だけ
+      # - 失敗の原因（エラーの要約・分類）は、3 日で消える成果物ではなく実行記録（org/30_quality/test-engineer/runs/）に残す
+      - name: 失敗したときの記録を残す（HTML レポート）
+        if: failure() && hashFiles('playwright-report/index.html') != ''
         uses: actions/upload-artifact@v7
         with:
           name: e2e-report
-          path: |
-            playwright-report/
-            test-results/
-          retention-days: 7
+          path: playwright-report/
+          retention-days: 3
+          if-no-files-found: ignore
+      - name: 失敗したときの記録を残す（HTML レポートができなかったときだけ test-results/）
+        if: failure() && hashFiles('playwright-report/index.html') == ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-test-results
+          path: test-results/
+          retention-days: 3
           if-no-files-found: ignore
 
   deploy-preview:
-    needs: [verify, e2e]
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CF_PAGES_PROJECT != ''
+    needs: verify # E2E は verify の中（A1）。E2E が緑でないとプレビューに出さない
+    # preview のラベルの付いた PR だけ（A2。オーナー・QA に URL を渡すときに付ける。1 回 1 分の切り上げの節約）
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CF_PAGES_PROJECT != '' && contains(github.event.pull_request.labels.*.name, 'preview')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -185,7 +172,7 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha }}
 
   deploy-staging:
-    needs: verify
+    needs: verify # E2E は verify の中（A1）。E2E が緑でないとステージングに出さない（決定 0007）
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CF_PAGES_PROJECT != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
