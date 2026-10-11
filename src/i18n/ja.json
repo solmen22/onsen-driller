@@ -142,12 +142,12 @@
   "inn.foundAt": "{n}m で発見",
   "inn.nextSlot": "次の枠は Lv{n}",
   "inn.bathBonus": "入湯料 +{n}%",
-  "inn.slotLabel": "枠 {n}: {name}",
   "inn.slotNo": "枠 {n}",
   "inn.hintSelect": "源泉を選んでから、枠を選ぶと入れ替わります。",
   "inn.hintSlot": "{spring}を入れる枠を選んでください（Esc で取り消し）。",
   "inn.springs": "源泉",
   "inn.notConnected": "つないでいない",
   "inn.inSlot": "枠 {n}",
-  "inn.guests": "お客さん"
+  "inn.guests": "お客さん",
+  "buy.pumpOf": "{spring}のポンプ"
 }

@@ -52,7 +52,7 @@ export function InnPanel({ qty, lang }: { qty: Qty; lang: Lang }) {
           class={`row inn-slot${sel !== null ? ' inn-target' : ''}`}
           data-testid={`inn-slot-${x.slot}`}
           data-spring={x.spring}
-          aria-label={t('inn.slotLabel', { n: x.slot + 1, name: x.name })}
+          aria-disabled={sel === null}
           onClick={() => onSlot(x.slot)}
         >
           <span class="buy-main">
@@ -64,7 +64,7 @@ export function InnPanel({ qty, lang }: { qty: Qty; lang: Lang }) {
           {x.income && <span class="row-cost">{x.income}</span>}
         </button>
       ))}
-      <p class="note" data-testid="inn-hint">
+      <p class="note" data-testid="inn-hint" role="status">
         {sel === null ? t('inn.hintSelect') : t('inn.hintSlot', { spring: v.springs.find((x) => x.id === sel)?.name ?? '' })}
       </p>
 

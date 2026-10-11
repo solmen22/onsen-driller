@@ -118,8 +118,12 @@ function nameOf(item: ItemId, s: GameState): { name: string; levelText: string }
       levelText: t(`tool.${cur?.id ?? 'shovel'}` as TextKey),
     };
   }
-  const key: TextKey = item === 'drill' ? 'item.drill' : item === 'autoDigger' ? 'item.autoDigger' : item === 'bath' ? 'item.bath' : 'item.pump';
   const level = buyQuote(s, item, 1).level;
+  if (item.startsWith('pump:')) {
+    // どの源泉のポンプかを名前に入れる（T2 に同じ名前のボタンが並ぶため。読み上げでも分かるように。PR #46 のレビューの S-2・BL-130）
+    return { name: t('buy.pumpOf', { spring: t(`spring.${item.slice(5)}` as TextKey) }), levelText: t('buy.level', { n: level }) };
+  }
+  const key: TextKey = item === 'drill' ? 'item.drill' : item === 'autoDigger' ? 'item.autoDigger' : 'item.bath';
   return { name: t(key), levelText: t('buy.level', { n: level }) };
 }
 
