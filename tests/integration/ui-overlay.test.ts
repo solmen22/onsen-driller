@@ -218,6 +218,7 @@ describe('btn-boost の状態（TS-046-05。Q-37 (a)）', () => {
     const w = wired();
     const s = withTickets(2);
     s.run.boost.remainingMs = 299_001;
+    s.run.boost.readyAtWallMs = NOW + 899_001; // 使った直後（休みの中。休みが明けていれば core で使えるので ready）
     m = mount({ state: s, ctx: w.ctx, wallNow: () => NOW });
     const b = m.get('btn-boost');
     expect(b.dataset['state']).toBe('active');

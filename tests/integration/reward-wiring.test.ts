@@ -105,11 +105,24 @@ describe('btn-boost は core の boostView から作り、store と同じ時計�
     expect(m.get('btn-boost').dataset['state']).toBe('ready');
   });
 
+  it('オフライン中に効果が残ったまま休みが明けたら、core で使えるので ready（判定と表示の出どころを 1 つに。CEO 決定 2026-10-12）', () => {
+    const s = stateWith({ depth: 10 });
+    s.meta.tickets = 1;
+    s.run.boost.remainingMs = 120_000;
+    s.run.boost.readyAtWallMs = NOW - 1;
+    expect(coreBoostView(s, NOW)).toMatchObject({ active: true, canUse: true, reason: null });
+    expect(boostView(s, NOW, false, true)).toEqual({ state: 'ready', time: null });
+    expect(boostView(s, NOW, false, false)).toEqual({ state: 'unavailable', time: null });
+    s.run.boost.readyAtWallMs = NOW + 1000;
+    expect(boostView(s, NOW, false, true)).toEqual({ state: 'active', time: '2:00' });
+  });
+
   it('ブースト中は実際の倍率（ドリル ×2・自動掘削機 ×4）を出す。シートの説明も同じ', () => {
     expect(boostMult()).toEqual({ drill: PARAMS.boost.mult, auto: PARAMS.boost.mult ** 2 });
     expect(boostMult().auto).toBe(4);
     const store = storeAt({ t: NOW });
     store.state.run.boost.remainingMs = 299_001;
+    store.state.run.boost.readyAtWallMs = NOW + 899_001;
     m = mount({ store, ctx: { rewards: createRewardHooks(store) } });
     const b = m.get('btn-boost');
     expect(b.textContent).toContain('×2');
