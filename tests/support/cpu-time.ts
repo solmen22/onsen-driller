@@ -5,6 +5,8 @@
 //   実時間の中央値で判定する（閾値は同じ）
 // - どちらの方式で判定したかと値を毎回 console.log で出す（条件 3。TS-010-12 と同じ形）
 // - Windows の `threadCpuUsage` の刻みは約 15.6ms。複数回を続けて測って回数で割ると、刻みの誤差が 1/回数 になる
+//   （0 でないときの誤差は合計で約 1 刻み。TS-012-13〔5 回〕では 1 回あたり約 ±3ms が目安）
+// - 測る関数は同期に限る。Promise（thenable）を返す関数は最初の await までしか測れず偽の緑になるので、例外で止める（BL-129）
 
 export interface Timing {
   /** 判定に使った方式（cpu: CPU 時間の平均。wall: 実時間の中央値） */
@@ -34,17 +36,32 @@ export const defaultCpuReader: CpuReader = threadCpuUsage
  * 準備（状態の作成など）は body の外で行う（測る範囲に入れない）。結果の確認も body の外で行う
  * @param label console.log の見出し（例 'TS-012-13'）
  */
-export function measure(label: string, n: number, body: (i: number) => void, read: CpuReader = defaultCpuReader): Timing {
+/** 値が thenable（then を持つ。async 関数の戻り値など）か */
+const isThenable = (v: unknown): boolean =>
+  (typeof v === 'object' || typeof v === 'function') && v !== null && typeof (v as { then?: unknown }).then === 'function';
+
+/** 測る関数が thenable を返したら止める（最初の await までしか測らない偽の緑を防ぐ。PR #44 のレビューの Should 1） */
+function assertSync(label: string, v: unknown): void {
+  if (isThenable(v)) throw new TypeError(`[${label}] 測る関数が Promise（thenable）を返した。CPU 時間は同期の処理だけを測れる（async 関数を渡さない）`);
+}
+
+/** 中央値（偶数個なら真ん中の 2 つのうち小さいほう。空なら +∞） */
+export function medianOf(values: readonly number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)] ?? Number.POSITIVE_INFINITY;
+}
+
+export function measure(label: string, n: number, body: (i: number) => unknown, read: CpuReader = defaultCpuReader): Timing {
   const walls: number[] = [];
   const c0 = read?.() ?? 0;
   for (let i = 0; i < n; i++) {
     const t0 = performance.now();
-    body(i);
+    const r = body(i);
     walls.push(performance.now() - t0);
+    assertSync(label, r);
   }
   const cpuTotal = read ? read() - c0 : 0;
-  const sorted = [...walls].sort((a, b) => a - b);
-  const wallMedianMs = sorted[Math.floor((sorted.length - 1) / 2)] ?? Number.POSITIVE_INFINITY;
+  const wallMedianMs = medianOf(walls);
   const cpuMeanMs = read ? cpuTotal / n : null;
   // CPU の合計が 0（測れていない）なら CPU では合格にしない（条件 2）
   const t: Timing =
@@ -64,6 +81,7 @@ export function measureOnce<T>(label: string, fn: () => T, read: CpuReader = def
   const box: { value?: T } = {};
   const timing = measure(label, 1, () => {
     box.value = fn();
+    return box.value;
   }, read);
   return { value: box.value as T, timing };
 }
