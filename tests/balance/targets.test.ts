@@ -6,6 +6,8 @@ import { DEFAULT_SEEDS, runSuite } from '../../tools/sim/suite.ts';
 import { ACCEPTED, inRange, judgeTargets, median, TARGETS, type Accepted } from '../../tools/sim/targets.ts';
 
 const MIN = 60_000;
+/** テスト用の受け入れ（#8。幅 12:00〜20:00） */
+const acc8: Accepted = { no: 8, reason: 'テストの理由です（十分に長い）', approvedBy: '技術リード', until: 'BL-034', bounds: { min: 12 * MIN, max: 20 * MIN } };
 
 /** 判定に要るところだけを持つ実行の結果（判定の関数のテスト用） */
 function fake(bot: string, seed: number, over: Partial<SimResult> = {}): SimResult {
@@ -75,9 +77,10 @@ describe('BL-033 目標表の定義（gdd §8-3）', () => {
     for (const no of [2, 3, 4, 5, 6, 7, 8, 10, 17, 18, 22]) expect(kind(no)).toBe('judge');
   });
 
-  it('受け入れ（ACCEPTED）には理由・承認・期限がある', () => {
+  it('受け入れ（ACCEPTED）には理由・承認・期限・幅がある（BL-122）', () => {
     for (const a of ACCEPTED) {
       expect(a.reason.length).toBeGreaterThan(10);
+      expect(a.bounds.min).toBeLessThan(a.bounds.max);
       expect(a.approvedBy).toMatch(/技術リード/);
       expect(a.until).toMatch(/BL-\d{3}/);
       expect(TARGETS.find((t) => t.no === a.no)?.kind).toBe('judge');
@@ -110,13 +113,57 @@ describe('BL-033 判定の規則', () => {
     expect(judgeTargets(runs, []).find((x) => x.def.no === 3)?.verdict).toBe('fail');
   });
 
-  it('範囲外でも、保留の項目は失敗にしない。受け入れた項目は「受け入れ」になる', () => {
-    const runs = [fake('standard', 1, { newElementGapMs: 10 * MIN, milestones: { sulfur: 10 * MIN } })];
-    const acc: Accepted[] = [{ no: 8, reason: 'テストの理由です（十分に長い）', approvedBy: '技術リード', until: 'BL-034' }];
-    const res = judgeTargets(runs, acc);
+  it('範囲外でも、保留の項目は失敗にしない。受け入れた項目は幅の中なら「受け入れ」になる', () => {
+    const runs = [fake('standard', 1, { newElementGapMs: 10 * MIN, milestones: { sulfur: 13 * MIN } })];
+    const res = judgeTargets(runs, [acc8]);
     expect(res.find((x) => x.def.no === 9)?.verdict).toBe('pending');
     expect(res.find((x) => x.def.no === 8)?.verdict).toBe('accepted');
     expect(judgeTargets(runs, []).find((x) => x.def.no === 8)?.verdict).toBe('fail');
+  });
+
+  it('BL-122 S-1: 受け入れた項目でも、幅の外なら失敗', () => {
+    const t8 = (sulfur: number) => judgeTargets([fake('standard', 1, { milestones: { sulfur } })], [acc8]).find((x) => x.def.no === 8);
+    expect([11.9 * MIN, 12 * MIN, 13 * MIN].map((v) => t8(v)?.verdict)).toEqual(['fail', 'accepted', 'accepted']);
+    expect(t8(8 * MIN)?.accepted?.no).toBe(8); // レポートで「受け入れの幅の外」と書き分ける
+  });
+
+  it('BL-122 S-1: 受け入れた項目でも、値がなければ失敗（出来事が起きない）', () => {
+    const runs = [fake('standard', 1), fake('standard', 2)];
+    const r8 = judgeTargets(runs, [acc8]).find((x) => x.def.no === 8);
+    expect(r8?.verdict).toBe('fail');
+    // 実行が短く、値がない（その時刻まで流していない）場合も、受け入れにはしない
+    const short = judgeTargets([fake('standard', 1, { hours: 0.1 })], [acc8]).find((x) => x.def.no === 8);
+    expect([short?.judged, short?.verdict]).toEqual([null, 'fail']);
+  });
+
+  it('BL-122: 受け入れた項目が範囲内に戻ったら合格のまま知らせる（stale）', () => {
+    const r8 = judgeTargets([fake('standard', 1, { milestones: { sulfur: 15 * MIN } })], [acc8]).find((x) => x.def.no === 8);
+    expect([r8?.verdict, r8?.stale]).toEqual(['pass', true]);
+    const runs = [fake('standard', 1, { milestones: { sulfur: 15 * MIN } }), fake('idle', 1, { depthAt60: 300 })];
+    const files = buildReport(runs, judgeTargets(runs, [acc8]), { seeds: [1] });
+    expect(files['summary.md']).toMatch(/範囲内に戻った受け入れ（ACCEPTED から消す）/);
+    expect(files['summary.md']).toMatch(/- #8: 判定に使った値 15:00/);
+  });
+
+  it('BL-122 S-2: 時刻の項目で、実行の長さまでに起きなかったシードは「範囲より遅い」として中央値に入れる（8 本中 4 本が未達なら失敗）', () => {
+    const runs = [1, 2, 3, 4, 5, 6, 7, 8].map((seed) => fake('standard', seed, { milestones: seed <= 4 ? { sulfur: 15 * MIN } : {} }));
+    const r8 = judgeTargets(runs, []).find((x) => x.def.no === 8);
+    expect([r8?.judged, r8?.verdict]).toEqual([Number.POSITIVE_INFINITY, 'fail']);
+    expect(r8?.values.filter((x) => x.value === Number.POSITIVE_INFINITY)).toHaveLength(4);
+    expect(judgeTargets(runs, [acc8]).find((x) => x.def.no === 8)?.verdict).toBe('fail'); // 受け入れても未達は失敗
+    // 8 本中 3 本の未達なら中央値は起きた側（範囲内なら合格）
+    const five = [1, 2, 3, 4, 5, 6, 7, 8].map((seed) => fake('standard', seed, { milestones: seed <= 5 ? { sulfur: 15 * MIN } : {} }));
+    expect(judgeTargets(five, []).find((x) => x.def.no === 8)?.verdict).toBe('pass');
+  });
+
+  it('BL-122 S-2: 実行が上限より短くて起きなかったシードと、時刻でない項目の値がない実行は、今のとおり中央値から除く', () => {
+    // #3（上限 60 秒）: 36 秒の実行で起きなかったシードは除く
+    const runs = [fake('standard', 1, { milestones: { simple: 40_000 } }), fake('standard', 2, { milestones: { simple: 40_000 } }), fake('standard', 3, { hours: 0.01 })];
+    const r3 = judgeTargets(runs, []).find((x) => x.def.no === 3);
+    expect([r3?.judged, r3?.verdict]).toEqual([40_000, 'pass']);
+    // #17（60 分の深さ）: 値がない実行は除く
+    const idle = [fake('idle', 1, { depthAt60: 300 }), fake('idle', 2, { depthAt60: 300 }), fake('idle', 3)];
+    expect(judgeTargets(idle, []).find((x) => x.def.no === 17)?.judged).toBe(300);
   });
 
   it('#22 はすべての実行（全ボット・全シード）が健全なときだけ合格', () => {
