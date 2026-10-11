@@ -47,7 +47,7 @@ describe('BL-118 CPU 時間で測る共通の関数', () => {
     expect(t.wallMedianMs).toBeGreaterThanOrEqual(0);
     expect(t.ms).toBe(t.wallMedianMs);
   });
-  it('measure・measureOnce に Promise（thenable）を返す関数を渡すと例外で止まる（最初の await までしか測らない偽の緑を防ぐ。BL-129）', async () => {
+  it('measure・measureOnce に Promise（thenable）を返す関数を渡すと例外で止まる（最初の await までしか測らない偽の緑を防ぐ。BL-129）', () => {
     const asyncBody = async (): Promise<void> => {
       await Promise.resolve();
       spin(60);
