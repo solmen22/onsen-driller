@@ -2,6 +2,7 @@
 // PR: TS-E9-01〜04（V1）、TS-E9-07（V2 で 01〜04）、TS-E9-08（V3 で 01〜04 と設定の保存）、TS-E9-10（V5）、TS-E9-13（共通の検査）、
 //     TS-E9-14（V6）、TS-E9-15（V7）（S1）。TS-E9-09（V4。S2 の BL-094 で毎晩から PR へ。QA 判定書 sprint-01 §4・決定 0006-5:
 //     気づけないセーブの消失の唯一の守りが案内で、毎晩のジョブは Chromium を流さないため）。
+//     S2: TS-046-18（BL-046 の保存のトースト。V5。BL-103）。
 //     毎晩: TS-E9-05・06（BL-089）。保留: TS-E9-11（S3）、TS-E9-12（S2）。
 // 保存できない状態は context.addInitScript でページのスクリプトより先に入れる（e2e/support/storage.ts の V1〜V7）。
 // 文言は S1 では data-testid（save-warning）で存在だけを見る。文言の一致は S2（BL-052）から。
@@ -267,6 +268,46 @@ test.describe('E9 保存できない環境', () => {
     const g2 = await bootGame(reopened.page, { time: newer.env!.savedAt, startPaused: true });
     expect(await g2.getState()).toEqual(second);
     expect(await pageNow(reopened.page)).toBe(newer.env!.savedAt);
+  });
+
+  test('TS-046-18 V5: 3 回目の保存の失敗の直後に保存のトーストが 1 回だけ出て 2 秒で消え、4 回目では出ない。save-warning は出したまま（BL-103）', async ({
+    page,
+    context,
+    harness,
+  }) => {
+    needs('hook:advance.input', 'feature:twoSlotSave', 'feature:saveWarning');
+    await injectStorageFault(context, 'V5');
+    const g = await bootGame(page);
+    await g.pause();
+    // 保存のトースト（data-kind="save"）が DOM に足された回数を数える（出てすぐ消えたものも数える）
+    await page.evaluate(() => {
+      const w = window as unknown as { __e2eSaveToasts: number };
+      w.__e2eSaveToasts = 0;
+      new MutationObserver((records) => {
+        for (const r of records)
+          for (const n of r.addedNodes)
+            if (n instanceof HTMLElement && n.matches('[data-testid="toast"][data-kind="save"]')) w.__e2eSaveToasts++;
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+    const saveToasts = (): Promise<number> => page.evaluate(() => (window as unknown as { __e2eSaveToasts: number }).__e2eSaveToasts);
+    const toast = page.locator('[data-testid="toast"][data-kind="save"]');
+    await triggerAutosave(page); // 1 回目（成功）
+    await triggerAutosave(page); // 2 回目（成功）
+    await expect(warning(page)).toHaveCount(0);
+    expect(await saveToasts(), '成功の間はトーストが出ない').toBe(0);
+    await triggerAutosave(page); // 3 回目（失敗）
+    await expect(toast, '3 回目の失敗の直後に保存のトースト').toHaveCount(1);
+    await expectWarning(page, 'failing');
+    // 2 秒で消える（TOAST_MS。消える前は残っている）
+    await page.clock.runFor(1_700);
+    await expect(toast).toHaveCount(1);
+    await page.clock.runFor(500);
+    await expect(toast, '2 秒で消える').toHaveCount(0);
+    await triggerAutosave(page); // 4 回目（失敗が続く）
+    await expect(toast, '4 回目では出ない').toHaveCount(0);
+    expect(await saveToasts(), 'トーストは 3 回目の 1 回だけ').toBe(1);
+    await expectWarning(page, 'failing');
+    expect(await harness.uncaughtErrors()).toEqual([]);
   });
 
   test('TS-E9-13 保存できない型（V1〜V3）の遊びの後、共通の検査（通信・Cookie・キー名）が合格し、キーが 0 個', async ({ harness }) => {
