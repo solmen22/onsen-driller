@@ -54,13 +54,15 @@ export interface Mounted {
 
 /** 部品（既定は App 全体）を描く。lang の既定は en（表示の文字ではなく data-* で判定する） */
 export function mount(
-  opts: { state?: GameState; lang?: Lang; node?: ComponentChild; store?: GameStore; ctx?: Partial<UiContext> } = {},
+  opts: { state?: GameState; lang?: Lang; node?: ComponentChild; store?: GameStore; ctx?: Partial<UiContext>; wallNow?: () => number } = {},
 ): Mounted {
   setLang(opts.lang ?? 'en');
   const store = opts.store ?? new GameStore(opts.state ?? createInitialState(1), { onError: (e) => { throw e; } });
+  // 壁時計（btn-boost の休み・ご褒美の口の wallMs。app では startLoop が app の時計をつなぐ）。つながなければ Date.now
+  if (opts.wallNow) store.useWallClock(opts.wallNow);
   const root = document.createElement('div');
   document.body.appendChild(root);
-  // ctx: ご褒美の口（rewards・requestReward）・壁時計（now）・platform などを差し替える（BL-046）
+  // ctx: ご褒美の口（rewards・requestReward）・platform などを差し替える（BL-046）
   const value: UiContext = { store, platform: uiPlatform(), version: '0.0.1-test', ...opts.ctx };
   // act は Promise の型を返すが、同期の関数なら描画を終えてから戻る（ここでは待たない）
   void act(() => {

@@ -39,14 +39,15 @@ function wired(opts: { video?: boolean; ticketHook?: boolean } = {}) {
   platform.ads.rewardedAvailable = () => available;
   const ctx: Partial<UiContext> = {
     platform,
-    now: () => NOW,
     requestReward: (p) => {
       calls.requests.push(p);
       return new Promise<RewardResult>((r) => {
         resolve = r;
       });
     },
-    ...(opts.ticketHook === false ? {} : { rewards: { useBoostTicket: () => void calls.useBoostTicket++ } }),
+    ...(opts.ticketHook === false
+      ? {}
+      : { rewards: { useBoostTicket: () => void calls.useBoostTicket++, claimOffline: () => undefined, grantAd: () => undefined } }),
   };
   return {
     ctx,
@@ -85,7 +86,7 @@ const tap = (el: Element): void => {
 describe('ご褒美のシート（R2・R3）', () => {
   it('TS-046-01 動画が使える・チケット 3 枚: btn-boost でシートが開き、動画（アイコン付き）・チケット（枚数）・閉じるが同じ部品で並ぶ', () => {
     const w = wired();
-    m = mount({ state: withTickets(3), ctx: w.ctx });
+    m = mount({ state: withTickets(3), ctx: w.ctx, wallNow: () => NOW });
     expect(m.get('btn-boost').dataset['state']).toBe('ready');
     m.click('btn-boost');
     const sheet = m.get('sheet-reward');
@@ -101,7 +102,7 @@ describe('ご褒美のシート（R2・R3）', () => {
     const w = wired();
     const s = createInitialState(1);
     s.run.vein.active = { depth: 3, hits: 0, expiresAtMs: 60_000 };
-    m = mount({ state: s, ctx: w.ctx });
+    m = mount({ state: s, ctx: w.ctx, wallNow: () => NOW });
     m.click('chip-vein');
     expect(m.get('sheet-reward').querySelector('[data-placement="R3"]')).not.toBeNull();
     for (const id of ['sheet-video', 'sheet-hits', 'sheet-close']) expect(m.get(id).className, id).toBe('sheet-btn');
@@ -122,7 +123,7 @@ describe('ご褒美のシート（R2・R3）', () => {
     const w = wired({ video: false });
     const s = withTickets(1);
     s.run.vein.active = { depth: 3, hits: 0, expiresAtMs: 60_000 };
-    m = mount({ state: s, ctx: w.ctx });
+    m = mount({ state: s, ctx: w.ctx, wallNow: () => NOW });
     m.click('btn-boost');
     expect(m.q('sheet-video')).toBeNull();
     expect(m.q('sheet-ticket')).not.toBeNull();
@@ -135,7 +136,7 @@ describe('ご褒美のシート（R2・R3）', () => {
 
   it('TS-046-04 チケット 0 枚: 表示したまま押せない（disabled・aria-disabled・×0）。押しても何も起きない', () => {
     const w = wired();
-    m = mount({ state: withTickets(0), ctx: w.ctx });
+    m = mount({ state: withTickets(0), ctx: w.ctx, wallNow: () => NOW });
     expect(m.get('btn-boost').dataset['state']).toBe('ready'); // 動画を出せるので ready（Q-37 (a)）
     m.click('btn-boost');
     const b = m.get('sheet-ticket');
@@ -150,7 +151,7 @@ describe('ご褒美のシート（R2・R3）', () => {
 
   it('TS-046-04 チケット 1 枚: すばやく 2 回押しても useBoost(ticket) は 1 回だけ届き、シートが閉じる', () => {
     const w = wired({ video: false });
-    m = mount({ state: withTickets(1), ctx: w.ctx });
+    m = mount({ state: withTickets(1), ctx: w.ctx, wallNow: () => NOW });
     m.click('btn-boost');
     const b = m.get('sheet-ticket');
     void act(() => {
@@ -163,7 +164,7 @@ describe('ご褒美のシート（R2・R3）', () => {
 
   it('Q-41 (b)(d) 要求中は閉じない（閉じる・Esc・×・背景が効かない）。失敗で ad-unavailable をシートの中に出し、読み直して false なら動画を隠す', async () => {
     const w = wired();
-    m = mount({ state: withTickets(2), ctx: w.ctx });
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });
     m.click('btn-boost');
     m.click('sheet-video');
     expect(w.calls.requests).toEqual(['R2']);
@@ -184,7 +185,7 @@ describe('ご褒美のシート（R2・R3）', () => {
 
   it('Q-41 動画の結果が rewarded ならシートを閉じる', async () => {
     const w = wired();
-    m = mount({ state: withTickets(2), ctx: w.ctx });
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });
     m.click('btn-boost');
     m.click('sheet-video');
     await w.finish('rewarded');
@@ -217,7 +218,7 @@ describe('btn-boost の状態（TS-046-05。Q-37 (a)）', () => {
     const w = wired();
     const s = withTickets(2);
     s.run.boost.remainingMs = 299_001;
-    m = mount({ state: s, ctx: w.ctx });
+    m = mount({ state: s, ctx: w.ctx, wallNow: () => NOW });
     const b = m.get('btn-boost');
     expect(b.dataset['state']).toBe('active');
     expect(b.hasAttribute('disabled')).toBe(true);
@@ -233,7 +234,7 @@ describe('btn-boost の状態（TS-046-05。Q-37 (a)）', () => {
     const w = wired();
     const s = withTickets(2);
     s.run.boost.readyAtWallMs = NOW + 870_000;
-    m = mount({ state: s, ctx: w.ctx });
+    m = mount({ state: s, ctx: w.ctx, wallNow: () => NOW });
     const b = m.get('btn-boost');
     expect(b.dataset['state']).toBe('cooldown');
     expect(b.textContent).toContain('14:30');
@@ -327,7 +328,7 @@ describe('トースト（TS-046-08〜11）', () => {
   });
 
   it('TS-046-08 温泉チケット +1 は、チケットの付与の口（BL-058）があるときだけ同じトーストに出す', () => {
-    m = mount({ ctx: wired().ctx });
+    m = mount({ ctx: wired().ctx, wallNow: () => NOW });
     m.run((st) => st.pushEvents([{ type: 'GuestArrived', guest: 'tanuki', first: true }]));
     expect(m.get('toast').textContent).toContain(t('toast.ticket'));
     m.unmount();
@@ -427,7 +428,7 @@ describe('確認（M3。TS-046-12）', () => {
 describe('ダイアログの属性・フォーカス・入力（TS-046-13・14）', () => {
   it('TS-046-13 role・aria-modal・aria-labelledby。開くと本体にフォーカス（ボタンにはない）。Tab は中で回る。閉じると btn-boost に戻る', () => {
     const w = wired();
-    m = mount({ state: withTickets(2), ctx: w.ctx });
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });
     const boost = m.get('btn-boost');
     void act(() => boost.focus());
     m.click('btn-boost');
@@ -452,7 +453,7 @@ describe('ダイアログの属性・フォーカス・入力（TS-046-13・14�
 
   it('TS-046-14 表示中は 1〜5（タブ）・Shift（購入数）が効かない。閉じると戻る', () => {
     const w = wired();
-    m = mount({ state: withTickets(2), ctx: w.ctx });
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });
     m.click('btn-boost');
     expect(isModalOpen()).toBe(true);
     m.key({ key: '2', code: 'Digit2' });
@@ -467,7 +468,7 @@ describe('ダイアログの属性・フォーカス・入力（TS-046-13・14�
 
   it('TS-046-14 表示中は掘削の入力を止める（main.ts と同じ結線: onModalChange → setBlocked(modal)）。閉じるための押下は打撃にならず、閉じた後の次の押下から掘れる', () => {
     const w = wired();
-    m = mount({ state: withTickets(2), ctx: w.ctx });
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });
     const stage = new EventTarget();
     const input = setupInput({ stage, win: new EventTarget(), doc: new EventTarget() }, m.store);
     const off = onModalChange((open) => input.setBlocked('modal', open));
@@ -495,7 +496,7 @@ describe('ダイアログの属性・フォーカス・入力（TS-046-13・14�
 describe('要求中・失敗の後のフォーカスと Esc（PR #32 のレビューの S-2。TS-046-13 の追加）', () => {
   it('動画を押す → ボタンが disabled になりフォーカスが落ちても、本体に戻る。失敗の後に Esc（フォーカスは外）で閉じる', async () => {
     const w = wired();
-    m = mount({ state: withTickets(2), ctx: w.ctx });
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });
     m.click('btn-boost');
     const d = m.get('sheet-reward');
     const video = m.get('sheet-video');
@@ -515,7 +516,7 @@ describe('要求中・失敗の後のフォーカスと Esc（PR #32 のレビ�
 
   it('要求中にフォーカスが外（body）にあるときの Esc は閉じない。Tab は中のボタンに戻す', () => {
     const w = wired();
-    m = mount({ state: withTickets(2), ctx: w.ctx });
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });
     m.click('btn-boost');
     const d = m.get('sheet-reward');
     m.click('sheet-video');

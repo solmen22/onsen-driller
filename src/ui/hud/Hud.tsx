@@ -3,7 +3,7 @@
 // ok → failing に変わったときのトーストは ui/overlay/Toasts.tsx）。
 // 自動掘りの切り替えと掘削ブーストは、押しやすいようにキャンバスの下端に置く（StageActions.tsx）。
 // data-testid と属性は traceability §5-1 の Q-17。テストが読む値は data-value に入れる（表示の文字は言語と表記で変わるため）
-import { incomePerSec, temperatureOf, toStr } from '../../core/index.ts';
+import { incomePerSec, temperatureOf, toStr, veinView } from '../../core/index.ts';
 import { t, type Lang } from '../../i18n/index.ts';
 import { formatNum, formatRate } from '../format.ts';
 import { useGame, useSaveStatus, useUi } from '../hooks/use-game.ts';
@@ -23,7 +23,7 @@ export function Hud({ lang, onSettings, onVein }: { lang: Lang; onSettings: () =
       maxDepth: s.run.maxDepth,
       temp: temperatureOf(s),
       tickets: s.meta.tickets,
-      vein: s.run.vein.active !== null,
+      vein: veinView(s).active, // 出ているかは core の veinView で読む（BL-059）
     };
   });
   return (

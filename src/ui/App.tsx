@@ -4,15 +4,17 @@
 // - 購入数（×1 → ×10 → 最大）は切り替えボタン（qty-toggle）か Shift。タブをまたいで共通で、保存しない（再読み込みで ×1）
 // - ご褒美のシート（R2: ブーストのボタン、R3: 鉱脈のチップ）とトースト（BL-046）。モーダル・シートの表示中は 1〜5・Shift を使わない
 import { useEffect, useState } from 'preact/hooks';
-import type { Qty } from '../core/index.ts';
+import { offlineClaimView, veinView, type Qty } from '../core/index.ts';
 import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
-import { useUi } from './hooks/use-game.ts';
+import { formatNum } from './format.ts';
+import { useGame, useUi } from './hooks/use-game.ts';
 import { Hud } from './hud/Hud.tsx';
 import { StageActions } from './hud/StageActions.tsx';
 import { keyCommand, nextQty, type TabNo } from './keys.ts';
 import { isModalOpen } from './overlay/modal-state.ts';
 import { RewardSheet } from './overlay/RewardSheet.tsx';
 import { Toasts } from './overlay/Toasts.tsx';
+import { WelcomeModal, type WelcomeChoice } from './overlay/WelcomeModal.tsx';
 import { DigPanel } from './panels/DigPanel.tsx';
 
 export type { TabNo } from './keys.ts';
@@ -63,11 +65,27 @@ function QtyToggle({ qty, onNext }: { qty: Qty; onNext: () => void }) {
 }
 
 export function App() {
-  const { onLangChange } = useUi();
+  const { onLangChange, rewards } = useUi();
   const [tab, setTab] = useState<TabNo>(1);
   const [qty, setQty] = useState<Qty>(1);
   const [lang, setLangState] = useState<Lang>(getLang());
   const [sheet, setSheet] = useState<'R2' | 'R3' | null>(null);
+  // おかえり（R1）: 未受け取りのオフライン収入があれば出す（core の offlineClaimView。付けるのは S3 の BL-030）。
+  // 受け取りの口（rewards）がない間は出さない（受け取れないモーダルを出さない）
+  const welcome = useGame((s) => {
+    const w = offlineClaimView(s);
+    return w ? { amount: formatNum(w.coins, lang), canDouble: w.canDouble } : null;
+  });
+  const veinActive = useGame((s) => veinView(s).active);
+  // 鉱脈のシート（R3）は、鉱脈が開いた・消えたら閉じる（押しても何も起きないシートを残さない）
+  useEffect(() => {
+    if (sheet === 'R3' && !veinActive) setSheet(null);
+  }, [sheet, veinActive]);
+  const onWelcome = (c: WelcomeChoice): void => {
+    // 'video' の ×2 は requestReward('R1') が rewarded のときに grantAd('R1') が付けている（BL-059）。ここでは何もしない
+    if (c === 'claim') rewards?.claimOffline('normal');
+    else if (c === 'ticket') rewards?.claimOffline('double');
+  };
   const onLang = (l: Lang): void => {
     setLang(l);
     setLangState(l);
@@ -115,6 +133,9 @@ export function App() {
       </section>
       <Toasts />
       {sheet !== null && <RewardSheet key={sheet} placement={sheet} onClose={() => setSheet(null)} />}
+      {welcome !== null && rewards !== undefined && sheet === null && (
+        <WelcomeModal amount={welcome.amount} canDouble={welcome.canDouble} ticketHook onClaim={onWelcome} />
+      )}
     </>
   );
 }

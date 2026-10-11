@@ -5,7 +5,7 @@
 //   ご褒美の core（BL-058）と広告の要求（BL-059）の口がない間は unavailable（S1 と同じ「準備中」）
 // - 最初の 1 打の前だけ「タップで掘る」の案内を出す（押下はキャンバスに通す）
 // ボタンはステージ（#stage）の子ではないので、押してもステージの pointerdown（掘削）にはならない
-import { autoDigState } from '../../core/index.ts';
+import { autoDigState, boostMult } from '../../core/index.ts';
 import { t } from '../../i18n/index.ts';
 import { useGame, useUi } from '../hooks/use-game.ts';
 import { boostView, type BoostView } from '../overlay/boost-view.ts';
@@ -14,7 +14,7 @@ import { boostView, type BoostView } from '../overlay/boost-view.ts';
 function boostText(b: BoostView, wired: boolean): string {
   switch (b.state) {
     case 'active':
-      return t('hud.boostActive', { t: b.time ?? '' });
+      return t('hud.boostActive', { d: boostMult().drill, a: boostMult().auto, t: b.time ?? '' }); // 実際の倍率（自動掘削機は ×4。BL-059）
     case 'cooldown':
       return t('hud.boostCooldown', { t: b.time ?? '' });
     case 'ready':
@@ -25,12 +25,13 @@ function boostText(b: BoostView, wired: boolean): string {
 }
 
 export function StageActions({ onBoost }: { onBoost?: () => void }) {
-  const { store, platform, rewards, requestReward, now } = useUi();
+  const { store, platform, rewards, requestReward } = useUi();
   const wired = rewards !== undefined || requestReward !== undefined;
   const v = useGame((s) => {
     // 動画を出せるかは 5Hz の通知ごとに読み直す（SDK の状態は変わりうる）
     const canVideo = requestReward !== undefined && platform.ads.rewardedAvailable();
-    const b = boostView(s, (now ?? Date.now)(), canVideo, rewards !== undefined);
+    // 時刻は store と同じ壁時計（store が R2 の休みを切り詰めるのと同じ。PR #42 のレビューの Should）
+    const b = boostView(s, store.wallTime(), canVideo, rewards !== undefined);
     return { dig: autoDigState(s), started: s.stats.hits > 0, boost: b.state, boostTime: b.time };
   });
   const boost: BoostView = { state: v.boost, time: v.boostTime };
