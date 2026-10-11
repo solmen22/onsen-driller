@@ -4,6 +4,7 @@
 import Decimal from 'break_infinity.js';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import { createInitialState, incomePerSec, num, secondsUntil, sub, type GameState, type Num } from '../../src/core/index.ts';
 import { stateWith } from '../support/states.ts';
 
@@ -80,7 +81,7 @@ describe('BL-113 secondsUntil の返し方（足りているかは比較で決�
           expect(secondsUntil(idle(coins), cost)).toBeNull();
         },
       ),
-      { numRuns: 200 },
+      fcRuns(200),
     );
   });
 });

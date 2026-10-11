@@ -126,6 +126,73 @@ const platformImports = [
   { group: dirs(['core']), allowTypeImports: true, message: `${LAYER}: platform は core の型だけを使う` },
 ];
 
+/**
+ * 性質テスト（fast-check）の書き方（tests/**。BL-090。PR #14 のレビュー S-1）。
+ * `npm run test:property:full`（毎晩）が回数を増やしシードを変えるのは、fc.assert の第 2 引数が fcRuns(...) のときだけなので、
+ * ファイル単位ではなく呼び出しごとに見る。抜け道（別名での読み込み・fc の別名・.call など）も塞ぐ。
+ * test:property:full の対象は「fast-check を import fc で読み込む .test.ts」（vitest.property.config.ts）なので、
+ * fc.assert は .test.ts の中だけで呼ぶ（共通の関数に隠すと対象から漏れる）
+ */
+const FCR = 'BL-090: 性質テストは fc.assert(..., fcRuns(<既定の回数>[, <シード>])) と書く（docs/testing.md）';
+const fcSyntax = [
+  {
+    selector:
+      "CallExpression[callee.object.name='fc'][callee.property.name=/^(assert|check)$/]:not([arguments.1.type='CallExpression'][arguments.1.callee.type='Identifier'][arguments.1.callee.name='fcRuns'])",
+    message: `${FCR}。第 2 引数を省いたり、{ numRuns }・{ seed }・{ ...fcRuns() } と書いたりしない（毎晩の実行で回数・シードが変わらない）`,
+  },
+  {
+    selector: "MemberExpression[object.name='fc'][property.name=/^(assert|check)$/]:not(CallExpression > MemberExpression.callee)",
+    message: `${FCR}。fc.assert・fc.check は直接呼ぶ（別名・.call などの抜け道の禁止）`,
+  },
+  { selector: "MemberExpression[object.name='fc'][computed=true]", message: `${FCR}。fc[...] の形で参照しない（抜け道の禁止）` },
+  { selector: "MemberExpression[object.name='fc'][property.name='configureGlobal']", message: `${FCR}。回数・シードを fc.configureGlobal で変えない` },
+  {
+    selector:
+      "Identifier[name='fc']:not(MemberExpression > Identifier.object):not(MemberExpression > Identifier.property):not(Property > Identifier.key):not(TSQualifiedName > Identifier.left):not(ImportDefaultSpecifier > Identifier.local)",
+    message: `${FCR}。fc を値として扱わない（別名・分割代入・再 export・同じ名前の別の値の抜け道の禁止）`,
+  },
+  {
+    selector:
+      "ImportDeclaration[source.value='fast-check'][importKind!='type'] > ImportSpecifier[importKind!='type'], ImportDeclaration[source.value='fast-check'] > ImportNamespaceSpecifier, ImportDeclaration[source.value='fast-check'] > ImportDefaultSpecifier[local.name!='fc']",
+    message: `${FCR}。fast-check は import fc from 'fast-check' の形だけで読み込む（型は import type で可）`,
+  },
+  {
+    selector:
+      "ImportExpression[source.value='fast-check'], CallExpression[callee.name='require'][arguments.0.value='fast-check'], TSExternalModuleReference[expression.value='fast-check'], ExportAllDeclaration[source.value='fast-check'], ExportNamedDeclaration[source.value='fast-check']",
+    message: `${FCR}。fast-check は import fc from 'fast-check' の形だけで読み込む（動的 import・require・再 export の禁止）`,
+  },
+  {
+    selector: 'ImportDeclaration[source.value=/^@fast-check\\//]',
+    message: `${FCR}。@fast-check/* の書き方（test.prop など）は fcRuns を通らないので使わない`,
+  },
+];
+/** fcRuns は tests/helpers/fc-runs.ts のものだけ（同じ名前の別の関数で素通りさせない） */
+const fcRunsDefSyntax = [
+  {
+    selector:
+      "ImportSpecifier[local.name='fcRuns'][imported.name!='fcRuns'], ImportDeclaration:not([source.value=/(^|\\/)helpers\\/fc-runs(\\.ts)?$/]) > ImportSpecifier[local.name='fcRuns']",
+    message: `${FCR}。fcRuns は tests/helpers/fc-runs.ts から読み込む`,
+  },
+  {
+    selector: ":matches(VariableDeclarator, FunctionDeclaration, ClassDeclaration) > Identifier.id[name='fcRuns'], :function > Identifier.params[name='fcRuns']",
+    message: `${FCR}。fcRuns という名前を別に定義しない`,
+  },
+];
+/** 直書きの numRuns（ヘルパーとそのテストのほか） */
+const fcNumRunsSyntax = [
+  {
+    selector: "Property[key.name='numRuns'], Property[key.value='numRuns'], MemberExpression[property.name='numRuns']",
+    message: `${FCR}。numRuns を直書きしない（回数は fcRuns の第 1 引数）`,
+  },
+];
+/** .test.ts でないファイル（tests/arbitraries など）では fc.assert・fc.check を呼ばない */
+const fcOutsideTestSyntax = [
+  {
+    selector: "CallExpression[callee.object.name='fc'][callee.property.name=/^(assert|check)$/]",
+    message: `${FCR}。fc.assert・fc.check は .test.ts の中で呼ぶ（test:property:full は fast-check を読み込む .test.ts を流すので、共通の関数に隠すと漏れる）`,
+  },
+];
+
 export default defineConfig(
   { ignores: ['dist/', 'node_modules/', 'public/', 'perf-results/', 'playwright-report/', 'test-results/', 'release/'] },
   js.configs.recommended,
@@ -215,4 +282,21 @@ export default defineConfig(
       ],
     },
   },
+  // 性質テスト（fast-check）は呼び出しごとに fcRuns を通す（BL-090。PR #14 のレビュー S-1。tests/unit/lint-fc-runs.test.ts で確かめる）
+  // （同じ規則を別の設定で重ねると上書きになるので、ファイルの組ごとに 1 つの設定にまとめる）
+  // tests/ では無効化のコメント（eslint-disable）を効かせない（レビューの見落としでも機械で止める。PR #14 の追加の差分のレビュー N-4）
+  { files: ['tests/**'], linterOptions: { noInlineConfig: true } },
+  {
+    files: ['tests/**/*.test.?(c|m)[jt]s?(x)'],
+    ignores: ['tests/helpers/fc-runs.test.ts'],
+    rules: { 'no-restricted-syntax': ['error', ...fcSyntax, ...fcRunsDefSyntax, ...fcNumRunsSyntax] },
+  },
+  {
+    files: ['tests/**/*.?(c|m)[jt]s?(x)'],
+    ignores: ['tests/**/*.test.?(c|m)[jt]s?(x)', 'tests/helpers/fc-runs.ts'],
+    rules: { 'no-restricted-syntax': ['error', ...fcSyntax, ...fcRunsDefSyntax, ...fcNumRunsSyntax, ...fcOutsideTestSyntax] },
+  },
+  // ヘルパーそのもの（fcRuns を定義し、numRuns の語を使う）とそのテスト（numRuns の語を使う）
+  { files: ['tests/helpers/fc-runs.ts'], rules: { 'no-restricted-syntax': ['error', ...fcSyntax, ...fcOutsideTestSyntax] } },
+  { files: ['tests/helpers/fc-runs.test.ts'], rules: { 'no-restricted-syntax': ['error', ...fcSyntax, ...fcRunsDefSyntax] } },
 );

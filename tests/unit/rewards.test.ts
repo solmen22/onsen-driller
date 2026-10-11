@@ -2,6 +2,7 @@
 // TS-058-22・23（標準ボットの #19・#21）は BL-033 の sim
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import type { EffectKind } from '../../src/content/effects.ts';
 import { GUESTS } from '../../src/content/guests.ts';
 import { PARAMS } from '../../src/content/params.ts';
@@ -268,7 +269,7 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
         expect(veinTickets).toBeLessThanOrEqual(veinOpened);
         expect(prestiges).toBeLessThanOrEqual(ops.filter((o) => o.k === 'prestige').length);
       }),
-      { numRuns: 150 },
+      fcRuns(150),
     );
   });
 
@@ -286,7 +287,7 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
           expect(up).toBeLessThanOrEqual(unseen);
         },
       ),
-      { numRuns: 200 },
+      fcRuns(200),
     );
   });
 

@@ -1,5 +1,6 @@
 // BL-010: GameState・アクション・イベント・リプレイ・性能（TS-010-01・02・07・08・09・12・13・16・17）
 import fc from 'fast-check';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -81,7 +82,7 @@ describe('TS-010-07 実行できない dispatch は { ok:false, reason } で状�
           expect(stateHash(s)).toBe(before);
         }
       }),
-      { numRuns: 100, seed: 7 },
+      fcRuns(100, 7),
     );
   });
 });
@@ -220,7 +221,7 @@ describe('TS-010-17 不変条件（ランダムな操作列を 10 分ぶん）',
             expect(Number.isInteger(n) && n >= 0).toBe(true);
         }
       }),
-      { numRuns: 60, seed: 17 },
+      fcRuns(60, 17),
     );
   });
 });

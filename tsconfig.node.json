@@ -6,5 +6,5 @@
     "jsx": "react-jsx",
     "jsxImportSource": "preact"
   },
-  "include": ["tools", "tests", "e2e", "assets-src", "vite.config.ts", "playwright.config.ts", "vitest.config.ts", "src/vite-env.d.ts", "src/types"]
+  "include": ["tools", "tests", "e2e", "assets-src", "vite.config.ts", "playwright.config.ts", "vitest.config.ts", "vitest.property.config.ts", "src/vite-env.d.ts", "src/types"]
 }
