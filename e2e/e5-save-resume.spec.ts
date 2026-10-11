@@ -1,6 +1,6 @@
 // E2E E5 保存と再開（e2e_E5_save-resume.md）
 // PR: TS-E5-01・02・03・05・10・11・16（S1）。毎晩: TS-E5-04（BL-089）。
-// S2: TS-E5-13（BL-046 の読み取り専用の案内。BL-103）。保留: TS-E5-14（S2）。TS-E5-15 は手動（オーナーの iPhone）。
+// S2: TS-E5-13（BL-046 の読み取り専用の案内。BL-103）。S2: TS-E5-14（e2e-crazygames。BL-103）。TS-E5-15 は手動（オーナーの iPhone）。
 // 欠番: TS-E5-06〜09（壊れ方の種類は integration の TS-027-05・07 に統合。E2E は TS-E5-05 が代表）、TS-E5-12（TS-027-20・TS-COM-04）。
 //
 // 壊れた枠の試験は、context.storageState() を書き換えて新しい context で開き直す（reopenWithStorage）。
@@ -19,10 +19,11 @@ import { resolve } from 'node:path';
 import type { BrowserContext, Page } from '@playwright/test';
 import { test, expect, type Harness } from './support/fixtures.ts';
 import { armUnloadTriggerProbe, bootGame, centerOf, pageNow, readUnloadTriggers, reloadGame, setHidden, triggerAutosave } from './support/boot.ts';
-import { later, needs } from './support/gaps.ts';
+import { needs } from './support/gaps.ts';
 import { coinsOf, hitsOf, type Hooks, type SerializedState } from './support/hooks.ts';
 import { stateHashOracle } from './support/hash.ts';
 import { STORAGE_PREFIX } from './support/privacy.ts';
+import { bootCrazyGames, CG_BASE_URL, cgMockState } from './support/crazygames.ts';
 import { prepareSaveState as prepare } from './support/prepare.ts';
 import {
   BROKEN_SLOT_KEY,
@@ -320,8 +321,52 @@ test.describe('E5 保存と再開', () => {
     expect(await harness.uncaughtErrors(), '捕まえていない例外がない').toEqual([]);
   });
 
-  test('TS-E5-14 e2e-crazygames で data モジュールに保存・移行する', () => {
-    later('S2:crazygames');
+  test.describe('e2e-crazygames', () => {
+    test.use({ baseURL: CG_BASE_URL });
+
+    test('TS-E5-14 e2e-crazygames: data モジュールに保存し、localStorage にある以前の枠（SDK が使えなかった起動の分）を最初の起動で移す（BL-103）', async ({
+      page,
+      harness,
+    }) => {
+      // 1. data モジュールのない SDK で起動（localStorage に保存する。Basic Launch 版・SDK が使えなかった起動を模す）
+      const g = await bootCrazyGames(page, harness, { mock: { dataModule: false } });
+      await g.pause();
+      await g.seed(42);
+      await g.pause();
+      await g.advance(5_000, { tapsPerSec: 2 });
+      await triggerAutosave(page);
+      await g.advance(5_000, { tapsPerSec: 2 });
+      await triggerAutosave(page);
+      expect((await cgMockState(page)).calls.filter((c) => c.startsWith('data.')), 'data モジュールはない').toEqual([]);
+      // 閉じるとき（pagehide）の保存も localStorage に入るので、閉じた後の枠を「以前の枠」とする
+      const ctx = page.context();
+      await page.close();
+      const legacy = await readSlots(ctx, harness.origin);
+      expect(legacy.a.raw, '以前の枠 a が localStorage にある').not.toBeNull();
+      expect(legacy.b.raw, '以前の枠 b が localStorage にある').not.toBeNull();
+      const { newer } = newerOlder(legacy);
+      const newerEnv = legacy[newer].env!;
+
+      // 2. 同じ context（localStorage はそのまま）で、data モジュールのある SDK で開く → 最初の起動で移す
+      const p2 = await ctx.newPage();
+      const g2 = await bootCrazyGames(p2, harness, { time: newerEnv.savedAt, startPaused: true });
+      const moved = await cgMockState(p2);
+      expect(moved.store[SLOT_KEYS.a], '枠 a が data モジュールへ移った（生の文字列のまま）').toBe(legacy.a.raw);
+      expect(moved.store[SLOT_KEYS.b], '枠 b が data モジュールへ移った').toBe(legacy.b.raw);
+      expect(saveKeysOf(await readLocalStorage(p2.context(), harness.origin)), '移した後は localStorage の枠を消す').toEqual([]);
+      expect(await g2.getState(), '移した新しい方の枠から再開する').toEqual(newerEnv.game);
+
+      // 3. 以後の保存は data モジュールへ（seq は移した枠の続き。localStorage には書かない）
+      await g2.pause();
+      await g2.advance(5_000, { tapsPerSec: 2 });
+      await triggerAutosave(p2);
+      const after = await cgMockState(p2);
+      expect(after.calls).toContain(`data.setItem:${SLOT_KEYS[newerOlder(legacy).older]}`);
+      const seqs = [SLOT_KEYS.a, SLOT_KEYS.b].map((k) => (JSON.parse(after.store[k]!) as { seq: number }).seq);
+      expect(Math.max(...seqs), '次の保存の seq は移した枠の最大＋1').toBe(newerEnv.seq + 1);
+      expect(saveKeysOf(await readLocalStorage(p2.context(), harness.origin))).toEqual([]);
+      expect(await harness.uncaughtErrors()).toEqual([]);
+    });
   });
 });
 

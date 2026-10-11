@@ -3,7 +3,7 @@
 //     TS-E9-14（V6）、TS-E9-15（V7）（S1）。TS-E9-09（V4。S2 の BL-094 で毎晩から PR へ。QA 判定書 sprint-01 §4・決定 0006-5:
 //     気づけないセーブの消失の唯一の守りが案内で、毎晩のジョブは Chromium を流さないため）。
 //     S2: TS-046-18（BL-046 の保存のトースト。V5。BL-103）。
-//     毎晩: TS-E9-05・06（BL-089）。保留: TS-E9-11（S3）、TS-E9-12（S2）。
+//     毎晩: TS-E9-05・06（BL-089）。保留: TS-E9-11（S3）。S2: TS-E9-12（e2e-crazygames。BL-103）。
 // 保存できない状態は context.addInitScript でページのスクリプトより先に入れる（e2e/support/storage.ts の V1〜V7）。
 // 文言は S1 では data-testid（save-warning）で存在だけを見る。文言の一致は S2（BL-052）から。
 // 技術リードの回答（traceability.md §5-2）に合わせた期待
@@ -19,6 +19,7 @@ import { later, needs } from './support/gaps.ts';
 import { coinsOf, hitsOf, type Hooks } from './support/hooks.ts';
 import { prepareTwoSlots } from './support/prepare.ts';
 import { localStorageKeys } from './support/privacy.ts';
+import { bootCrazyGames, CG_BASE_URL, cgMockState } from './support/crazygames.ts';
 import {
   BROKEN_SLOT_KEY,
   injectStorageFault,
@@ -416,7 +417,35 @@ test.describe('E9 保存できない環境', () => {
     later('S3:export');
   });
 
-  test('TS-E9-12 e2e-crazygames（data モジュールも localStorage も使えない）でメモリに置いて続く', () => {
-    later('S2:crazygames');
+  test.describe('e2e-crazygames', () => {
+    test.use({ baseURL: CG_BASE_URL });
+
+    test('TS-E9-12 e2e-crazygames（data モジュールが読めない例外・localStorage も V1）でメモリに置いて続き、起動直後から案内が出る（BL-103）', async ({
+      page,
+      context,
+      harness,
+    }) => {
+      await injectStorageFault(context, 'V1');
+      const g = await bootCrazyGames(page, harness, { mock: { dataGetThrows: true } });
+      const bootedAt = await pageNow(page);
+      expect(await g.target()).toBe('crazygames');
+      // TS-E9-03: 起動直後（最初の保存の前）から案内（読めない保存先はメモリ。unavailable）
+      await expectBeforeFirstAutosave(page, bootedAt);
+      await expectWarning(page, 'unavailable');
+      // TS-E9-02: 叩けば打撃が入る（ゲームは続く）
+      await g.pause();
+      const h0 = hitsOf(await g.getState());
+      await tapUnderground(page, 3);
+      expect(hitsOf(await g.getState()) - h0, '叩いた分の打撃').toBe(3);
+      // 15 秒ごとの保存の後も案内は出たまま。data モジュール・localStorage のどちらにもセーブを書かない
+      await triggerAutosave(page);
+      await expectWarning(page, 'unavailable');
+      const mock = await cgMockState(page);
+      expect(mock.calls, 'data モジュールを読みに行った（そして例外を受けた）').toContain('data.getItem:onsen-driller:save:a');
+      expect(Object.keys(mock.store).filter((k) => k.startsWith('onsen-driller:save:')), 'data モジュールにセーブがない').toEqual([]);
+      expect(mock.calls.filter((c) => c.startsWith('data.setItem:onsen-driller:save:')), 'data モジュールにセーブを書きに行かない').toEqual([]);
+      await expectNoKeys(page);
+      expect(await harness.uncaughtErrors()).toEqual([]);
+    });
   });
 });
