@@ -18,6 +18,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.core.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "sim": "node tools/sim/run.ts",
+    "test:balance": "node tools/sim/balance.ts",
     "build:web": "vite build --mode web && node scripts/copy-headers.mjs",
     "build:crazygames": "vite build --mode crazygames",
     "build:itch": "vite build --mode itch",

@@ -5,5 +5,5 @@
     "types": []
   },
   "include": ["src/core", "src/content", "tools/sim"],
-  "exclude": ["tools/sim/run.ts"]
+  "exclude": ["tools/sim/run.ts", "tools/sim/balance.ts"]
 }
