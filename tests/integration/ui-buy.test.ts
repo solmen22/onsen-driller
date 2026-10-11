@@ -203,7 +203,9 @@ describe('購入数の切り替え（TS-043-10）', () => {
     for (let i = 0; i < 5; i++) m.key({ key: 'Shift', code: 'ShiftLeft', shiftKey: true, repeat: true });
     expect(q()).toBe('10');
     m.click('tab-2');
-    expect(m.q('qty-toggle')).toBeNull(); // S1 の T2 は購入の一覧がない
+    expect(q()).toBe('10'); // T2（湯宿。BL-044）にも購入の一覧があり、購入数はタブをまたいで同じ
+    m.click('tab-3');
+    expect(m.q('qty-toggle')).toBeNull(); // T3 には出さない（Q-38 (e)）
     m.click('tab-1');
     expect(q()).toBe('10');
     m.unmount();
@@ -214,14 +216,14 @@ describe('購入数の切り替え（TS-043-10）', () => {
 
 describe('タブ（TS-043-12・13）', () => {
   const selected = () => [1, 2, 3, 4, 5].filter((n) => m?.get(`tab-${n}`).getAttribute('aria-selected') === 'true');
-  it('tab-1〜tab-5 のクリックと 1〜5 キーで切り替わり aria-selected が移る。T2〜T5 は panel-placeholder、T1 は panel-dig', () => {
+  it('tab-1〜tab-5 のクリックと 1〜5 キーで切り替わり aria-selected が移る。T2 は panel-inn（BL-044）、T3〜T5 は panel-placeholder、T1 は panel-dig', () => {
     m = mount();
     expect(selected()).toEqual([1]);
     expect(m.q('panel-dig')).not.toBeNull();
     for (const n of [2, 3, 4, 5]) {
       m.click(`tab-${n}`);
       expect(selected()).toEqual([n]);
-      expect(m.q('panel-placeholder')).not.toBeNull();
+      expect(m.q(n === 2 ? 'panel-inn' : 'panel-placeholder')).not.toBeNull();
       expect(m.q('panel-dig')).toBeNull();
     }
     for (const n of [3, 1, 5, 2, 4, 1]) {

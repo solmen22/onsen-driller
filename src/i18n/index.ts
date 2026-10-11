@@ -57,6 +57,9 @@ export function translate(d: Dictionaries, l: Lang, key: string, vars?: TextVars
 /** 辞書の自分のキーだけを引く（'constructor'・'toString' など prototype の名前を拾わない。PR #11 のレビュー N-3） */
 const pick = (m: Readonly<Record<string, string | undefined>>, k: string): string | undefined => (Object.hasOwn(m, k) ? m[k] : undefined);
 
+/** 辞書（英語）にそのキーがあるか（内容定義にあって文言がまだないもの〔BL-019 の前のお客さんなど〕を画面に出さないため。BL-044） */
+export const hasText = (key: string): key is TextKey => Object.hasOwn(dict.en, key);
+
 /** 今の言語で文を引く */
 export function t(key: TextKey, vars?: TextVars): string {
   return translate(dict, lang, key, vars);

@@ -597,3 +597,52 @@ body {
 .toast[data-kind='save'] {
   border-color: #d9483b;
 }
+
+/* 湯宿タブ T2（BL-044）: 見出し・源泉の選択・枠の的・タブの「！」 */
+.inn-head {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: normal;
+  color: var(--muted);
+}
+
+.inn-spring {
+  display: grid;
+  gap: 4px;
+}
+
+.row.inn-pick[aria-pressed='true'] {
+  border-color: var(--gold);
+  box-shadow: inset 0 0 0 2px var(--gold);
+}
+
+.row.inn-target {
+  border-style: dashed;
+  border-color: var(--gold);
+}
+
+.row.inn-spring-unfound,
+.row.inn-guest {
+  opacity: 0.9;
+}
+
+.row.inn-guest[data-state='present'] {
+  border-color: #6fbf85;
+}
+
+.tab {
+  position: relative;
+}
+
+.tab-alert {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  min-width: 16px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--gold);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 16px;
+}
