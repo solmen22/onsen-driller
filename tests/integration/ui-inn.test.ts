@@ -190,6 +190,56 @@ describe('購入・湯船・お客さん（TS-044-08〜11）', () => {
     expect(m.get('inn-bath').dataset['nextSlot']).toBe(String(bathView(m.store.state).nextSlotLevel));
   });
 
+  it('TS-044-08: T2 の buy-pump-<id>・buy-bath の data-n・data-cost・data-state は ×1・×10・最大・コイン不足で buyQuote と同じ。押すと buy(item, qty) が 1 回（BL-130。PR #46 のレビューの S-3）', () => {
+    for (const coins of [1e9, 10]) {
+      const s = stateWith({ depth: 90, pumps: { simple: 3, co2: 2 }, coins });
+      s.run.bath.level = 5;
+      s.run.bath.slots = ['simple', 'co2'];
+      refreshGuests(s, []);
+      m = mount({ state: s });
+      m.click('tab-2');
+      for (const qty of [1, 10, 'max'] as const) {
+        expect(m.get('qty-toggle').dataset['qty']).toBe(String(qty));
+        for (const item of ['pump:co2', 'bath'] as const) {
+          const q = buyQuote(m.store.state, item, qty);
+          const el = m.get(item === 'bath' ? 'buy-bath' : 'buy-pump-co2');
+          expect(el.dataset['state']).toBe(q.state);
+          expect(el.dataset['n']).toBe(String(q.n));
+          expect(el.dataset['cost']).toBe(toStr(q.n > 0 ? q.cost : q.nextCost));
+        }
+        m.click('qty-toggle');
+      }
+      // ×1 に戻っている。押すと buy が 1 回
+      const sent: unknown[] = [];
+      const orig = m.store.dispatch.bind(m.store);
+      m.store.dispatch = (a) => {
+        sent.push(a);
+        return orig(a);
+      };
+      m.click('buy-pump-co2');
+      expect(sent).toEqual([{ type: 'buy', item: 'pump:co2', qty: 1 }]);
+      expect(m.get('buy-pump-co2').textContent).toContain('Carbonated spring pump'); // どの源泉のポンプか分かる（S-2）
+      m.unmount();
+      m = null;
+    }
+  });
+
+  it('枠のボタンは中身（源泉・効果・入湯料）がそのまま名前になる。源泉を選んでいないときは aria-disabled（BL-130。S-1・Nit）', () => {
+    const s = stateWith({ depth: 90, pumps: { simple: 8 } });
+    s.run.bath.level = 5;
+    s.run.bath.slots = ['simple', null];
+    refreshGuests(s, []);
+    m = mount({ state: s });
+    m.click('tab-2');
+    const slot = m.get('inn-slot-0');
+    expect(slot.getAttribute('aria-label')).toBeNull();
+    expect(slot.textContent).toContain('All bath income ×1.2');
+    expect(slot.getAttribute('aria-disabled')).toBe('true');
+    m.click('inn-spring-simple');
+    expect(m.get('inn-slot-0').getAttribute('aria-disabled')).toBe('false');
+    expect(m.get('inn-hint').getAttribute('role')).toBe('status');
+  });
+
   it('TS-044-10: お客さんの状態を文字と data-state で出す（present・noSpring・notSlotted・levelShort）', () => {
     const s = stateWith({ depth: 160, pumps: { simple: 3, co2: 8, salt: 5 } });
     s.run.bath.level = 5;

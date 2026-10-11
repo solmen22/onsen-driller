@@ -20,6 +20,11 @@ export interface TargetDef {
   unit?: ValueUnit;
   /** 1 回の実行から値を取り出す（出来事が起きていなければ null） */
   value?: (r: SimResult) => number | null;
+  /**
+   * 値が出来事の時刻（unit 'ms'）の項目（BL-122・PR #37 のレビューの S-2）。実行の長さが max 以上なのに起きなかった実行は
+   * 「範囲より遅い」（+Infinity）として中央値に入れる。実行が max より短く、起きなかった実行は今のとおり除く（その時刻まで流していない）
+   */
+  event?: true;
   /** 範囲（両端を含む）。gt は下限を含まない（「50% 超」） */
   min?: number;
   max?: number;
@@ -36,13 +41,13 @@ const time = (id: keyof SimResult['milestones']) => (r: SimResult): number | nul
 
 export const TARGETS: readonly TargetDef[] = [
   { no: 1, label: 'ゲーム画面から始まり、すぐ掘れる', goal: '0 クリック', kind: 'external', external: 'E2E の E1（TS-E1-01〜02）' },
-  { no: 2, label: '最初の強化（ツルハシ）', goal: '5〜15 秒', kind: 'judge', bot: 'standard', unit: 'ms', value: time('firstUpgrade'), min: 5 * SEC, max: 15 * SEC },
-  { no: 3, label: '30m・単純温泉 → 放置収入の開始', goal: '30〜60 秒', kind: 'judge', bot: 'standard', unit: 'ms', value: time('simple'), min: 30 * SEC, max: 60 * SEC },
-  { no: 4, label: '80m・二酸化炭素泉', goal: '2:00〜5:00', kind: 'judge', bot: 'standard', unit: 'ms', value: time('co2'), min: 2 * MIN, max: 5 * MIN },
-  { no: 5, label: 'Lv10 で来るお客さん（1 種目）', goal: '4:00〜8:00', kind: 'judge', bot: 'standard', unit: 'ms', value: time('lv10Guest'), min: 4 * MIN, max: 8 * MIN },
-  { no: 6, label: '湯船の枠 2', goal: '4:00〜8:00', kind: 'judge', bot: 'standard', unit: 'ms', value: time('slot2'), min: 4 * MIN, max: 8 * MIN },
-  { no: 7, label: '150m・塩化物泉（転生の解放）', goal: '7:00〜12:00', kind: 'judge', bot: 'standard', unit: 'ms', value: time('salt'), min: 7 * MIN, max: 12 * MIN },
-  { no: 8, label: '250m・硫黄泉', goal: '14:00〜20:00', kind: 'judge', bot: 'standard', unit: 'ms', value: time('sulfur'), min: 14 * MIN, max: 20 * MIN },
+  { no: 2, label: '最初の強化（ツルハシ）', goal: '5〜15 秒', kind: 'judge', bot: 'standard', unit: 'ms', event: true, value: time('firstUpgrade'), min: 5 * SEC, max: 15 * SEC },
+  { no: 3, label: '30m・単純温泉 → 放置収入の開始', goal: '30〜60 秒', kind: 'judge', bot: 'standard', unit: 'ms', event: true, value: time('simple'), min: 30 * SEC, max: 60 * SEC },
+  { no: 4, label: '80m・二酸化炭素泉', goal: '2:00〜5:00', kind: 'judge', bot: 'standard', unit: 'ms', event: true, value: time('co2'), min: 2 * MIN, max: 5 * MIN },
+  { no: 5, label: 'Lv10 で来るお客さん（1 種目）', goal: '4:00〜8:00', kind: 'judge', bot: 'standard', unit: 'ms', event: true, value: time('lv10Guest'), min: 4 * MIN, max: 8 * MIN },
+  { no: 6, label: '湯船の枠 2', goal: '4:00〜8:00', kind: 'judge', bot: 'standard', unit: 'ms', event: true, value: time('slot2'), min: 4 * MIN, max: 8 * MIN },
+  { no: 7, label: '150m・塩化物泉（転生の解放）', goal: '7:00〜12:00', kind: 'judge', bot: 'standard', unit: 'ms', event: true, value: time('salt'), min: 7 * MIN, max: 12 * MIN },
+  { no: 8, label: '250m・硫黄泉', goal: '14:00〜20:00', kind: 'judge', bot: 'standard', unit: 'ms', event: true, value: time('sulfur'), min: 14 * MIN, max: 20 * MIN },
   {
     no: 9,
     label: '最初の 20 分の新しい要素の間隔の最大',
@@ -54,7 +59,7 @@ export const TARGETS: readonly TargetDef[] = [
     value: (r) => r.newElementGapMs,
     max: 3 * MIN,
   },
-  { no: 10, label: '転生の推奨（今転生すると湯の華 30 以上。1 周目）', goal: '25:00〜40:00', kind: 'judge', bot: 'standard', unit: 'ms', value: time('recommend'), min: 25 * MIN, max: 40 * MIN },
+  { no: 10, label: '転生の推奨（今転生すると湯の華 30 以上。1 周目）', goal: '25:00〜40:00', kind: 'judge', bot: 'standard', unit: 'ms', event: true, value: time('recommend'), min: 25 * MIN, max: 40 * MIN },
   {
     no: 11,
     label: '2 周目で 1 周目の最深に届くまで（1 周目の長さとの比）',
@@ -75,11 +80,12 @@ export const TARGETS: readonly TargetDef[] = [
     pending: '転生の本実装・木・地形（S3 の BL-021・022・024）が入るまで',
     bot: 'standard',
     unit: 'ms',
+    event: true,
     value: time('iron'),
     min: 50 * MIN,
     max: 90 * MIN,
   },
-  { no: 13, label: '500m・伝説の源泉（エンディング。累計）', goal: '3〜5 時間', kind: 'pending', pending: '伝説の源泉とエンディング（S3 の BL-023）が入るまで', bot: 'standard', unit: 'ms', value: time('ending'), min: 180 * MIN, max: 300 * MIN },
+  { no: 13, label: '500m・伝説の源泉（エンディング。累計）', goal: '3〜5 時間', kind: 'pending', pending: '伝説の源泉とエンディング（S3 の BL-023）が入るまで', bot: 'standard', unit: 'ms', event: true, value: time('ending'), min: 180 * MIN, max: 300 * MIN },
   { no: 14, label: '空白時間（何も買えない最長。0〜10 分）', goal: '60 秒以内', kind: 'pending', pending: '改良（BL-018）が入るまで', bot: 'standard', unit: 'ms', value: (r) => r.buyGapMs[0], max: 60 * SEC },
   { no: 15, label: '空白時間（10〜30 分）', goal: '120 秒以内', kind: 'pending', pending: '改良（BL-018）が入るまで', bot: 'standard', unit: 'ms', value: (r) => r.buyGapMs[1], max: 120 * SEC },
   { no: 16, label: '空白時間（転生の推奨の後）', goal: '300 秒まで', kind: 'pending', pending: '転生の本実装（S3 の BL-021）が入るまで' },
@@ -94,14 +100,17 @@ export const TARGETS: readonly TargetDef[] = [
 ];
 
 /**
- * 範囲外を意図して受け入れる項目（gdd §8-6: 理由を書き、技術リードが承認する）。受け入れた項目は範囲外でも失敗にしない。
- * 期限（until）のチケットで数値を直したら、ここから消す
+ * 範囲外を意図して受け入れる項目（gdd §8-6: 理由を書き、技術リードが承認する）。受け入れた項目は、判定に使った値が
+ * 受け入れる幅（bounds。両端を含む）の中で、かつ半分以上のシードで値があるときだけ失敗にしない（BL-122・PR #37 のレビューの S-1）。
+ * 幅の外・値がなければ失敗。範囲内に戻ったらレポートで知らせる（stale）。期限（until）のチケットで数値を直したら、ここから消す
  */
 export interface Accepted {
   no: number;
   reason: string;
   approvedBy: string;
   until: string;
+  /** 受け入れる幅（受け入れたときの値の幅に余裕を足す。目標の単位と同じ） */
+  bounds: { min: number; max: number };
 }
 
 export const ACCEPTED: readonly Accepted[] = [
@@ -111,6 +120,8 @@ export const ACCEPTED: readonly Accepted[] = [
       '既存の数値（S1〜S2 の初期値）の結果。1 周目の 150m 以降が gdd の暫定値より速く、中央値 13:54（下限 14:00 に 6 秒足りない。シード 1〜8 で 13:23〜14:04）。#10 と同じ原因。数値の調整は BL-034（数値だけの PR）で、BL-032（転生の規則のボット）の後に流し直して切り分ける',
     approvedBy: '技術リード（2026-09-29。暫定）。CEO 決定 2026-09-29: gdd §8-6 の期限つきの暫定の受け入れで S2 を通す（S2 の完了条件は「範囲内、または期限 BL-034 の暫定の受け入れ」）',
     until: 'BL-034',
+    // 受け入れたときの値 13:23〜14:04 の下に約 1.5 分の余裕。上限は目標の上限（14:00〜20:00 は合格になる）
+    bounds: { min: 12 * MIN, max: 20 * MIN },
   },
   {
     no: 10,
@@ -118,6 +129,8 @@ export const ACCEPTED: readonly Accepted[] = [
       '#8 と同じ原因（1 周目の 150m 以降が速い）。中央値 17:14（範囲 25:00〜40:00。シード 1〜8 で 16:47〜17:22）。転生の推奨の表示の時期は、転生の本実装（S3 の BL-021・022）と BL-034 の数値で合わせる',
     approvedBy: '技術リード（2026-09-29。暫定）。CEO 決定 2026-09-29: #8 と同じ扱い（期限 BL-034 の暫定の受け入れ）',
     until: 'BL-034',
+    // 受け入れたときの値 16:47〜17:22 の下に約 2 分の余裕。上限は目標の上限（25:00〜40:00 は合格になる）
+    bounds: { min: 15 * MIN, max: 40 * MIN },
   },
 ];
 
@@ -130,13 +143,16 @@ export interface TargetResult {
   /** 判定に使った値（中央値）。値がなければ null */
   judged: number | null;
   verdict: Verdict;
+  /** この項目の受け入れ（verdict が accepted のほか、幅の外で fail・範囲内に戻って pass のときも付く） */
   accepted?: Accepted;
+  /** 受け入れた項目が範囲内に戻った（失敗にはしない。ACCEPTED から消し忘れないためにレポートで知らせる） */
+  stale?: true;
 }
 
 /** 中央値（個数が偶数なら真ん中の 2 つの平均）。空なら null */
 export function median(xs: readonly number[]): number | null {
   if (xs.length === 0) return null;
-  const a = [...xs].sort((x, y) => x - y);
+  const a = [...xs].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)); // +Infinity 同士でも順序が決まる比較
   const mid = Math.floor(a.length / 2);
   return a.length % 2 === 1 ? (a[mid] ?? null) : ((a[mid - 1] ?? 0) + (a[mid] ?? 0)) / 2;
 }
@@ -148,27 +164,39 @@ export function inRange(def: TargetDef, v: number): boolean {
   return true;
 }
 
+/** 値の出ない実行の扱い（BL-122）: 出来事の時刻の項目で、実行の長さが目標の上限以上なのに起きていなければ「範囲より遅い」 */
+function sampleOf(def: TargetDef, r: SimResult): number | null {
+  const v = def.value?.(r) ?? null;
+  if (v !== null && Number.isFinite(v)) return v;
+  if (v === null && def.event && def.max !== undefined && r.hours * 3_600_000 >= def.max) return Number.POSITIVE_INFINITY;
+  return null;
+}
+
 /**
- * 目標を判定する。runs はボット・シードごとの実行。値の出ない実行（その時刻まで流していない・出来事が起きていない）は
- * 中央値から除く。判定する項目で値が半分以上のシードで出ていなければ失敗（出来事が起きていない＝範囲外）
+ * 目標を判定する。runs はボット・シードごとの実行。値の出ない実行は、出来事の時刻の項目（event）で実行が上限より長ければ
+ * +Infinity（範囲より遅い）として中央値に入れ、それ以外（その時刻まで流していない・値がない）は中央値から除く。
+ * 判定する項目で値が半分以上のシードで出ていなければ失敗（出来事が起きていない＝範囲外）
  */
 export function judgeTargets(runs: readonly SimResult[], accepted: readonly Accepted[] = ACCEPTED): TargetResult[] {
   return TARGETS.map((def) => {
     const own = def.no === 22 ? runs : runs.filter((r) => r.bot === def.bot);
-    const values = def.value ? own.map((r) => ({ seed: r.seed, value: def.value?.(r) ?? null })) : [];
-    const nums = values.map((x) => x.value).filter((v): v is number => v !== null && Number.isFinite(v));
+    const values = def.value ? own.map((r) => ({ seed: r.seed, value: sampleOf(def, r) })) : [];
+    const nums = values.map((x) => x.value).filter((v): v is number => v !== null);
     const judged = def.no === 22 ? (nums.length > 0 ? Math.min(...nums) : null) : median(nums);
     if (def.kind !== 'judge') return { def, values, judged, verdict: def.kind };
     const enough = nums.length * 2 >= Math.max(1, values.length);
-    const ok = judged !== null && enough && inRange(def, judged);
-    if (ok) return { def, values, judged, verdict: 'pass' };
+    const usable = judged !== null && Number.isFinite(judged) && enough;
     const acc = accepted.find((a) => a.no === def.no);
-    return acc ? { def, values, judged, verdict: 'accepted', accepted: acc } : { def, values, judged, verdict: 'fail' };
+    if (usable && inRange(def, judged)) return acc ? { def, values, judged, verdict: 'pass', accepted: acc, stale: true } : { def, values, judged, verdict: 'pass' };
+    if (!acc) return { def, values, judged, verdict: 'fail' };
+    const inBounds = usable && judged >= acc.bounds.min && judged <= acc.bounds.max;
+    return { def, values, judged, verdict: inBounds ? 'accepted' : 'fail', accepted: acc };
   });
 }
 
 /** 値の表示（時刻は m:ss、割合は %、深さは m） */
 export function fmtValue(unit: ValueUnit | undefined, v: number | null): string {
+  if (v === Number.POSITIVE_INFINITY) return '未達';
   if (v === null || !Number.isFinite(v)) return '—';
   switch (unit) {
     case 'ms': {

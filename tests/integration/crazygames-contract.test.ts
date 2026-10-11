@@ -2,16 +2,18 @@
 // 期待の正本はシナリオ BL-057_crazygames-adapter.md（TS-057-xx。実装先 BL-072 の分）と QA テスト戦略 §4-1・§4-2。
 // S1 の tests/integration/platform.test.ts（crazygames 7 件）はそのまま残し、ここではシナリオの ID ごとに確かめる。
 //
-// まだ本体にない振る舞い（BL-057 の PR〔レビューの S-2・Q-35 (d)・移行〕と S3 の設定の画面）は it.todo で ID と理由を残す。
+// まだ本体にない振る舞い（S3 の設定の画面。TS-057-06）は it.todo で ID と理由を残す（TS-057-01・09・15 は BL-127 で本物にした）。
 // BL-057 がマージされたら、実行・修復エンジニアが todo を本物のテストにする（BL-072 の PR の説明に一覧）。
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applyGrant, createInitialState } from '../../src/core/index.ts';
+import { applyGrant, createInitialState, stateHash, type GameState } from '../../src/core/index.ts';
 import { detectLang } from '../../src/i18n/index.ts';
 import { loadSettings, saveSettings, SETTINGS_KEY, DEFAULT_SETTINGS } from '../../src/app/settings.ts';
 import { createCrazyGamesPlatform } from '../../src/platform/crazygames.ts';
-import type { Platform, RewardResult } from '../../src/platform/types.ts';
+import { AD_END_TIMEOUT_MS, AD_START_TIMEOUT_MS, type Platform, type RewardResult } from '../../src/platform/types.ts';
+import { moveLegacySlots } from '../../src/save/legacy.ts';
 import { SAVE_KEYS, SaveSlots } from '../../src/save/slots.ts';
 import { createCrazyMock, type CgAdBehavior, type CrazyMock, type CrazyMockConfig } from '../../e2e/mocks/crazygames.ts';
+import type { CgAdCallbacks } from '../../src/platform/crazygames.ts';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -70,8 +72,16 @@ describe('TS-057-01 起動（local・crazygames。init が成功）', () => {
     expect((await started({ environment: env, hasAdblock: true })).p.ads.rewardedAvailable(), '広告ブロッカーあり').toBe(false);
   });
 
-  // PR #16 のレビュー S-2（BL-057）: main.ts は init の前に loadingStart を呼ぶので、今は SDK に loadingStart が届かない
-  it.todo('TS-057-01 init の前に呼ばれた loadingStart も、init の成功の後に SDK へ loadingStart → loadingStop の順に 1 回ずつ届く（BL-057 の S-2）');
+  // PR #16 のレビュー S-2（BL-057）: main.ts は init の前に loadingStart を呼ぶ。アダプタは init の成功の後に、起きた順に SDK へ送る
+  it.each(['local', 'crazygames'] as const)('%s: init の前に呼ばれた loadingStart も、init の成功の後に SDK へ loadingStart → loadingStop の順に 1 回ずつ届く（BL-057 の S-2。BL-127）', async (env) => {
+    const sdk = createCrazyMock({ environment: env });
+    const p = createCrazyGamesPlatform({ getSdk: () => sdk, adsEnabled: true });
+    p.loadingStart(); // init の前（main.ts と同じ順番）
+    expect(sdk.log, 'init の前は SDK を呼ばない').toEqual([]);
+    await p.init();
+    p.loadingStop();
+    expect(sdk.log).toEqual(['init', 'loadingStart', 'loadingStop']);
+  });
 });
 
 describe('TS-057-02 init の失敗・タイムアウト（5 秒）', () => {
@@ -279,8 +289,85 @@ describe('TS-057-14 失敗 4 種（報酬なし）と広告ブロッカー', () 
 });
 
 describe('TS-057-15 コールバックが来ない', () => {
-  // 仕様が未確定（Q-35 (d)。BL-057 の受け入れ基準に追加済み）。今は来なければ結果も onPlaying(false) も返らない
-  it.todo("TS-057-15 adStarted の後に adFinished も adError も来ない／何も来ない: 決めた時間で 'failed' と onPlaying(false) を返す（BL-057 の Q-35 (d)）");
+  /** requestAd の後に、テストから遅れてコールバックを呼べるように、モックの requestAd を包む（モックの振る舞いはそのまま） */
+  function captureCallbacks(sdk: CrazyMock): { last: () => CgAdCallbacks | undefined } {
+    let cb: CgAdCallbacks | undefined;
+    const orig = sdk.ad.requestAd.bind(sdk.ad);
+    sdk.ad.requestAd = (type, callbacks) => {
+      cb = callbacks;
+      orig(type, callbacks);
+    };
+    return { last: () => cb };
+  }
+
+  it("① adStarted の後に何も来ない: AD_END_TIMEOUT_MS の直前では決まらず、ちょうどで 'failed' と onPlaying(false)。後から来た adFinished は無視（BL-127）", async () => {
+    vi.useFakeTimers();
+    const { sdk, p } = await started({ adBehavior: 'startedOnly' });
+    const cap = captureCallbacks(sdk);
+    const playing: boolean[] = [];
+    p.ads.onPlaying((x) => playing.push(x));
+    const results: RewardResult[] = [];
+    const r = p.ads.showRewarded('R2').then((x) => results.push(x));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(playing, '開始で止める').toEqual([true]);
+    await vi.advanceTimersByTimeAsync(AD_END_TIMEOUT_MS - 1);
+    expect(results, '直前では決まらない').toEqual([]);
+    expect(playing).toEqual([true]);
+    await vi.advanceTimersByTimeAsync(1);
+    await r;
+    expect(results, 'ちょうどで failed（報酬なし）').toEqual(['failed']);
+    expect(playing, '止まったまま残らない').toEqual([true, false]);
+    cap.last()?.adFinished?.(); // 遅れて終了が来ても
+    await vi.advanceTimersByTimeAsync(0);
+    expect(results, '結果は二重にならない').toEqual(['failed']);
+    expect(playing, '合図も二重にならない').toEqual([true, false]);
+    // ミッドゲームも同じ時間で resolve する
+    let done = false;
+    const m = p.ads.breakOpportunity('M2').then(() => {
+      done = true;
+    });
+    await vi.advanceTimersByTimeAsync(AD_END_TIMEOUT_MS - 1);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await m;
+    expect(done).toBe(true);
+    expect(playing).toEqual([true, false, true, false]);
+  });
+
+  it("② 何も来ない: AD_START_TIMEOUT_MS の直前では決まらず、ちょうどで 'failed'。onPlaying は出さない（ゲームは止めていない。BL-127）", async () => {
+    vi.useFakeTimers();
+    const { p } = await started({ adBehavior: 'silent' });
+    const playing: boolean[] = [];
+    p.ads.onPlaying((x) => playing.push(x));
+    const results: RewardResult[] = [];
+    const r = p.ads.showRewarded('R2').then((x) => results.push(x));
+    await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS - 1);
+    expect(results).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    await r;
+    expect(results).toEqual(['failed']);
+    expect(playing).toEqual([]);
+  });
+
+  it("③ 何も来ないまま AD_START_TIMEOUT_MS を過ぎてから adStarted → adFinished: 'failed' のまま（報酬なし）、遅れた再生の間だけ onPlaying(true) → (false)（BL-127）", async () => {
+    vi.useFakeTimers();
+    const { sdk, p } = await started({ adBehavior: 'silent' });
+    const cap = captureCallbacks(sdk);
+    const playing: boolean[] = [];
+    p.ads.onPlaying((x) => playing.push(x));
+    const results: RewardResult[] = [];
+    const r = p.ads.showRewarded('R2').then((x) => results.push(x));
+    await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+    await r;
+    expect(results).toEqual(['failed']);
+    cap.last()?.adStarted?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(playing, '遅れて始まった再生の間は止める').toEqual([true]);
+    cap.last()?.adFinished?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(playing).toEqual([true, false]);
+    expect(results, '結果は failed のまま').toEqual(['failed']);
+  });
 });
 
 describe('TS-057-16 連打（再生に 1 秒）', () => {
@@ -317,6 +404,62 @@ describe('TS-057-17 ミッドゲーム（breakOpportunity）', () => {
 });
 
 describe('TS-057-09 localStorage → data モジュールの移行', () => {
-  // BL-057 の PR（src/save/legacy.ts・Platform.legacyStorage）で入る。そのブランチの tests/integration/crazygames-save.test.ts に本体のテストがある
-  it.todo('TS-057-09 最初の起動で localStorage の枠が data モジュールに移り、同じ進行で再開し、2 回目はやり直さない（BL-057・Q-35 (e) の後）');
+  /** SDK のない起動（Basic Launch 版を模す）で localStorage に 2 枠と設定を書き、そのときの状態を返す */
+  async function legacyBoot(ls: Storage & { map: Map<string, string> }): Promise<GameState> {
+    const { p } = await started({ dataModule: false });
+    expect(p.storage.kind).toBe('local');
+    const slots = new SaveSlots(p.storage, { appVersion: '0.0.1', now: () => 1_000 });
+    slots.load();
+    const s = createInitialState(5);
+    applyGrant(s, { coins: '10' });
+    expect(slots.save(s)).toBe(true);
+    applyGrant(s, { coins: '20' });
+    expect(slots.save(s)).toBe(true);
+    expect(saveSettings(p.storage, { ...DEFAULT_SETTINGS, lang: 'ja' })).toBe(true);
+    expect([...ls.map.keys()].sort()).toEqual([SAVE_KEYS.a, SAVE_KEYS.b, SETTINGS_KEY].sort());
+    return s;
+  }
+
+  it('最初の起動で 2 枠が data モジュールへ移り（設定は移さない）、同じ進行（stateHash）で再開し、2 回目はやり直さない（BL-127）', async () => {
+    const ls = fakeLocalStorage();
+    vi.stubGlobal('localStorage', ls);
+    const s = await legacyBoot(ls);
+    const raw = { a: ls.map.get(SAVE_KEYS.a), b: ls.map.get(SAVE_KEYS.b) };
+    // data モジュールのある起動（main.ts と同じ手順: 移す → 読み込む）
+    const { sdk, p } = await started();
+    expect(p.storage.kind).toBe('sdk');
+    expect(p.legacyStorage, 'SDK が読めなかった起動の保存先').toBeDefined();
+    expect(moveLegacySlots(p.legacyStorage!, p.storage)).toBe('moved');
+    expect(sdk.store.get(SAVE_KEYS.a)).toBe(raw.a);
+    expect(sdk.store.get(SAVE_KEYS.b)).toBe(raw.b);
+    expect(sdk.store.has(SETTINGS_KEY), '設定は移さない').toBe(false);
+    expect([...ls.map.keys()], 'localStorage の枠は消え、設定は残る').toEqual([SETTINGS_KEY]);
+    const loaded = new SaveSlots(p.storage, { appVersion: '0.0.1', now: () => 2_000 }).load();
+    expect(stateHash(loaded.state!), '同じ進行で再開').toBe(stateHash(s));
+    // 2 回目の起動（同じ data モジュール）: localStorage に枠がないので何もしない
+    const p2 = createCrazyGamesPlatform({ getSdk: () => sdk, adsEnabled: true });
+    await p2.init();
+    const writes = sdk.calls.filter((c) => c.startsWith('data.setItem:')).length;
+    expect(p2.legacyStorage ? moveLegacySlots(p2.legacyStorage, p2.storage) : 'none').toBe('none');
+    expect(sdk.calls.filter((c) => c.startsWith('data.setItem:')).length, '2 回目は書かない').toBe(writes);
+  });
+
+  it('data モジュールに枠が 1 つでもあれば移さない（kept）。書けなければ取り消して localStorage の枠を残す（failed）。どちらも例外を投げない（BL-127）', async () => {
+    const ls = fakeLocalStorage();
+    vi.stubGlobal('localStorage', ls);
+    await legacyBoot(ls);
+    const before = new Map(ls.map);
+    // kept: data モジュールにもう枠がある
+    const kept = await started();
+    kept.sdk.store.set(SAVE_KEYS.b, 'current');
+    expect(moveLegacySlots(kept.p.legacyStorage!, kept.p.storage)).toBe('kept');
+    expect(kept.sdk.store.get(SAVE_KEYS.b), '今の保存先のセーブを上書きしない').toBe('current');
+    expect(kept.sdk.store.has(SAVE_KEYS.a)).toBe(false);
+    expect(ls.map).toEqual(before);
+    // failed: data モジュールの上限で書けない
+    const failed = await started({ dataLimitBytes: 10, dataLimitBehavior: 'throw' });
+    expect(moveLegacySlots(failed.p.legacyStorage!, failed.p.storage)).toBe('failed');
+    expect([SAVE_KEYS.a, SAVE_KEYS.b].filter((k) => failed.sdk.store.has(k)), '書いた分は取り消す').toEqual([]);
+    expect(ls.map, 'localStorage の枠は消さない（次の起動でやり直す）').toEqual(before);
+  });
 });
