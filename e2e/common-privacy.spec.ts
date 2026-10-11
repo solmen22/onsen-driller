@@ -163,6 +163,29 @@ test.describe('TS-COM-08 偽の緑を防ぐ自己テスト（共通の検査が�
     await expect(harness.assertCommonChecks(['TS-COM-01'])).rejects.toThrow(ExpectedViolationMissingError);
   });
 
+  test('TS-COM-08 時計: Clock API のタイマーの中の例外は uncaughtErrors() に入り、自分で出した console.error(new Error) は入らない（BL-119）', async ({
+    page,
+    harness,
+  }) => {
+    // privacy.ts の clockUncaughtErrorOf は Playwright の内部の関数名（CLOCK_TIMER_RUNNER）に頼る。Playwright の版を上げて名前が
+    // 変わると見分けが黙って効かなくなるので、常設の自己テストで確かめる（BL-108 の後続。PR #36 のレビューの S-1）
+    await bootGame(page, { pauseClock: false });
+    const before = harness.consoleErrors.length;
+    await page.evaluate(() => {
+      console.error(new Error('own'));
+      setTimeout(() => {
+        throw new Error('clock-probe');
+      }, 10);
+    });
+    await expect
+      .poll(() => harness.uncaughtErrors(), { message: 'Clock API のタイマーの中の例外が uncaughtErrors() に入る（見分けの関数名が変わった？）' })
+      .toContain('Error: clock-probe');
+    // 見張りが 2 つの console.error（own・clock-probe）を受けて見分けたこと（偽の緑を防ぐ。Firefox は text() が「Error」だけなので
+    // 文では探さず数で見る）と、タイマーの外の console.error を例外に数えないこと
+    expect(harness.consoleErrors.length - before, 'console.error を 2 件受けた').toBeGreaterThanOrEqual(2);
+    expect((await harness.uncaughtErrors()).filter((e) => e.includes('own'))).toEqual([]);
+  });
+
   test('TS-COM-08 (e) ふつうのテスト（expectViolations なし）で外部へ fetch すると、テストの終わりの検査がそのテストを失敗にする（R-S1。test.fail: 一覧の ✘ が合格）', async ({
     page,
   }) => {
