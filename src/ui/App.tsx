@@ -1,9 +1,10 @@
 // UI（Preact・DOM。arch §15・gdd §11-1）: HUD の帯・キャンバスの下端のボタン（BL-042）、タブと一覧（BL-043）
 // - 縦・横の配置は styles/global.css（#app の data-layout。判定は ui/layout.ts の layoutOf）
-// - タブは 5 つ（tab-1〜tab-5。クリックか 1〜5 キー）。S1 で中身があるのは T1 だけで、T2〜T5 は「準備中」（panel-placeholder。Q-09）
+// - タブは 5 つ（tab-1〜tab-5。クリックか 1〜5 キー）。中身があるのは T1・T2（BL-044）で、T3〜T5 は「準備中」（panel-placeholder。Q-09）
+// - 湯宿の「！」（BL-044。Q-38 (b)）: SpringFound のたびに（T2 を開いていないとき）立て、T2 を開いたら消す。保存しない（メモリだけ）
 // - 購入数（×1 → ×10 → 最大）は切り替えボタン（qty-toggle）か Shift。タブをまたいで共通で、保存しない（再読み込みで ×1）
 // - ご褒美のシート（R2: ブーストのボタン、R3: 鉱脈のチップ）とトースト（BL-046）。モーダル・シートの表示中は 1〜5・Shift を使わない
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Qty } from '../core/index.ts';
 import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
 import { useUi } from './hooks/use-game.ts';
@@ -14,6 +15,7 @@ import { isModalOpen } from './overlay/modal-state.ts';
 import { RewardSheet } from './overlay/RewardSheet.tsx';
 import { Toasts } from './overlay/Toasts.tsx';
 import { DigPanel } from './panels/DigPanel.tsx';
+import { InnPanel } from './panels/InnPanel.tsx';
 
 export type { TabNo } from './keys.ts';
 
@@ -26,8 +28,8 @@ export const TABS: readonly { no: TabNo; key: TextKey; icon: string }[] = [
   { no: 5, key: 'tab.menu', icon: '≡' },
 ];
 
-/** 購入の一覧があるタブ（購入数の切り替えを出す。S2 で湯宿〔2〕を足す） */
-const BUY_TABS: readonly TabNo[] = [1];
+/** 購入の一覧があるタブ（購入数の切り替えを出す。T3 には出さない。Q-38 (e)） */
+const BUY_TABS: readonly TabNo[] = [1, 2];
 
 /** S1 で中身のないタブ（T2〜T5）の仮の表示（Q-09）。T5 だけ言語の切り替えと版を残す（設定の本体は S3 の BL-045） */
 function Placeholder({ tab, lang, onLang }: { tab: TabNo; lang: Lang; onLang: (l: Lang) => void }) {
@@ -63,8 +65,15 @@ function QtyToggle({ qty, onNext }: { qty: Qty; onNext: () => void }) {
 }
 
 export function App() {
-  const { onLangChange } = useUi();
-  const [tab, setTab] = useState<TabNo>(1);
+  const { onLangChange, store } = useUi();
+  const [tab, setTabState] = useState<TabNo>(1);
+  const [innAlert, setInnAlert] = useState(false);
+  const tabRef = useRef<TabNo>(1);
+  const setTab = (n: TabNo): void => {
+    tabRef.current = n;
+    setTabState(n);
+    if (n === 2) setInnAlert(false); // T2 を開いたら消す
+  };
   const [qty, setQty] = useState<Qty>(1);
   const [lang, setLangState] = useState<Lang>(getLang());
   const [sheet, setSheet] = useState<'R2' | 'R3' | null>(null);
@@ -86,6 +95,15 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // 源泉の発見で湯宿のタブに「！」（T2 を開いていないとき）
+  useEffect(
+    () =>
+      store.onEvents((evs) => {
+        if (tabRef.current !== 2 && evs.some((e) => e.type === 'SpringFound')) setInnAlert(true);
+      }),
+    [store],
+  );
+
   return (
     <>
       <Hud lang={lang} onSettings={() => setTab(5)} onVein={() => setSheet('R3')} />
@@ -100,17 +118,29 @@ export function App() {
               class="tab"
               aria-selected={tab === x.no}
               data-testid={`tab-${x.no}`}
+              data-alert={x.no === 2 && innAlert ? 'true' : undefined}
               title={`${t(x.key)} (${x.no})`}
               onClick={() => setTab(x.no)}
             >
               <span aria-hidden="true">{x.icon}</span>
               <span class="tab-label">{t(x.key)}</span>
+              {x.no === 2 && innAlert && (
+                <span class="tab-alert" role="img" aria-label={t('ui.tabAlert')}>
+                  {t('ui.tabAlertMark')}
+                </span>
+              )}
             </button>
           ))}
         </nav>
         <div class="panel-body" role="tabpanel">
           {BUY_TABS.includes(tab) && <QtyToggle qty={qty} onNext={() => setQty(nextQty)} />}
-          {tab === 1 ? <DigPanel qty={qty} lang={lang} /> : <Placeholder tab={tab} lang={lang} onLang={onLang} />}
+          {tab === 1 ? (
+            <DigPanel qty={qty} lang={lang} />
+          ) : tab === 2 ? (
+            <InnPanel qty={qty} lang={lang} />
+          ) : (
+            <Placeholder tab={tab} lang={lang} onLang={onLang} />
+          )}
         </div>
       </section>
       <Toasts />
