@@ -155,7 +155,7 @@ describe('BL-052 受け入れ基準 1: t() の置き換え変数と英語の複�
 });
 
 describe('BL-052 受け入れ基準 2: 言語の判定の順番（設定 → platform.locale() → navigator.language → 英語）', () => {
-  // TS-052-10: 設定 × platform.locale() × navigator.language の組み合わせ（判定は resolveLang の 1 か所。main.ts は detectLang を呼ぶ）
+  // TS-052-10: 設定 × platform.locale() × navigator.language の組み合わせ（判定は resolveLang の 1 か所。main.ts も resolveLang を呼ぶ〔BL-046〕）
   const cases: readonly [setting: Lang | 'auto', platform: string | null, browser: string | null, want: Lang][] = [
     // 設定の上書きが最優先（locale によらない）
     ['ja', 'en-US', 'en-US', 'ja'],
@@ -229,9 +229,6 @@ describe('BL-052 受け入れ基準 3: 文章は en.json・ja.json にあり、�
    * まだ文を入れていないお客さんは、入れるチケットを書いて除く（入れたら消す）
    */
   const PENDING_KEYS: Readonly<Record<string, string>> = {
-    'guest.monkey': 'BL-017',
-    'guest.capybara': 'BL-017',
-    'guest.fox': 'BL-017',
     'guest.cat': 'BL-019',
     'guest.redPanda': 'BL-019',
   };

@@ -19,3 +19,5 @@ test-results/
 perf-results/
 # フォントの元データ（ダウンロードして再生成する）
 assets-src/fonts/*.ttf
+# バランスのレポート（npm run sim・npm run test:balance の出力。CI・nightly は成果物に保存する。BL-033）
+reports/

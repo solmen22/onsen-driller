@@ -42,8 +42,16 @@ export interface RunState {
   guests: GuestId[];
   /** 掘削ブースト（S2）: 効果の残り（オンライン中だけ減る）と、次に使える壁時計の時刻 */
   boost: { remainingMs: number; readyAtWallMs: number };
-  /** ラッキー鉱脈（S2） */
+  /**
+   * ラッキー鉱脈（S2。BL-058）。時刻はすべてロジックの時間（clock.playedMs）。nextAtMs は次の出現の時刻（0 は未予約で、次のステップで予約する）。
+   * active は出ている鉱脈（depth は出たときの深さ、hits はタップの打撃の数、expiresAtMs で消える）
+   */
   vein: { nextAtMs: number; active: null | { depth: number; hits: number; expiresAtMs: number } };
+  /**
+   * 未受け取りのオフライン収入（R1。BL-058・Q-36 (d)）。coins は「受け取る」で入る額、ms はオフラインの経過時間（壁時計）。
+   * 付けるのは S3 の BL-030。受け取ったら null に戻す（復帰 1 回につき 1 回）。保存する（おかえりを閉じても失わない）
+   */
+  pendingOffline: { coins: Num; ms: number } | null;
   /** 幕間を出した帯（0 始まり） */
   stratumSeen: number[];
 }
@@ -106,6 +114,7 @@ export function createRun(seed: number, terrain: TerrainId = INITIAL_TERRAIN): R
     guests: [],
     boost: { remainingMs: 0, readyAtWallMs: 0 },
     vein: { nextAtMs: 0, active: null },
+    pendingOffline: null,
     stratumSeen: [0],
   };
 }

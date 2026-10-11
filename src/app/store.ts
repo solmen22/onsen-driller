@@ -4,6 +4,7 @@
 import {
   advance,
   dispatch,
+  normalizeBoostClock,
   stampGuestsSeen,
   step,
   type AdvanceOptions,
@@ -11,6 +12,13 @@ import {
   type GameEvent,
   type GameState,
 } from '../core/index.ts';
+import type { SaveStatus } from '../save/slots.ts';
+
+/**
+ * UI に見せる保存の状態（Q-26 ①。BL-046）: 保存の状態（save/slots.ts の SaveStatus。変えない）に、読み取り専用（新しい版のセーブ）を足したもの。
+ * 表示の優先は readonly → unavailable → failing → ok（main.ts の saveDisplay）
+ */
+export type SaveDisplayStatus = SaveStatus | 'readonly';
 
 /** 描画だけが使う一時的なイベント（打撃の数。タップ由来かどうかで反応の計測をする） */
 export type ViewEvent = GameEvent | { type: 'Hits'; n: number; fromTap: boolean };
@@ -36,8 +44,8 @@ export class GameStore {
   /** ループがステップを進めた回数と、最後に進めたフレームの単調時計（描画の補間用） */
   stepSerial = 0;
   lastStepAt = 0;
-  /** 保存の状態（app/autosave が更新する。UI の save-warning。ok 以外の間は表示する） */
-  saveStatus: 'ok' | 'failing' | 'unavailable' = 'ok';
+  /** 保存の状態（app/autosave が更新する。UI の save-warning。ok 以外の間は表示する。readonly は BL-046） */
+  saveStatus: SaveDisplayStatus = 'ok';
   private readonly subs = new Set<() => void>();
   /** ドメインイベントの購読者（onEvents） */
   private readonly eventSubs = new Set<(evs: readonly GameEvent[]) => void>();
@@ -116,9 +124,16 @@ export class GameStore {
     this.wallNow = wallNow;
   }
 
-  /** イベントを記録する（描画の列・フックの events）。お客さんの初来訪があれば、その時刻を図鑑に入れる（BL-017） */
+  /**
+   * イベントを記録する（描画の列・フックの events）。お客さんの初来訪があれば、その時刻を図鑑に入れる（BL-017）。
+   * ステップ・アクションのたびに、R2 の休みの残りを 15 分以下に切り詰める（時計が戻ったとき。BL-120・BL-124）
+   */
   pushEvents(evs: readonly GameEvent[]): void {
-    if (this.wallNow && evs.some((e) => e.type === 'GuestArrived' && e.first)) stampGuestsSeen(this.state, evs, this.wallNow());
+    if (this.wallNow) {
+      const wall = this.wallNow();
+      if (evs.some((e) => e.type === 'GuestArrived' && e.first)) stampGuestsSeen(this.state, evs, wall);
+      normalizeBoostClock(this.state, wall);
+    }
     for (const e of evs) {
       this.pushView(e);
       this.recent.push(e);
@@ -149,7 +164,7 @@ export class GameStore {
   }
 
   /** 保存の状態を変えて通知する（変わらなければ何もしない） */
-  setSaveStatus(st: 'ok' | 'failing' | 'unavailable'): void {
+  setSaveStatus(st: SaveDisplayStatus): void {
     if (this.saveStatus === st) return;
     this.saveStatus = st;
     this.notify();

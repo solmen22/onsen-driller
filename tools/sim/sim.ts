@@ -1,21 +1,30 @@
-// シミュレーターの本体（Node・テストの両方から使う）。時刻は now を注入する（決定論の lint の対象）
+// シミュレーターの本体（BL-031。Node・テストの両方から使う）。core と content だけを読み、DOM・Phaser に依存しない。
+// 時刻は now を注入する（決定論の lint の対象。計測にだけ使い、結果には入らない）
 import {
-  autoDigUnlocked,
   bathIncomePerSec,
   createInitialState,
-  dispatch,
+  incomePerSec,
   isHealthy,
   stateHash,
   step,
   type GameEvent,
   type GameState,
 } from '../../src/core/index.ts';
-import { botAct, newBotMemory, type BotDef } from './bots.ts';
+import { botAct, botTap, canBuyAnything, newBotMemory, type BotDef } from './bots.ts';
 import { MilestoneRecorder, type MilestoneId } from './milestones.ts';
 
 /** 入湯料の割合（#18）を数えるロジックの時刻の範囲（5 分〜60 分。コインが number で表せる範囲に収める） */
 const INCOME_SHARE_FROM_MS = 5 * 60_000;
 const INCOME_SHARE_TO_MS = 60 * 60_000;
+/** 空白時間（#14・#15）を数える範囲（0〜10 分・10〜30 分） */
+const GAP_WINDOWS: readonly (readonly [number, number])[] = [
+  [0, 10 * 60_000],
+  [10 * 60_000, 30 * 60_000],
+];
+/** 放置ボットの到達深さを見る時刻（#17。60 分） */
+const DEPTH_AT_MS = 60 * 60_000;
+/** グラフ・CSV の点の間隔（ロジックの時間） */
+const SAMPLE_EVERY_MS = 60_000;
 
 export interface SimOptions {
   hours: number;
@@ -25,8 +34,18 @@ export interface SimOptions {
   now?: () => number;
 }
 
+/** グラフ・CSV の点（ロジックの時間ごと） */
+export interface Sample {
+  tMs: number;
+  coins: number;
+  incomePerSec: number;
+  depth: number;
+  maxDepth: number;
+}
+
 export interface SimResult {
   bot: string;
+  seed: number;
   stepMs: number;
   hours: number;
   steps: number;
@@ -43,8 +62,17 @@ export interface SimResult {
   stepUsLate: number;
   /** 目標表の出来事が初めて起きたロジックの時刻（ms。milestones.ts） */
   milestones: Partial<Record<MilestoneId, number>>;
+  /** 最初の 20 分の「新しい要素」の間隔の最大（ms。#9。0 分と 20 分の端も含める） */
+  newElementGapMs: number;
+  /** 何も買えない最長の時間（ms。#14＝0〜10 分、#15＝10〜30 分）。範囲の途中で終わった実行は数えた分だけ */
+  buyGapMs: [number, number];
+  /** 2 周目で 1 周目の最深に届くまでの時間 ÷ 1 周目の長さ（#11）。届いていなければ null */
+  secondRunRatio: number | null;
+  /** 60 分の時点の最深（#17）。60 分より短い実行は null */
+  depthAt60: number | null;
   /** 5〜60 分に得たコインのうち入湯料の割合（0〜1。#18）。5 分より短い実行は NaN */
   bathShare: number;
+  samples: Sample[];
   state: GameState;
 }
 
@@ -57,7 +85,6 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
   const events: GameEvent[] = [];
   let nextAct = 0;
   let steps = 0;
-  let tapAcc = 0;
   let healthy = true;
   const minuteSteps = Math.max(1, Math.round(60_000 / opt.stepMs));
   let earlyUs = 0;
@@ -66,6 +93,23 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
   const rec = new MilestoneRecorder();
   let bathCoins = 0;
   let allCoins = 0;
+  const buyGap: [number, number] = [0, 0];
+  const gapStart: [number | null, number | null] = [null, null];
+  let depthAt60: number | null = null;
+  const samples: Sample[] = [];
+  let nextSample = 0;
+  // #11: 1 周目の最深と長さ（最初の転生の時点）。2 周目でその最深に届いたら、かかった時間 ÷ 1 周目の長さ
+  const run1: { value: { maxDepth: number; endMs: number } | null } = { value: null };
+  let secondRunRatio: number | null = null;
+
+  const observe = (): void => {
+    for (const e of events) {
+      if (e.type === 'PrestigeDone' && run1.value === null) run1.value = { maxDepth: rec.runMaxDepth, endMs: s.clock.playedMs };
+    }
+    rec.observe(events, s.clock.playedMs);
+    rec.observeState(s);
+    events.length = 0;
+  };
 
   const t0 = now();
   for (let t = 0; t < totalMs; t += opt.stepMs) {
@@ -73,12 +117,26 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
       botAct(s, bot, mem, events);
       nextAct += actEveryMs;
     }
-    rec.observe(events, s.clock.playedMs);
-    events.length = 0;
+    observe();
+    const played = s.clock.playedMs;
     // #18: 5〜60 分の収入のうち入湯料の分（ステップの始めの入湯料/秒 × 刻み。計測の外で数える）
-    const countShare = s.clock.playedMs >= INCOME_SHARE_FROM_MS && s.clock.playedMs < INCOME_SHARE_TO_MS;
+    const countShare = played >= INCOME_SHARE_FROM_MS && played < INCOME_SHARE_TO_MS;
     const bathBefore = countShare ? bathIncomePerSec(s).toNumber() : 0;
     const coinsBefore = countShare ? s.stats.totalCoins.toNumber() : 0;
+    // #14・#15: 何も買えない時間（ステップの始めの状態で判定）
+    for (let w = 0; w < GAP_WINDOWS.length; w++) {
+      const [from, to] = GAP_WINDOWS[w] ?? [0, 0];
+      if (played < from || played >= to) continue;
+      if (canBuyAnything(s)) gapStart[w] = null;
+      else {
+        gapStart[w] ??= played;
+        buyGap[w] = Math.max(buyGap[w] ?? 0, played + opt.stepMs - (gapStart[w] ?? played));
+      }
+    }
+    if (played >= nextSample) {
+      samples.push({ tMs: played, coins: s.run.coins.toNumber(), incomePerSec: incomePerSec(s).toNumber(), depth: s.run.depth, maxDepth: s.run.maxDepth });
+      nextSample += SAMPLE_EVERY_MS;
+    }
     const a = steps < minuteSteps || steps >= lateFrom ? now() : 0;
     step(s, opt.stepMs, events);
     if (steps < minuteSteps) earlyUs += (now() - a) * 1000;
@@ -87,16 +145,13 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
       bathCoins += (bathBefore * opt.stepMs) / 1000;
       allCoins += s.stats.totalCoins.toNumber() - coinsBefore;
     }
-    // 自動掘りが使えるまでは手で叩く（ステップの終わりの時刻に、等間隔のタップ）
-    if (bot.tapsUntilAuto > 0 && !autoDigUnlocked(s)) {
-      tapAcc += (bot.tapsUntilAuto * opt.stepMs) / 1000;
-      const n = Math.floor(tapAcc + 1e-9);
-      tapAcc -= n;
-      if (n > 0) for (const e of dispatch(s, { type: 'tap', count: n }).events) events.push(e);
+    botTap(s, bot, mem, opt.stepMs, events);
+    observe();
+    const r1 = run1.value;
+    if (r1 && secondRunRatio === null && s.run.maxDepth >= r1.maxDepth && r1.endMs > 0) {
+      secondRunRatio = (s.clock.playedMs - r1.endMs) / r1.endMs;
     }
-    rec.observe(events, s.clock.playedMs);
-    rec.observeState(s);
-    events.length = 0;
+    if (depthAt60 === null && s.clock.playedMs >= DEPTH_AT_MS) depthAt60 = s.stats.bestDepth;
     steps++;
     if ((steps & 1023) === 0 && !(isHealthy(s.run.coins) && isHealthy(s.stats.totalCoins))) healthy = false;
   }
@@ -104,6 +159,7 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
   healthy = healthy && isHealthy(s.run.coins) && isHealthy(s.stats.totalCoins);
   return {
     bot: bot.id,
+    seed: opt.seed,
     stepMs: opt.stepMs,
     hours: opt.hours,
     steps,
@@ -118,8 +174,13 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
     stepUsEarly: earlyUs / minuteSteps,
     stepUsLate: lateUs / minuteSteps,
     milestones: rec.at,
-    // 数えていなければ（5 分より短い実行）NaN
-    bathShare: allCoins > 0 ? bathCoins / allCoins : NaN, // 頭打ちにしない（数え方の誤りを 100% に隠さない。レビュー PR #10 N-3）
+    newElementGapMs: rec.newElementGapMs(Math.min(20 * 60_000, totalMs)),
+    buyGapMs: buyGap,
+    secondRunRatio,
+    depthAt60,
+    // 頭打ちにしない（数え方の誤りを 100% に隠さない。レビュー PR #10 N-3）。数えていなければ（5 分より短い実行）NaN
+    bathShare: allCoins > 0 ? bathCoins / allCoins : NaN,
+    samples,
     state: s,
   };
 }

@@ -1,10 +1,12 @@
 // 入力（arch §7。Q-04・Q-05。BL-012）: ステージの DOM のポインタとキーボードを受けてアクションにする。Phaser の入力系は使わない
 // - 押した瞬間に 1 打（タップ）。300ms 押し続けると長押し（毎秒 4 打）。Space も同じ（自動リピートの keydown は使わない）
 // - 長押しは pointerup・pointercancel・pointerleave・lostpointercapture、ウィンドウの blur、visibilitychange（hidden）、
-//   pagehide、Space の keyup、入力の無効化（広告の再生中）で終わる。長押しのタイマーも取り消す
+//   pagehide、Space の keyup、入力の止め（setBlocked。広告の再生中・モーダルの表示中）で終わる。長押しのタイマーも取り消す
 // - 押し始めたポインタ以外（2 本目の指など。isPrimary=false）は打撃にしない。長押しは押し始めたポインタの終わりだけで終える（N-8）
 // - Space と矢印キーは、編集できる要素（input・textarea・select・contenteditable）が対象のとき以外は必ず preventDefault する。
-//   フォーカスのあるボタンも Space では押さない（キーボードでボタンを押すのは Enter）
+//   フォーカスのあるボタンも Space では押さない（キーボードでボタンを押すのは Enter）。
+//   ただしモーダル・シートの表示中（setBlocked('modal')）は、フォーカスのあるボタンを Space で押せるように、ボタンが対象の
+//   Space だけ preventDefault しない（Q-37 (e)。BL-046）。矢印は表示中も preventDefault する
 // - Ctrl・Alt・Meta と組み合わせたキーは、掘削にも preventDefault にも使わない（ブラウザ・OS のショートカット）
 // - ステージの pointerdown は preventDefault するので、互換の mousedown とその既定の動作（押したフレームへのフォーカスの移動・
 //   フォーカスのある要素からフォーカスを外す）が起きない。これを自分で行う（BUG-1・BL-100。ポータルの iframe の中でステージを押した後の
@@ -42,9 +44,15 @@ export interface InputOptions {
   holdDelayMs?: number;
 }
 
+/** 掘削の入力を止める理由（BL-046・BL-059 で共通。CEO 決定 2026-09-29） */
+export type BlockReason = 'ad' | 'modal';
+
 export interface InputController {
-  /** 入力を止める（広告の再生中など）。止めると長押しも終わる */
-  setEnabled(on: boolean): void;
+  /**
+   * 理由ごとに掘削の入力を止める・戻す（広告の再生中〔'ad'〕・モーダルとシートの表示中〔'modal'〕）。
+   * どれか 1 つでも立っていれば止まる。止めた時点で長押しも終わる。同じ理由を二重に立てても 1 つと数える
+   */
+  setBlocked(reason: BlockReason, on: boolean): void;
   readonly holding: boolean;
   dispose(): void;
 }
@@ -73,6 +81,13 @@ interface PointerLike {
 
 /** Ctrl・Alt・Meta（⌘）と組み合わせたキーか（ブラウザ・OS のショートカットなので、掘削にも preventDefault にも使わない） */
 const withModifier = (e: KeyLike): boolean => e.ctrlKey === true || e.altKey === true || e.metaKey === true;
+
+/** ボタンか（モーダルの表示中は、フォーカスのあるボタンを Space で押せるようにする。Q-37 (e)） */
+function isButtonTarget(t: unknown): boolean {
+  if (typeof t !== 'object' || t === null) return false;
+  const tag = (t as { tagName?: unknown }).tagName;
+  return typeof tag === 'string' && tag.toUpperCase() === 'BUTTON';
+}
 
 /** 編集できる要素か（そこでは Space・矢印を扱わない。Q-05） */
 export function isEditableTarget(t: unknown): boolean {
@@ -114,7 +129,8 @@ function focusGame(env: InputEnv): void {
 export function setupInput(env: InputEnv, sink: InputSink, opts: InputOptions = {}): InputController {
   const timers = env.timers ?? defaultTimers;
   const holdDelayMs = opts.holdDelayMs ?? PARAMS.input.holdDelayMs;
-  let enabled = true;
+  const blocked = new Set<BlockReason>();
+  const enabled = (): boolean => blocked.size === 0;
   let first = true;
   let holdTimer: unknown = null;
   let holding = false;
@@ -152,14 +168,14 @@ export function setupInput(env: InputEnv, sink: InputSink, opts: InputOptions = 
     if (holdTimer !== null) timers.clearTimeout(holdTimer);
     holdTimer = timers.setTimeout(() => {
       holdTimer = null;
-      if (!enabled) return;
+      if (!enabled()) return;
       holding = true;
       sink.dispatch({ type: 'hold', on: true });
     }, holdDelayMs);
   };
 
   on<PointerLike>(env.stage, 'pointerdown', (e) => {
-    if (!enabled || e.isPrimary === false) return;
+    if (!enabled() || e.isPrimary === false) return;
     e.preventDefault();
     focusGame(env); // preventDefault で起きなくなるフォーカスの移動を自分で行う（BUG-1）
     activePointer = typeof e.pointerId === 'number' ? e.pointerId : null;
@@ -177,14 +193,17 @@ export function setupInput(env: InputEnv, sink: InputSink, opts: InputOptions = 
     const code = e.code ?? '';
     // Ctrl・Alt・Meta との組み合わせは掘削に使わず、ブラウザ・OS に任せる（PM の指摘。Ctrl+Space の入力切り替えなど）
     if (withModifier(e)) return;
-    if (code === 'Space' || code.startsWith('Arrow')) e.preventDefault(); // ポータルの枠をスクロールさせない
-    if (code !== 'Space' || !enabled || e.repeat === true || keyDown) return;
+    // モーダルの表示中は、フォーカスのあるボタンを Space で押せるように preventDefault しない（Q-37 (e)）
+    const spaceOnButton = code === 'Space' && blocked.has('modal') && isButtonTarget(e.target);
+    if ((code === 'Space' && !spaceOnButton) || code.startsWith('Arrow')) e.preventDefault(); // ポータルの枠をスクロールさせない
+    if (code !== 'Space' || !enabled() || e.repeat === true || keyDown) return;
     keyDown = true;
     press(e.timeStamp);
   });
   on<KeyLike>(env.win, 'keyup', (e) => {
     if (e.code !== 'Space') return;
-    if (!isEditableTarget(e.target)) e.preventDefault(); // フォーカスのあるボタンを Space で押さない
+    // フォーカスのあるボタンを Space で押さない（モーダルの表示中のボタンは押せる。Q-37 (e)）
+    if (!isEditableTarget(e.target) && !(blocked.has('modal') && isButtonTarget(e.target))) e.preventDefault();
     endHold();
   });
   on(env.win, 'blur', endHold);
@@ -196,9 +215,11 @@ export function setupInput(env: InputEnv, sink: InputSink, opts: InputOptions = 
   on(env.win, 'pointerdown', firstInput, true);
 
   return {
-    setEnabled(v) {
-      enabled = v;
-      if (!v) endHold();
+    setBlocked(reason, v) {
+      if (v) {
+        blocked.add(reason);
+        endHold();
+      } else blocked.delete(reason);
     },
     get holding() {
       return holding;

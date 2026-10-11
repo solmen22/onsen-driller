@@ -4,7 +4,7 @@ import Decimal from 'break_infinity.js';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { fcRuns } from '../helpers/fc-runs.ts';
-import { add, div, isHealthy, mul, num, NUM_EXP_MAX, NUM_MAX, sanitize, sub, toStr, ZERO } from '../../src/core/num.ts';
+import { add, div, floor, isHealthy, mul, num, NUM_EXP_MAX, NUM_MAX, pow, sanitize, sub, toStr, ZERO } from '../../src/core/num.ts';
 import { createInitialState, stateHash } from '../../src/core/index.ts';
 import { decodeSave, encodeSave } from '../../src/save/codec.ts';
 
@@ -29,6 +29,15 @@ describe('num.ts の正規化（仮数を [1, 10) に戻す）', () => {
     expect(r.mantissa >= 1 && r.mantissa < 10).toBe(true);
     expect(isHealthy(r)).toBe(true);
     expect(Math.abs(r.toNumber() - (1 + 9999998.999999976)) / (1 + 9999998.999999976)).toBeLessThan(1e-12);
+  });
+
+  it('pow も同じ（PR #22 のレビューの N-2）: 生の Decimal.pow(9.999999999999998e-61, 5) は仮数 1 未満だが、pow は仮数 [1, 10)・isHealthy・相対誤差 1e-12 以内', () => {
+    const raw = Decimal.pow(new Decimal(9.999999999999998e-61), 5);
+    expect(raw.mantissa).toBeLessThan(1); // 直す前の形（break_infinity.js の版が変わって直ったら、この行が知らせる）
+    const r = pow(9.999999999999998e-61, 5);
+    expect(r.mantissa >= 1 && r.mantissa < 10).toBe(true);
+    expect(isHealthy(r)).toBe(true);
+    expect(Math.abs(r.div(raw).toNumber() - 1)).toBeLessThan(1e-12);
   });
 
   it('反例の値を持つ状態を保存して読み込むと、corrected が空で値がビット単位で同じ（修正の前は run.coins が直された）', () => {
@@ -79,15 +88,16 @@ describe('num.ts の正規化（仮数を [1, 10) に戻す）', () => {
     );
   });
 
-  it('性質: 10 のべき乗の前後（10^k − ε・10^k・10^k + ε。k は −300〜300）の足し算・引き算・掛け算の結果はいつも正規化され、大小の順番が Number の順番と一致する（fast-check。BL-106 の受け入れ基準 2）', () => {
+  it('性質: 10 のべき乗の前後（10^k − ε・10^k・10^k + ε。k は −300〜300）の足し算・引き算・掛け算・べき（pow）・切り捨て（floor）の結果はいつも正規化され、大小の順番が Number の順番と一致する（fast-check。BL-106 の受け入れ基準 2）', () => {
     // 10^k × (1 + j × 1e-16)（j は −40〜40。0 なら 10^k ちょうど）
     const nearPow = fc.tuple(fc.integer({ min: -300, max: 300 }), fc.integer({ min: -40, max: 40 })).map(([k, j]) => 10 ** k * (1 + j * 1e-16));
     const small = fc.oneof(fc.integer({ min: 1, max: 9 }), fc.double({ min: 1e-6, max: 1e-3, noNaN: true }));
     const sign = (x: number): number => (x > 0 ? 1 : x < 0 ? -1 : 0);
     fc.assert(
-      fc.property(nearPow, nearPow, small, fc.double({ min: 0.9, max: 1.1, noNaN: true }), (a, b, c, t) => {
+      fc.property(nearPow, nearPow, small, fc.double({ min: 0.9, max: 1.1, noNaN: true }), fc.integer({ min: 1, max: 5 }), (a, b, c, t, p) => {
         const na = num(a);
-        const rs = [na, num(b), add(na, b), add(na, c), add(num(c), a), sub(na, c), sub(na, b), mul(na, t), mul(num(b), t)];
+        // pow（コストの等比の式で使う。生の Decimal.pow も 10^k の前後の底の整数乗で仮数 1 未満を返す。手元で約 0.4%）と floor も見る（PR #22 のレビューの N-2）
+        const rs = [na, num(b), add(na, b), add(na, c), add(num(c), a), sub(na, c), sub(na, b), mul(na, t), mul(num(b), t), pow(na, p), pow(b, t), floor(na), floor(num(b))];
         if (!rs.every((r) => isHealthy(r) && (r.mantissa === 0 || (r.mantissa >= 1 && r.mantissa < 10)))) return false;
         // 比較（指数を先に比べる）の順番が、表している値の Number の順番と同じ。toNumber() は丸めるので、
         // Number で違う値になる組だけを比べる（丸めは単調なので、Number で小さければ本当の値も小さい）

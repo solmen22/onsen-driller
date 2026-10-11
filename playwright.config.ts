@@ -83,6 +83,8 @@ export default defineConfig({
     // 失敗したときの記録（CI の成果物 playwright-report/。TS-073-03）
     ['html', { open: 'never', outputFolder: 'playwright-report' }],
     ['json', { outputFile: 'playwright-report/results.json' }],
+    // 共通の検査（TS-COM-01〜04）が付かなかったテストがあれば、名前を出して実行を失敗にする（BL-108。CLI の --reporter で置き換えると外れる）
+    ['./e2e/support/common-checks-reporter.ts'],
   ],
   use: {
     baseURL: `http://${HOST}:${PORT}`,

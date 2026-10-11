@@ -10,7 +10,10 @@
 #   - PR は main をベースにしたものだけ（head が main の PR は同じリポジトリでは作れない）
 #   - プレビューは同じリポジトリのブランチからの PR だけ（フォーク・Dependabot には出さない）
 #   - プレビューのデプロイの直前に、ブランチ名が 空・main・staging・production（小文字にしたもの、別名にしたもの）なら失敗させる
+#   - secrets を参照するのは、デプロイのジョブの中の wrangler pages deploy の step 1 つだけ（PR #28 のレビュー N-1）。
+#     pull_request_target・workflow_run は使わない（PR のコードを secrets つきで動かす形になりうる。N-2）
 #   - これらは scripts/check-selftest.mjs（npm run test:checks）が静的に検査する（コードレビュー PR #1 の Must）
+# - ラベル: このワークフローは labeled では動かない（BL-098）。preview のラベルを付けたときのプレビューは preview.yml
 # - サプライチェーン: gitleaks は版と SHA256 を固定した CLI を直接使う（第三者のアクションを動かさない）。
 #   wrangler は deploy/package-lock.json で固定し、トークンのない step で npm ci --ignore-scripts する
 name: ci
@@ -18,8 +21,10 @@ name: ci
 on:
   pull_request:
     branches: [main]
-    # labeled: preview のラベルを付けたときにプレビューを出すため（A2）。ほかのラベルでは verify も動かない（下の if:）
-    types: [opened, synchronize, reopened, labeled]
+    # labeled は置かない（BL-098。PR #28 のレビュー S-1 (b)）: ラベルを付けるたびに run ができ、preview 以外のラベルでは verify が
+    # skip のチェックとして同じ head に並んで、前の run の verify の赤を隠しうるため。ラベルを付けたときのプレビューは preview.yml
+    # （ジョブ名 preview-label。同じ head のこのワークフローの verify が success の run の dist-web を出す。verify を回し直さない）
+    types: [opened, synchronize, reopened]
     paths-ignore: ['docs/**']
   push:
     branches: [main]
@@ -27,8 +32,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # preview 以外のラベルを付けただけの run（何もしない）が、同じ PR の実行中の CI を取り消さないように、別のグループにする
-  group: ci-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'preview' && format('-label-{0}', github.run_id) || '' }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -36,8 +40,7 @@ permissions:
 
 jobs:
   verify:
-    # preview 以外のラベルを付けただけの run では何もしない（A2）
-    if: github.event.action != 'labeled' || github.event.label.name == 'preview'
+    # if: を置かない（どのきっかけでも必ず動く。E2E が黙って外れない。BL-098・PR #28 のレビュー S-1 (b)。test:checks が検査する）
     runs-on: ubuntu-latest
     timeout-minutes: 30 # 検査とビルド 約 1.5 分＋test:e2e の step（15）＋準備と失敗したときの記録の保存に 10 分以上（BL-099）
     env:
@@ -57,7 +60,9 @@ jobs:
           curl -sSLf -o "$RUNNER_TEMP/$f" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$f"
           echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$f" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP" gitleaks
-          "$RUNNER_TEMP/gitleaks" git --log-opts="--all -m" --redact --no-banner --exit-code 1 .
+          # -v: 検出したときに場所（File・Line・Commit・RuleID・Fingerprint）をログに出す。値は --redact で REDACTED になる（BL-098。
+          #     --redact を外した -v にはしない。test:checks が検査する）。解除の手順は runbook §9-2
+          "$RUNNER_TEMP/gitleaks" git --log-opts="--all -m" --redact -v --no-color --no-banner --exit-code 1 .
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -89,6 +94,10 @@ jobs:
           if-no-files-found: error
       - name: ビルドの確認（E2E が配信する e2e 系 2 種・本番 4 種。欠けていれば Playwright を入れる前に止める）
         run: node scripts/check-e2e-dist.mjs
+      # キャッシュ（A3）の守り（PR #28 のレビュー N-4。test:checks が検査する）:
+      # - restore-keys を置かない（package-lock.json を戻したときに、古い〔汚れうる〕キャッシュに戻らない）
+      # - dist-web の保存はこの step より前（キャッシュから戻したブラウザの実行ファイルが動く前に、デプロイするものを確定する）
+      # - 汚染を疑ったら runbook §8 の手順で消す（gh cache list / gh cache delete）
       - name: Playwright のブラウザのキャッシュ（A3。版は package-lock.json の @playwright/test で決まる）
         uses: actions/cache@v6
         with:
@@ -128,8 +137,10 @@ jobs:
 
   deploy-preview:
     needs: verify # E2E は verify の中（A1）。E2E が緑でないとプレビューに出さない
-    # preview のラベルの付いた PR だけ（A2。オーナー・QA に URL を渡すときに付ける。1 回 1 分の切り上げの節約）
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CF_PAGES_PROJECT != '' && contains(github.event.pull_request.labels.*.name, 'preview')
+    # preview のラベルの付いた PR だけ（A2。オーナー・QA に URL を渡すときに付ける。1 回 1 分の切り上げの節約）。
+    # ここで出すのはラベルを付けた後の push の run。ラベルを付けた時点のプレビューは preview.yml（BL-098）。
+    # Dependabot の PR には出さない（人がラベルを付けた run には secrets が渡りうる。PR #28 のレビュー N-2）
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]' && vars.CF_PAGES_PROJECT != '' && contains(github.event.pull_request.labels.*.name, 'preview')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
