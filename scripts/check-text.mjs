@@ -14,9 +14,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-export const normSub = (s) => s.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+// 書式の文字（ゼロ幅スペース・ソフトハイフンなど Unicode の Cf）は先に消す（語の途中に入れて検出をすり抜けさせない。PR #51 のレビューの S-1）
+const dropFormat = (s) => s.replace(/\p{Cf}/gu, '');
+export const normSub = (s) => dropFormat(s).normalize('NFKC').toLowerCase().replace(/\s+/g, '');
 export const normWord = (s) =>
-  s
+  dropFormat(s)
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
@@ -37,7 +39,9 @@ export function compileRules(rules) {
 /** 範囲 [a, b) を '\u0000' で伏せる */
 const mask = (s, ranges) => {
   if (ranges.length === 0) return s;
-  const chars = [...s];
+  // 範囲は indexOf・matchAll の位置（UTF-16 の単位）なので、配列も UTF-16 の単位で作る
+  // （コードポイントの配列にすると、絵文字などのサロゲートペアの後ろで位置がずれる。PR #51 のレビューの M-1）
+  const chars = s.split('');
   for (const [a, b] of ranges) for (let i = a; i < b; i++) chars[i] = '\u0000';
   return chars.join('');
 };

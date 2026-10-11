@@ -44,6 +44,18 @@ describe('照合の規則', () => {
   it('例外は重なっても壊れない（「効能・適応症は書かない」は検出しない）', () => {
     expect(check('効能・適応症は書かない', compiled)).toEqual([]);
   });
+  it('絵文字（サロゲートペア）の後ろでも例外を正しい位置で伏せる（PR #51 のレビューの M-1）', () => {
+    expect(check('😀😀効能・適応症は書かない', compiled)).toEqual([]);
+    expect(check('😀😀😀 効能・適応症は書かない', compiled)).toEqual([]);
+    expect(check('😀 効能があります', compiled).map((h) => h.rule)).toContain('H1');
+    // 例外（効能は書かない）を伏せた後ろの「健康」は検出する（CEO の例）
+    expect(check('😀効能は書かない健康に良い', compiled).map((h) => h.word)).toContain('健康');
+  });
+  it('ゼロ幅スペース・ソフトハイフン（Unicode の Cf）を語の途中に入れてもすり抜けない（PR #51 のレビューの S-1）', () => {
+    expect(check('効​能', compiled).map((h) => h.rule)).toContain('H1');
+    expect(check('完全­無料', compiled).map((h) => h.rule)).toContain('C1');
+    expect(check('kid​-friendly', compiled).map((h) => h.rule)).toContain('K2');
+  });
   it('ファイル名は P・W・N の英字の規則だけ（C2 の no ads はファイル名では見ない）', () => {
     expect(check('balance-no-ads.test.ts', compiled, { fileName: true })).toEqual([]);
   });
