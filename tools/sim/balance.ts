@@ -1,5 +1,5 @@
 // CLI: npm run test:balance（BL-033・BL-090）。ボット × シードを流し、目標表で判定し、reports/balance/ にレポートを書く。
-// 範囲外（受け入れていない）か、#23（step の中央値 50µs 未満）を満たさなければ終了コード 1。
+// 範囲外（受け入れていない）か、#23（step の中央値 50µs 未満）を満たさないか、完全な詰み（10 分以上。BL-032）があれば終了コード 1。
 // 引数: --seeds 1,2,…（既定 1〜8）・--long 20（最初のシードの時間）・--short 1（残りのシード）・--out reports/balance
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -48,9 +48,16 @@ const stale = targets.filter((t) => t.stale).map((t) => `#${t.def.no}`);
 if (stale.length > 0) console.warn(`test:balance: 受け入れた項目が範囲内に戻った ${stale.join('・')}（tools/sim/targets.ts の ACCEPTED から消す。失敗にはしない）`);
 const benchFail = stepBench !== undefined && !(stepBench.lateUs < 50);
 if (stepBench) console.log(`#23 step: late median ${stepBench.lateUs.toFixed(2)} µs, early ${stepBench.earlyUs.toFixed(2)} µs -> ${benchFail ? 'NG' : 'OK'} (target < 50 µs)`);
+// BL-032 の受け入れ基準 4: 完全な詰み（買えるものがなく、手動を含む収入も 0）が 10 分以上続いた実行がない（全ボット・全シード）
+const stuck = runs.filter((r) => r.maxStuckMs >= 10 * 60_000).map((r) => `${r.bot}/s${r.seed}`);
+console.log(`stuck (>= 10 min, all runs): ${stuck.length === 0 ? 'none' : stuck.join(', ')} -> ${stuck.length === 0 ? 'OK' : 'NG'}`);
 console.log(`runs=${runs.length} wall=${((performance.now() - t0) / 1000).toFixed(1)}s report=${outDir}`);
 if (fails.length > 0 || benchFail) {
   console.error(`test:balance: 範囲外 ${[...fails, ...(benchFail ? ['#23'] : [])].join('・')}（受け入れる場合は tools/sim/targets.ts の ACCEPTED に理由・承認・幅を書く。受け入れた項目は幅の外か値がなければ失敗）`);
+  process.exit(1);
+}
+if (stuck.length > 0) {
+  console.error(`test:balance: 完全な詰み（10 分以上）${stuck.join(', ')}（BL-032 の受け入れ基準 4）`);
   process.exit(1);
 }
 console.log('test:balance: OK');

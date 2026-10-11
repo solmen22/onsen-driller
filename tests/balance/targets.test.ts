@@ -30,6 +30,7 @@ function fake(bot: string, seed: number, over: Partial<SimResult> = {}): SimResu
     milestones: {},
     newElementGapMs: 0,
     buyGapMs: [0, 0],
+    maxStuckMs: 0,
     secondRunRatio: null,
     depthAt60: null,
     bathShare: Number.NaN,
