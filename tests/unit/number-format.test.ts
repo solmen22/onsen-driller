@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import { num, NUM_EXP_MAX, NUM_MAX, type Num } from '../../src/core/num.ts';
 import { digitsOf, formatAmount, formatRate, formatShortfall, type Notation } from '../../src/i18n/number-format.ts';
 import type { Lang } from '../../src/i18n/index.ts';
@@ -163,7 +164,7 @@ describe('表記と「買えるか」の一致（TS-011-09。Q-33）', () => {
           expect(l.value.gte(k.sub(c).mul(1 - 1e-14))).toBe(true);
         }
       }),
-      { numRuns: 3000, seed: 110 },
+      fcRuns(3000, 110),
     );
   });
   it('条件 (c): 足りないときの目安は「あと 0 コイン」も「あと 0 秒」も出ない（所持がコストのごく近く〔Decimal の引き算で差が消える〕でも）', () => {
@@ -188,7 +189,7 @@ describe('表記と「買えるか」の一致（TS-011-09。Q-33）', () => {
           }
         },
       ),
-      { numRuns: 400, seed: 112 },
+      fcRuns(400, 112),
     );
   });
   it('表記は値の大小の順番を崩さない（単調）', () => {
@@ -197,7 +198,7 @@ describe('表記と「買えるか」の一致（TS-011-09。Q-33）', () => {
         const [lo, hi] = a.lte(b) ? [a, b] : [b, a];
         for (const f of [formatAmount, formatRate, formatShortfall]) expect(f(lo, lang, notation).value.lte(f(hi, lang, notation).value)).toBe(true);
       }),
-      { numRuns: 2000, seed: 111 },
+      fcRuns(2000, 111),
     );
   });
 });

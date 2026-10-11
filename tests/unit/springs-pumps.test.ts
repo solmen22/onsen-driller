@@ -3,6 +3,7 @@
 // TS-015-16〜20（標準ボットの #3・#4・#7・#8・#18）は BL-033 の目標表の判定（それまでは npm run sim のレポート）
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import en from '../../src/i18n/en.json';
 import ja from '../../src/i18n/ja.json';
 import { PARAMS } from '../../src/content/params.ts';
@@ -301,7 +302,7 @@ describe('TS-015-08 枠につないでいない源泉の入湯料は 0', () => {
         const total = bathIncomePerSec(s).toNumber();
         return v.every((x) => x.slot !== null || x.incomePerSec.eq(0)) && (total === 0 ? sum === 0 : rel(sum, total) < 1e-9);
       }),
-      { numRuns: 200 },
+      fcRuns(200),
     );
   });
 });
@@ -362,7 +363,7 @@ describe('TS-015-09〜12 ポンプの購入とコスト（次の 1 Lv＝c₀×r^
           return s.run.coins.eq(coinsBefore.sub(q.cost)) && (s.run.springs[id]?.pump ?? 0) - lv === q.n;
         },
       ),
-      { numRuns: 300 },
+      fcRuns(300),
     );
   });
 
@@ -374,7 +375,7 @@ describe('TS-015-09〜12 ポンプの購入とコスト（次の 1 Lv＝c₀×r^
         const inc = springIncome(stateWith({ pumps: { [id]: lv } }), id);
         return b.gt(a) && isHealthy(a) && isHealthy(b) && isHealthy(inc) && inc.gt(0);
       }),
-      { numRuns: 300 },
+      fcRuns(300),
     );
     const s = stateWith({ coins: '1e300', pumps: { simple: PARAMS.levelMax } });
     expect(buyQuote(s, 'pump:simple', 1).state).toBe('maxed');
@@ -388,7 +389,7 @@ describe('TS-015-09〜12 ポンプの購入とコスト（次の 1 Lv＝c₀×r^
         const b = bathIncomePerSec(stateWith({ bath: 35, pumps: { [id]: lv + 1 } }));
         return b.gte(a) && b.gt(0);
       }),
-      { numRuns: 200 },
+      fcRuns(200),
     );
   });
 });

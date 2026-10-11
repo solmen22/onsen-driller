@@ -1,5 +1,6 @@
 // BL-012: 掘削の入力（タップ・長押し・自動掘り）とブロック（TS-012-01〜14・25。Q-02・Q-03・Q-04）
 import fc from 'fast-check';
+import { fcRuns, inPropertyFullRun } from '../helpers/fc-runs.ts';
 import { describe, expect, it } from 'vitest';
 import {
   advance,
@@ -291,7 +292,8 @@ describe('TS-012-12 1 ステップで複数のブロックが壊れる', () => {
 });
 
 describe('TS-012-13 極端な威力でも 1 ステップが短時間で終わる', () => {
-  it('ドリル Lv10000（威力 1e120 超）: 50ms 以内・結果が決定的', () => {
+  // 時間の検査なので、毎晩の test:property:full では飛ばす（PR の npm run test で見る。tests/helpers/fc-runs.ts）
+  it.skipIf(inPropertyFullRun())('ドリル Lv10000（威力 1e120 超）: 50ms 以内・結果が決定的', () => {
     const make = (): GameState => stateWith({ seed: 4, depth: 450, drill: 10_000, tool: 7 });
     // 1 回温める（1 回目の JIT やごみ集めを外す。PM の指摘）
     const first = make();
@@ -391,7 +393,7 @@ describe('TS-012-25 ランダムな入力列でも、手動の打撃は任意の
           }
         },
       ),
-      { numRuns: 60, seed: 12 },
+      fcRuns(60, 12),
     );
   });
 });

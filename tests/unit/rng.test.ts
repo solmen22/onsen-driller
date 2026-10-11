@@ -1,5 +1,6 @@
 // BL-009: sfc32・hash32 の再現性（TS-009-08〜13）
 import fc from 'fast-check';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import { describe, expect, it } from 'vitest';
 import { hash01, hash32, isValidSfc32, normalizeSeed, seedSfc32, sfc32Next, type Sfc32State } from '../../src/core/rng.ts';
 
@@ -38,7 +39,7 @@ describe('TS-009-10 途中で保存・復元しても同じ列', () => {
         expect(isValidSfc32(restored)).toBe(true);
         expect(draw(restored, 50)).toEqual(draw(a, 50));
       }),
-      { numRuns: 100, seed: 1 },
+      fcRuns(100, 1),
     );
   });
 });
@@ -50,7 +51,7 @@ describe('TS-009-11 hash32 は呼ぶ順番によらない', () => {
         const asc = new Map(depths.map((d) => [d, hash32(seed, d)]));
         for (const d of [...depths].reverse()) expect(hash32(seed, d)).toBe(asc.get(d));
       }),
-      { numRuns: 50, seed: 2 },
+      fcRuns(50, 2),
     );
   });
 });

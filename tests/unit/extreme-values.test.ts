@@ -1,6 +1,7 @@
 // レビュー S-4: レベルに上限がなく、大きな値で打数が Infinity・端数が NaN になり、以後の保存がすべて失敗していた件
 // （arch §9「NaN・Infinity・負の値にならない」、QA の不変条件 #22）
 import fc from 'fast-check';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import { describe, expect, it } from 'vitest';
 import { PARAMS } from '../../src/content/params.ts';
 import {
@@ -119,7 +120,7 @@ describe('property: 極端なレベルを含む任意の状態で、ステップ
         expect(r.corrected).toEqual([]);
         expect(stateHash(r.state)).toBe(stateHash(s));
       }),
-      { numRuns: 60, seed: 2604 },
+      fcRuns(60, 2604),
     );
   });
   it('新しいゲームの基本の値も変わらない（上限の追加で序盤に影響しない）', () => {
