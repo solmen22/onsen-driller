@@ -1,6 +1,6 @@
 // E2E E5 保存と再開（e2e_E5_save-resume.md）
 // PR: TS-E5-01・02・03・05・10・11・16（S1）。毎晩: TS-E5-04（BL-089）。
-// 保留: TS-E5-13（S2。BL-046 の後に BL-103 で）、TS-E5-14（S2）。TS-E5-15 は手動（オーナーの iPhone）。
+// S2: TS-E5-13（BL-046 の読み取り専用の案内。BL-103）。保留: TS-E5-14（S2）。TS-E5-15 は手動（オーナーの iPhone）。
 // 欠番: TS-E5-06〜09（壊れ方の種類は integration の TS-027-05・07 に統合。E2E は TS-E5-05 が代表）、TS-E5-12（TS-027-20・TS-COM-04）。
 //
 // 壊れた枠の試験は、context.storageState() を書き換えて新しい context で開き直す（reopenWithStorage）。
@@ -14,11 +14,15 @@
 //   それぞれ 1 回書く（TS-E5-03 は、再読み込みで実際に来た契機の数だけ seq が増えることを見る）。
 // - Q-10 の 4・Q-22（S1 コードレビュー M-1）: 新しい版（schema 2）の枠は、v1 から見て形・checksum が壊れていても newer で、
 //   そのセッションは一切書かない（TS-E5-16）。
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { BrowserContext, Page } from '@playwright/test';
 import { test, expect, type Harness } from './support/fixtures.ts';
 import { armUnloadTriggerProbe, bootGame, centerOf, pageNow, readUnloadTriggers, reloadGame, setHidden, triggerAutosave } from './support/boot.ts';
 import { later, needs } from './support/gaps.ts';
 import { coinsOf, hitsOf, type Hooks, type SerializedState } from './support/hooks.ts';
+import { stateHashOracle } from './support/hash.ts';
+import { STORAGE_PREFIX } from './support/privacy.ts';
 import { prepareSaveState as prepare } from './support/prepare.ts';
 import {
   BROKEN_SLOT_KEY,
@@ -256,8 +260,64 @@ test.describe('E5 保存と再開', () => {
     expect(saveKeysOf(after), 'onsen-driller:save: で始まるキーが増えない').toEqual(keysBefore);
   });
 
-  test('TS-E5-13 新しい版のセーブで読み取り専用になり、ストレージを書き換えない', () => {
-    later('S2:newerSave');
+  test('TS-E5-13 新しい版のセーブで読み取り専用になり、起動直後から案内を出し、セッション中にストレージを 1 バイトも書き換えない（Q-26。BL-103）', async ({
+    page,
+    harness,
+  }) => {
+    // 正しい v2 を模した封筒: X の封筒の schema だけを 2 にする（game はそのままなので checksum も合う）
+    const { g } = await prepare(page, harness);
+    await threeSaves(page, harness, g);
+    const slots = await readSlots(page.context(), harness.origin);
+    const { newer: x } = newerOlder(slots);
+    const env = JSON.parse(slots[x].raw!) as Record<string, unknown>;
+    expect(env.checksum, '封筒の checksum は game の正規化 JSON の FNV-1a（v2 を模した封筒でも合う）').toBe(stateHashOracle(env.game));
+    const futureRaw = JSON.stringify({ ...env, schema: 2 });
+    // ja-JP の context で開き直す（reopenWithStorage は locale を変えられないので、同じ手順をここで行う）
+    const st = await page.context().storageState();
+    const o = st.origins.find((e) => e.origin === harness.origin)!;
+    o.localStorage = o.localStorage.map((e) => (e.name === SLOT_KEYS[x] ? { name: e.name, value: futureRaw } : e));
+    const ctx = await harness.newContext({ storageState: st, locale: 'ja-JP' });
+    const p2 = await ctx.newPage();
+    const snapshot = async (): Promise<[string, string][]> =>
+      [...(await readLocalStorage(ctx, harness.origin))].filter(([k]) => k.startsWith(STORAGE_PREFIX)).sort(([a], [b]) => a.localeCompare(b));
+    const before = await snapshot();
+    expect(new Map(before).get(SLOT_KEYS[x])).toBe(futureRaw);
+
+    const msg = (lang: 'ja' | 'en'): string =>
+      (JSON.parse(readFileSync(resolve(import.meta.dirname, '..', 'src', 'i18n', `${lang}.json`), 'utf8')) as Record<string, string>)['save.newerVersion']!;
+    const warning = p2.getByTestId('save-warning');
+    const expectReadonly = async (lang: 'ja' | 'en', when: string): Promise<void> => {
+      await expect(warning, `${when}: 案内が出ている`).toBeVisible();
+      await expect(warning).toHaveAttribute('data-state', 'readonly');
+      await expect(warning).toHaveAttribute('role', 'status');
+      await expect(warning.locator('button'), `${when}: 閉じるボタンがない（出したまま）`).toHaveCount(0);
+      await expect(warning, `${when}: 文言は今の言語の save.newerVersion`).toHaveText(msg(lang));
+    };
+
+    // 起動直後（最初の保存の前。bootGame は起動の後に時計を止めるので、15 秒ごとの保存はまだ来ていない）
+    const g2 = await bootGame(p2);
+    await expectReadonly('ja', '起動直後');
+    // 60 秒遊ぶ（15 秒ごとの保存 4 回）
+    await g2.pause();
+    for (let i = 0; i < 4; i++) {
+      await g2.advance(5_000, { tapsPerSec: 2 });
+      await triggerAutosave(p2);
+    }
+    await expectReadonly('ja', '60 秒の後');
+    // 言語の切り替え（メモリの設定だけを変え、書かない）
+    await p2.getByTestId('tab-5').click();
+    await p2.getByTestId('lang-toggle').click();
+    await p2.clock.runFor(450);
+    await expect(p2.locator('html')).toHaveAttribute('lang', 'en');
+    await expectReadonly('en', '言語の切り替えの後');
+    // 非表示 → 表示 → 再読み込み（pagehide）。設定を書いていないので、再読み込みの後は ja-JP の判定で日本語に戻る
+    await setHidden(p2, true);
+    await setHidden(p2, false);
+    await reloadGame(p2);
+    await expectReadonly('ja', '再読み込みの後');
+
+    expect(await snapshot(), 'セッション中に onsen-driller: のキー（枠・save:broken・設定）が 1 バイトも変わらない').toEqual(before);
+    expect(await harness.uncaughtErrors(), '捕まえていない例外がない').toEqual([]);
   });
 
   test('TS-E5-14 e2e-crazygames で data モジュールに保存・移行する', () => {
