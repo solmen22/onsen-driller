@@ -317,11 +317,12 @@ describe('BL-016 倍率を集める場所（改良の口）', () => {
     expect(rel(bathIncomePerSec(s, m).toNumber() - before, 30 * 10 * 2 * 2 * scale)).toBeLessThan(1e-9);
   });
 
-  it('改良の口 upgradeEffect は BL-018 まで何も返さない（知らない ID を持つセーブでも効果なし・例外なし）', () => {
+  it('改良の口 upgradeEffect: 知っている ID は定義の効果、知らない ID（後半の grip・prototype の名前）は効果なし・例外なし（BL-018）', () => {
     const s = stateWith({ bath: 0, pumps: { simple: 5 } });
     const m = modifiers(s);
-    s.run.upgrades = ['grip', 'noren', '__proto__', 'constructor'];
-    expect(upgradeEffect('noren')).toBeUndefined();
+    s.run.upgrades = ['grip', '__proto__', 'constructor'] as unknown as typeof s.run.upgrades;
+    expect(upgradeEffect('noren')).toEqual({ kind: 'incomeAll', mult: 1.5 });
+    expect(upgradeEffect('grip' as 'noren')).toBeUndefined();
     expect(modifiers(s)).toEqual(m);
   });
 

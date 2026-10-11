@@ -149,5 +149,17 @@
   "inn.springs": "Springs",
   "inn.notConnected": "Not connected",
   "inn.inSlot": "In slot {n}",
-  "inn.guests": "Guests"
+  "inn.guests": "Guests",
+  "upgrade.vibroBit": "Vibrating bit",
+  "upgrade.sieve": "Ore sieve",
+  "upgrade.noren": "Noren curtain",
+  "upgrade.ledger": "Guest ledger",
+  "upgrade.drillOil": "Drill oil",
+  "upgrade.yumomiSimple": "Stirring paddle (Simple)",
+  "upgrade.milk": "After-bath milk",
+  "upgrade.yumomiCo2": "Stirring paddle (Carbonated)",
+  "upgrade.yumomiSalt": "Stirring paddle (Salt)",
+  "upgrade.twinBit": "Twin bit",
+  "upgrade.polisher": "Polishing table",
+  "upgrade.yumomiSulfur": "Stirring paddle (Sulfur)"
 }

@@ -16,10 +16,15 @@ import {
   type GameEvent,
   type GameState,
   type LevelItem,
+  type UpgradeId,
   type Num,
 } from '../../src/core/index.ts';
 import { PARAMS } from '../../src/content/params.ts';
 import { SPRINGS, type SpringId } from '../../src/content/springs.ts';
+import { UPGRADES } from '../../src/content/upgrades.ts';
+
+/** ボットが買う品目（道具は別に扱う）。改良は一度きり（BL-018。TS-018-17） */
+type BotItem = LevelItem | `upgrade:${UpgradeId}`;
 
 export type BotId = 'standard' | 'active' | 'idle';
 
@@ -87,8 +92,13 @@ function measure<T>(s: GameState, change: () => () => void, fn: () => T): T {
   return v;
 }
 
-function levelUp(s: GameState, item: LevelItem): () => void {
+function levelUp(s: GameState, item: BotItem): () => void {
   const r = s.run;
+  if (item.startsWith('upgrade:')) {
+    // 仮に買った状態にして収入の差を測る（最後に足して、測った後に外す）
+    r.upgrades.push(item.slice(8) as UpgradeId);
+    return () => void r.upgrades.pop();
+  }
   if (item === 'drill') {
     r.drill.level++;
     return () => void r.drill.level--;
@@ -107,10 +117,11 @@ function levelUp(s: GameState, item: LevelItem): () => void {
   return () => void sp.pump--;
 }
 
-/** 買う候補（ドリル・自動掘削機・湯船・枠につないだ源泉のポンプ。つないでいないポンプは収入が増えないので入れない） */
-function candidates(s: GameState): LevelItem[] {
-  const items: LevelItem[] = ['drill', 'autoDigger', 'bath'];
+/** 買う候補（ドリル・自動掘削機・湯船・枠につないだ源泉のポンプ・まだ買っていない改良。つないでいないポンプは収入が増えないので入れない） */
+function candidates(s: GameState): BotItem[] {
+  const items: BotItem[] = ['drill', 'autoDigger', 'bath'];
   for (const id of s.run.bath.slots) if (id) items.push(`pump:${id}`);
+  for (const u of UPGRADES) if (!s.run.upgrades.includes(u.id)) items.push(`upgrade:${u.id}`); // 未解放は buyQuote が locked で外す
   return items;
 }
 
@@ -224,8 +235,8 @@ export function botAct(s: GameState, bot: BotDef, mem: BotMemory, out?: GameEven
     }
     arrangeSlots(s, bot, out);
     const base = totalRate(s, bot);
-    let best: { item: LevelItem; score: number; affordable: boolean } | null = null;
-    let bestAffordable: { item: LevelItem; score: number } | null = null;
+    let best: { item: BotItem; score: number; affordable: boolean } | null = null;
+    let bestAffordable: { item: BotItem; score: number } | null = null;
     for (const item of candidates(s)) {
       const q = buyQuote(s, item, 1);
       if (q.state === 'locked' || q.state === 'maxed') continue;
