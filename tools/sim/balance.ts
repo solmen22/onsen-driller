@@ -44,11 +44,13 @@ for (const [name, body] of Object.entries(files)) writeFileSync(join(outDir, nam
 
 console.log(targetsTable(targets));
 const fails = targets.filter((t) => t.verdict === 'fail').map((t) => `#${t.def.no}`);
+const stale = targets.filter((t) => t.stale).map((t) => `#${t.def.no}`);
+if (stale.length > 0) console.warn(`test:balance: 受け入れた項目が範囲内に戻った ${stale.join('・')}（tools/sim/targets.ts の ACCEPTED から消す。失敗にはしない）`);
 const benchFail = stepBench !== undefined && !(stepBench.lateUs < 50);
 if (stepBench) console.log(`#23 step: late median ${stepBench.lateUs.toFixed(2)} µs, early ${stepBench.earlyUs.toFixed(2)} µs -> ${benchFail ? 'NG' : 'OK'} (target < 50 µs)`);
 console.log(`runs=${runs.length} wall=${((performance.now() - t0) / 1000).toFixed(1)}s report=${outDir}`);
 if (fails.length > 0 || benchFail) {
-  console.error(`test:balance: 範囲外 ${[...fails, ...(benchFail ? ['#23'] : [])].join('・')}（受け入れる場合は tools/sim/targets.ts の ACCEPTED に理由と承認を書く）`);
+  console.error(`test:balance: 範囲外 ${[...fails, ...(benchFail ? ['#23'] : [])].join('・')}（受け入れる場合は tools/sim/targets.ts の ACCEPTED に理由・承認・幅を書く。受け入れた項目は幅の外か値がなければ失敗）`);
   process.exit(1);
 }
 console.log('test:balance: OK');
