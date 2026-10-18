@@ -3,12 +3,15 @@
 // 実際に子プロセスで起動して、終了コードと「どの規則のどのファイルか」のメッセージを確かめる（偽の緑を防ぐ）。
 // 実行: npm run test:checks（node --test）。CI では test の後、build:all の前に実行する。
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { after, describe, test } from 'node:test';
+import { promisify } from 'node:util';
 import { BUDGET, E2E_JOB_TARGETS, EXTERNAL_URL_ALLOW, FAKE_AD, MB, PRODUCTION_TARGETS, SDK, TARGETS, transferSize } from './check-lib.mjs';
+import * as gate from './nightly-gate.mjs';
 import { readZip } from './package-zip.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -690,6 +693,20 @@ describe('ci.yml', () => {
   /** ワークフローのジョブの名前の一覧（jobs: の直下） */
   const names = (text) => [...(/^jobs:\n([\s\S]*)$/m.exec(text)?.[1] ?? '').matchAll(/^ {2}([a-z][\w-]*):\n/gm)].map((m) => m[1]);
 
+  // BL-137（PR #58 のレビューの範囲外の気づき 1）: verify の検査の step（TS-008-23 の順番）に step の if: を足すと、PR・push のどちらかで
+  // 検査が黙って外れる。if: を持ってよいのは、失敗したときの記録の 2 つ（中身は assertFailureReportPolicy が検査する）だけ
+  test('BL-137: verify の step に if: があるのは、失敗したときの記録の 2 つだけ（検査の step が黙って外れない）', () => {
+    const named = (s) => /^ {6}- name: (.*)$/m.exec(s)?.[1] ?? s.trim().split('\n')[0];
+    const withIf = steps(job('verify'))
+      .filter((s) => /^ {6}(?:- | {2})if:/m.test(s))
+      .map(named);
+    assert.deepEqual(
+      withIf,
+      ['失敗したときの記録を残す（HTML レポート）', '失敗したときの記録を残す（HTML レポートができなかったときだけ test-results/）'],
+      `verify で if: を持つ step: ${withIf.join(' / ')}`,
+    );
+  });
+
   // verify は E2E まで 1 つのジョブ（Actions の分数の削減 A1。org/10_development/devops/2026-09-29_actions-minutes.md）
   test('TS-008-23 verify の順番: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets → check:text（BL-077） → check-e2e-dist → Playwright → test:e2e', () => {
     const v = job('verify');
@@ -1141,10 +1158,18 @@ describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別の�
   const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
   const e = jobOf(nightly, 'e2e-nightly');
 
-  test('TS-084-01 E2E のジョブは balance・property を呼ばず、ほかのジョブを待たない（BL-090 がそろう前から動く）', () => {
+  test('TS-084-01 E2E のジョブは balance・property を呼ばず、gate のほかのジョブを待たない（BL-090 がそろう前から動く）。gate の run が true のときだけ動く（決定 0010 の 12）', () => {
     const c = codeOf(e);
     assert.doesNotMatch(c, /test:balance|test:property/);
-    assert.doesNotMatch(c, /^ {4}needs:/m);
+    assert.deepEqual([...c.matchAll(/^ {4}needs: (.*)$/gm)].map((m) => m[1]), ['gate'], 'e2e-nightly の needs が gate だけでない');
+    assert.deepEqual([...c.matchAll(/^ {4}if: (.*)$/gm)].map((m) => m[1]), ["needs.gate.outputs.run == 'true'"], 'e2e-nightly の if: が gate の run だけでない');
+    // 前の「4 日間の変更」の見方を戻さない（step の if: で飛ばすとジョブが success になり、gate が「前回の成功」と取り違える）
+    assert.doesNotMatch(c, /steps\.changed|--since=|fetch-depth/, 'e2e-nightly に前の「前回から変更があるか」の step が残っている');
+    // 「前回の成功」は E2E の step の成功で数える（nightly-gate.mjs の E2E_STEP_RE）。テストの step の名前がそれに合うこと
+    const tests = stepsOf(e).filter((s) => /^ {8}run: npm run test:e2e:(?:nightly|full)$/m.test(s));
+    assert.equal(tests.length, 2, 'test:e2e:nightly・test:e2e:full の step が 2 つでない');
+    for (const s of tests) assert.match(/^ {6}- name: (.*)$/m.exec(s)?.[1] ?? '', gate.E2E_STEP_RE, `E2E の step の名前が gate の E2E_STEP_RE に合わない:\n${s}`);
+    assert.equal(stepsOf(e).filter((s) => gate.E2E_STEP_RE.test(/^ {6}- name: (.*)$/m.exec(s)?.[1] ?? '')).length, 2, 'E2E_STEP_RE に合う step がテストの 2 つ以外にもある');
   });
 
   test('TS-084-01 npm ci → build:all → build:e2e → Playwright（chromium・webkit・firefox）→ mode ごとに test:e2e:nightly／test:e2e:full（PR #6 のレビュー S-3）', () => {
@@ -1169,6 +1194,24 @@ describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別の�
     const c = codeOf(e);
     assert.doesNotMatch(c, /^ {8}run: npm run test:e2e$/m, 'test:e2e（--project=chromium。PR ごとに流している）は毎晩に使わない');
     assert.doesNotMatch(c, /PW_DIST/, 'PW_DIST を渡さない（serve.mjs で mode の outDir より優先される）');
+  });
+
+  // BL-137 と同じ考え（PR #58 のレビューの Nit 1 は、前の steps.changed の if: がなくなって解消）: e2e-nightly で step の if: を持つのは、
+  // mode で分ける 2 つのテストの step と、失敗したときの記録の 2 つだけ（緑の回の注記の保存・ビルド・導入は条件なしで動く）
+  test('BL-137: e2e-nightly で if: を持つ step は、mode の 2 つのテストと失敗したときの記録の 2 つだけ', () => {
+    const withIf = stepsOf(e)
+      .filter((s) => /^ {6}(?:- | {2})if:/m.test(s))
+      .map((s) => /^ {6}- name: (.*)$/m.exec(s)?.[1] ?? s.trim().split('\n')[0]);
+    assert.deepEqual(
+      withIf,
+      [
+        'E2E（webkit・firefox・mobile-safari・mobile-chrome）',
+        'e2e-full（chromium-full・毎晩の 4 つ・prod-builds）',
+        '失敗したときの記録を残す（HTML レポート）',
+        '失敗したときの記録を残す（HTML レポートができなかったときだけ test-results/）',
+      ],
+      `e2e-nightly で if: を持つ step: ${withIf.join(' / ')}`,
+    );
   });
 
   test('TS-084-06 package.json の test:e2e:nightly は WebKit・Firefox・モバイル 2 種で、PR ごとの chromium・prod-builds を重ねず、失敗の件数に上限がある（PR #9 のレビュー S-1・N-6）', () => {
@@ -1197,15 +1240,26 @@ describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別の�
     });
   });
 
-  test('TS-084-05 schedule は週 2 回（月・木の 03:17 JST＝UTC の日・水 18:17。CEO 決定の 03:00 を毎時 0 分からずらした。PR #9 のレビュー N-3）', () => {
-    const crons = [...nightly.matchAll(/cron: '([^']+)'/g)].map((m) => m[1]);
-    assert.ok(crons.length >= 1, 'cron の行がない');
-    for (const c of crons) assert.equal(c, '17 18 * * 0,3');
+  // 公開中は毎日・非公開の間は月・木（決定 0010 の 12。QA 2026-10-18 §2-1 の条件 1・3）。毎日の cron 1 本（'17 18 * * *'）にすると、
+  // gate が「月・木の回」を見分けられず、非公開の間も毎日流れるので赤にする
+  test('TS-084-05 schedule は 03:17 JST の 2 本（月・木／それ以外の 5 日）で、合わせて毎日・重ならない。文字列は nightly-gate.mjs の定数と同じ（PR #9 のレビュー N-3）', () => {
+    const crons = [...codeOf(nightly).matchAll(/cron: '([^']+)'/g)].map((m) => m[1]);
+    assert.deepEqual(crons, [gate.CRON_TWICE_WEEKLY, gate.CRON_OTHER_DAYS], `cron が月・木とそれ以外の 5 日の 2 本でない: ${crons.join(' / ')}`);
+    assert.equal(gate.CRON_TWICE_WEEKLY, '17 18 * * 0,3', '月・木の 03:17 JST（UTC の日・水 18:17）でない');
+    const days = (c) => {
+      const f = c.split(' ');
+      assert.equal(f.length, 5, `cron の欄が 5 つでない: ${c}`);
+      assert.deepEqual(f.slice(0, 4), ['17', '18', '*', '*'], `03:17 JST（UTC 18:17）・毎月毎日でない: ${c}`);
+      assert.match(f[4], /^[0-6](?:,[0-6])*$/, `曜日は 0〜6 の列挙で書く（* や範囲にしない）: ${c}`);
+      return f[4].split(',').map(Number);
+    };
+    const all = [...days(gate.CRON_TWICE_WEEKLY), ...days(gate.CRON_OTHER_DAYS)].sort();
+    assert.deepEqual(all, [0, 1, 2, 3, 4, 5, 6], '2 本で毎日にならないか、重なっている（同じ日に 2 回動く）');
   });
 
   test('TS-084-05 schedule は on: の下にあり、workflow_dispatch と並ぶ（字下げを誤るとワークフロー全体が無効になる。PR #9 のレビュー N-4）', () => {
     const on = /^on:\n((?: {2}.*\n|\s*\n)+)/m.exec(codeOf(nightly))?.[1] ?? '';
-    assert.match(on, /^ {2}schedule:\n {4}- cron: '17 18 \* \* 0,3'/m, 'on: の直下に schedule: と - cron: がない');
+    assert.match(on, /^ {2}schedule:\n {4}- cron: '17 18 \* \* 0,3'.*\n {4}- cron: '17 18 \* \* 1,2,4,5,6'/m, 'on: の直下に schedule: と 2 本の - cron: がない');
     assert.match(on, /^ {2}workflow_dispatch:$/m, 'on: の直下に workflow_dispatch: がない（手動実行ができなくなる）');
     assert.equal((codeOf(nightly).match(/^\s*schedule:/gm) ?? []).length, 1, 'schedule: が on: の外にもある');
   });
@@ -1235,11 +1289,13 @@ describe('失敗したときの E2E の記録（BL-099。決定 0006-4・QA 判�
     assert.equal((c.match(/^\s+(?:path: )?test-results\/?$/gm) ?? []).length, 1, 'ci.yml で test-results/ を保存する場所が 1 つでない');
   });
 
-  test('TS-084-03 nightly.yml は書き込みの権限と secrets を持たない（ワークフロー直下の contents: read だけ。PR #9 のレビュー S-3）', () => {
+  test('TS-084-03 nightly.yml は書き込みの権限と secrets を持たない（ワークフロー直下の contents: read だけ。トークンは gate だけ。PR #9 のレビュー S-3・決定 0010 の 12）', () => {
     const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
-    const c = codeOf(nightly);
-    assert.match(c, /^permissions:\n {2}contents: read\n(?! )/m, 'ワークフロー直下の permissions が contents: read だけでない');
-    assert.equal((c.match(/permissions:/g) ?? []).length, 1, 'ジョブ単位の permissions がある（ワークフロー直下の 1 つだけにする）');
+    assert.match(codeOf(nightly), /^permissions:\n {2}contents: read\n(?! )/m, 'ワークフロー直下の permissions が contents: read だけでない');
+    assert.doesNotMatch(codeOf(nightly), /:\s*write\b|write-all/, '書き込みの権限がある');
+    // gate（npm ci もテストのコードも動かさないジョブ）だけが actions: read とトークンを持つ。gate の中身は nightly-gate の describe で検査する
+    const c = codeOf(nightly.replace(jobOf(nightly, 'gate'), ''));
+    assert.equal((c.match(/permissions:/g) ?? []).length, 1, 'gate のほかにジョブ単位の permissions がある（ワークフロー直下の 1 つだけにする）');
     for (const [re, what] of [
       [/\bsecrets\b/, 'secrets（`secrets.X`・`secrets[\'X\']`・`toJSON(secrets)`。PR #19 のレビュー N-1）'],
       [/github\.token|GITHUB_TOKEN/, 'GitHub のトークン'],
@@ -1271,3 +1327,234 @@ describe('失敗したときの E2E の記録（BL-099。決定 0006-4・QA 判�
       assert.doesNotMatch(codeOf(readFileSync(join(root, '.github', 'workflows', f), 'utf8')), /PW_MAX_FAILURES/, `${f} が PR の上限（10）を上書きしている`);
   });
 });
+
+// ---- nightly の gate（決定 0010 の 12。QA 2026-10-18 §2-1 の条件 1〜3）: 公開中は毎日・非公開の間は月・木。前回の成功から変わったときだけ ----
+describe('nightly-gate.mjs（公開中は毎日・非公開の間は月・木。前回に成功した nightly の SHA と main を比べる）', () => {
+  const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
+  const H = 'a'.repeat(40);
+  const OLD = 'b'.repeat(40);
+  const TW = gate.CRON_TWICE_WEEKLY;
+  const OD = gate.CRON_OTHER_DAYS;
+  const E2E = { name: 'E2E（webkit・firefox・mobile-safari・mobile-chrome）', conclusion: 'success' };
+  const FULL = { name: 'e2e-full（chromium-full・毎晩の 4 つ・prod-builds）', conclusion: 'success' };
+  const skippedStep = (s) => ({ ...s, conclusion: 'skipped' });
+  /** jobs の形: E2E まで成功／gate だけ（e2e-nightly は skip）／前の形（step の if: で E2E を飛ばしてジョブは success）／e2e-full で成功 */
+  const JOBS = {
+    green: [
+      { name: 'gate', conclusion: 'success', steps: [] },
+      { name: 'e2e-nightly', conclusion: 'success', steps: [E2E, skippedStep(FULL)] },
+    ],
+    gateOnly: [
+      { name: 'gate', conclusion: 'success', steps: [] },
+      { name: 'e2e-nightly', conclusion: 'skipped', steps: [] },
+    ],
+    oldSkipped: [{ name: 'e2e-nightly', conclusion: 'success', steps: [skippedStep(E2E), skippedStep(FULL)] }],
+    fullGreen: [
+      { name: 'gate', conclusion: 'success', steps: [] },
+      { name: 'e2e-nightly', conclusion: 'success', steps: [skippedStep(E2E), FULL] },
+    ],
+    otherJob: [{ name: 'e2e', conclusion: 'success', steps: [E2E] }],
+  };
+
+  test('decide: 手動実行は常に流す。月・木以外の回は公開のときだけ。前回の成功と同じ SHA なら流さない', () => {
+    const d = (p) => gate.decide({ event: 'schedule', schedule: TW, isPrivate: false, headSha: H, lastGreen: { sha: OLD, runId: 1 }, ...p });
+    assert.equal(d({ event: 'workflow_dispatch', lastGreen: { sha: H, runId: 1 } }).run, true, '手動実行は同じ SHA でも流す');
+    assert.equal(d({ event: 'workflow_dispatch', schedule: '', isPrivate: true, lastGreen: undefined }).needLastGreen, false, '手動実行で API を読みに行く');
+    assert.equal(d({}).run, true, '月・木・公開・変更あり');
+    assert.equal(d({ isPrivate: true }).run, true, '月・木は非公開でも流す（変更があれば）');
+    assert.equal(d({ isPrivate: null }).run, true, '月・木は可視性が分からなくても流す（変更があれば）');
+    assert.equal(d({ lastGreen: { sha: H, runId: 1 } }).run, false, '前回の成功と同じ SHA を流した');
+    assert.equal(d({ lastGreen: null }).run, true, '前回の成功が見つからない・読めないときに流さない');
+    assert.equal(d({ schedule: OD }).run, true, '月・木以外・公開・変更あり');
+    assert.equal(d({ schedule: OD, lastGreen: { sha: H, runId: 1 } }).run, false, '月・木以外・公開・同じ SHA');
+    const priv = d({ schedule: OD, isPrivate: true, lastGreen: undefined });
+    assert.deepEqual([priv.run, priv.needLastGreen], [false, false], '非公開の月・木以外で流す（または run の一覧を読みに行く）');
+    assert.equal(d({ schedule: OD, isPrivate: null, lastGreen: undefined }).run, false, '可視性が分からない月・木以外を公開として扱った');
+    assert.equal(d({ lastGreen: undefined }).needLastGreen, true, '月・木で前回の成功を調べない');
+  });
+
+  test('isGreenE2E: e2e-nightly が success で、E2E か e2e-full の step が success の回だけを「前回の成功」に数える', () => {
+    assert.equal(gate.isGreenE2E(JOBS.green), true);
+    assert.equal(gate.isGreenE2E(JOBS.fullGreen), true);
+    assert.equal(gate.isGreenE2E(JOBS.gateOnly), false, 'gate だけの回（E2E が skip）を成功に数えた');
+    assert.equal(gate.isGreenE2E(JOBS.oldSkipped), false, '前の形の「省略した回」（ジョブは success・E2E の step は skip）を成功に数えた');
+    assert.equal(gate.isGreenE2E(JOBS.otherJob), false, 'e2e-nightly 以外のジョブを数えた');
+    assert.equal(gate.isGreenE2E([{ name: 'e2e-nightly', conclusion: 'failure', steps: [E2E] }]), false, '赤のジョブを数えた');
+  });
+
+  // 偽の API サーバー（GITHUB_API_URL で向ける）にスクリプトを子プロセスでつなぎ、GITHUB_OUTPUT と要求を確かめる
+  const execFileP = promisify(execFile);
+  async function runGate({ event = 'schedule', schedule = TW, eventPrivate = '', head = H, repo = { private: false }, runs = [], jobs = {}, fail = [] }) {
+    const requests = [];
+    const server = createServer((req, res) => {
+      const url = new URL(req.url, 'http://x');
+      requests.push({ path: url.pathname, query: url.search, auth: req.headers.authorization });
+      const send = (code, body) => {
+        res.writeHead(code, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(body));
+      };
+      const p = url.pathname;
+      const kind =
+        p === '/repos/o/r' ? 'repo' : p === '/repos/o/r/actions/workflows/nightly.yml/runs' ? 'runs' : /^\/repos\/o\/r\/actions\/runs\/\d+\/jobs$/.test(p) ? 'jobs' : '';
+      if (!kind || fail.includes(kind)) return send(kind ? 500 : 404, { message: 'x' });
+      if (kind === 'repo') return send(200, repo);
+      if (kind === 'runs') {
+        // 本物の API と同じく status・head_sha で絞り、per_page・page で切る（新しい順は渡した runs の順）
+        const q = url.searchParams;
+        const list = runs.filter((r) => (!q.get('head_sha') || r.head_sha === q.get('head_sha')) && (q.get('status') !== 'success' || r.conclusion === 'success'));
+        const per = Number(q.get('per_page') ?? 30);
+        const page = Number(q.get('page') ?? 1);
+        return send(200, { total_count: list.length, workflow_runs: list.slice((page - 1) * per, page * per) });
+      }
+      return send(200, { jobs: jobs[p.split('/')[6]] ?? [] });
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const dir = mkdtempSync(join(tmpRoot, 'gate-'));
+    const out = join(dir, 'out');
+    writeFileSync(out, '');
+    try {
+      const r = await execFileP(process.execPath, [join(root, 'scripts', 'nightly-gate.mjs')], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`,
+          GITHUB_REPOSITORY: 'o/r',
+          GITHUB_EVENT_NAME: event,
+          GITHUB_SHA: head,
+          GITHUB_OUTPUT: out,
+          GITHUB_STEP_SUMMARY: join(dir, 'summary'),
+          GH_TOKEN: 'tok',
+          EVENT_SCHEDULE: event === 'schedule' ? schedule : '',
+          EVENT_PRIVATE: eventPrivate,
+        },
+      });
+      const lines = readFileSync(out, 'utf8').trim().split('\n');
+      assert.equal(lines.length, 1, `GITHUB_OUTPUT の行が 1 つでない: ${lines.join(' / ')}`);
+      return { run: lines[0], log: r.stdout, requests };
+    } finally {
+      server.close();
+    }
+  }
+  const run = (id, sha, conclusion = 'success') => ({ id, head_sha: sha, conclusion });
+
+  test('偽の API: 公開・月・木以外・main が前回の成功から変わった → 流す。gate だけの回（同じ SHA）は前回に数えない', async () => {
+    const r = await runGate({ schedule: OD, runs: [run(3, H), run(2, OLD)], jobs: { 3: JOBS.gateOnly, 2: JOBS.green } });
+    assert.equal(r.run, 'run=true', r.log);
+    const runsReq = r.requests.find((q) => q.path.endsWith('/runs'));
+    assert.ok(runsReq, 'run の一覧を読んでいない');
+    assert.match(runsReq.query, /[?&]status=success(&|$)/, '成功した run だけを読んでいない');
+    assert.ok(r.requests.every((q) => q.auth === 'Bearer tok'), 'トークンを付けずに読んだ（非公開のときに読めない）');
+  });
+
+  // PR #66 のレビュー S-1: 「新しい順に 30 件」だと、gate だけの回が積み上がる（非公開で約 4 週間 main が変わらない）か、別のブランチの
+  // 手動実行が後から入ると、同じ SHA を流し直していた。この SHA で絞り（head_sha）、全ページを読み、古い順に jobs を見る
+  test('偽の API（レビュー S-1）: head_sha で絞って全ページを読み、gate だけの回が 250 件・別の SHA の成功が後にあっても、この SHA の成功を見つけて流さない', async () => {
+    const gateOnly = Array.from({ length: 250 }, (_, i) => run(1000 - i, H));
+    const runs = [run(2000, OLD), ...gateOnly, run(5, H)]; // 新しい順: 別のブランチの手動実行（OLD で成功）→ gate だけの回 → この SHA の E2E の成功
+    const jobs = { 2000: JOBS.green, 5: JOBS.green, ...Object.fromEntries(gateOnly.map((r) => [r.id, JOBS.gateOnly])) };
+    const r = await runGate({ schedule: OD, runs, jobs });
+    assert.equal(r.run, 'run=false', r.log);
+    const listReqs = r.requests.filter((q) => q.path.endsWith('/runs'));
+    for (const q of listReqs) assert.match(q.query, new RegExp(`[?&]head_sha=${H}(&|$)`), `run の一覧を SHA で絞っていない: ${q.query}`);
+    assert.equal(listReqs.length, 3, `全ページ（100 件ずつで 3 ページ）を読んでいない: ${listReqs.length}`);
+    const jobReqs = r.requests.filter((q) => q.path.endsWith('/jobs'));
+    assert.equal(jobReqs.length, 1, `古い順に見ていない（jobs の呼び出しが ${jobReqs.length} 回）`);
+    // この SHA の成功がなく、別の SHA の成功だけがある → 流す
+    const r2 = await runGate({ schedule: OD, runs: [run(2000, OLD), ...gateOnly], jobs });
+    assert.equal(r2.run, 'run=true', r2.log);
+  });
+
+  test('偽の API: この回の SHA が読めない（空・40 桁の 16 進でない）→ API を読まずに流す', async () => {
+    const r = await runGate({ head: '', runs: [run(1, H)], jobs: { 1: JOBS.green } });
+    assert.equal(r.run, 'run=true', r.log);
+    assert.ok(!r.requests.some((q) => q.path.endsWith('/runs')), 'SHA が読めないのに run の一覧を読んだ');
+  });
+
+  test('偽の API: 公開・月・木以外・前回の成功（e2e-full を含む）と同じ SHA → 流さない', async () => {
+    const r = await runGate({ schedule: OD, runs: [run(5, H)], jobs: { 5: JOBS.fullGreen } });
+    assert.equal(r.run, 'run=false', r.log);
+  });
+
+  test('偽の API: 前の形の「省略した回」（ジョブは success・E2E の step は skip）は前回に数えず、その前の成功と比べる', async () => {
+    const r = await runGate({ runs: [run(9, H), run(8, H)], jobs: { 9: JOBS.oldSkipped, 8: JOBS.gateOnly } });
+    assert.equal(r.run, 'run=true', r.log);
+    const r2 = await runGate({ runs: [run(9, OLD), run(8, H)], jobs: { 9: JOBS.oldSkipped, 8: JOBS.green } });
+    assert.equal(r2.run, 'run=false', r2.log);
+  });
+
+  test('偽の API: 非公開・月・木以外 → 流さず、run の一覧も読まない。非公開・月・木 → 変更があれば流す', async () => {
+    const r = await runGate({ schedule: OD, repo: { private: true }, runs: [run(1, OLD)], jobs: { 1: JOBS.green } });
+    assert.equal(r.run, 'run=false', r.log);
+    assert.ok(!r.requests.some((q) => q.path.endsWith('/runs')), '非公開の月・木以外で run の一覧を読んだ');
+    const r2 = await runGate({ schedule: TW, repo: { private: true }, runs: [run(1, OLD)], jobs: { 1: JOBS.green } });
+    assert.equal(r2.run, 'run=true', r2.log);
+    const r3 = await runGate({ schedule: TW, repo: { private: true }, runs: [run(1, H)], jobs: { 1: JOBS.green } });
+    assert.equal(r3.run, 'run=false', r3.log);
+  });
+
+  test('偽の API: 可視性が読めない → イベントの値を使い、それもなければ非公開として扱う（月・木以外は流さない）', async () => {
+    const r = await runGate({ schedule: OD, fail: ['repo'], runs: [run(1, OLD)], jobs: { 1: JOBS.green } });
+    assert.equal(r.run, 'run=false', r.log);
+    assert.match(r.log, /::warning::/, '読めなかったことを警告していない');
+    const r2 = await runGate({ schedule: OD, fail: ['repo'], eventPrivate: 'false', runs: [run(1, OLD)], jobs: { 1: JOBS.green } });
+    assert.equal(r2.run, 'run=true', r2.log);
+    const r3 = await runGate({ schedule: OD, fail: ['repo'], eventPrivate: 'true', runs: [run(1, OLD)], jobs: { 1: JOBS.green } });
+    assert.equal(r3.run, 'run=false', r3.log);
+  });
+
+  test('偽の API: run の一覧・jobs が読めない、または成功が見つからない → 流す（証拠を欠かない側）', async () => {
+    for (const fail of [['runs'], ['jobs']]) {
+      const r = await runGate({ fail, runs: [run(1, H)], jobs: { 1: JOBS.green } });
+      assert.equal(r.run, 'run=true', `${fail}: ${r.log}`);
+      assert.match(r.log, /::warning::/, `${fail}: 読めなかったことを警告していない`);
+    }
+    const r = await runGate({ runs: [run(2, H), run(1, H)], jobs: { 2: JOBS.gateOnly, 1: JOBS.otherJob } });
+    assert.equal(r.run, 'run=true', r.log);
+    const r2 = await runGate({ runs: [] });
+    assert.equal(r2.run, 'run=true', r2.log);
+  });
+
+  test('偽の API: 手動実行は API を読まずに流す。知らない cron は月・木の回として扱い、警告する', async () => {
+    const r = await runGate({ event: 'workflow_dispatch', fail: ['repo', 'runs', 'jobs'] });
+    assert.equal(r.run, 'run=true', r.log);
+    assert.equal(r.requests.length, 0, '手動実行で API を読んだ');
+    const r2 = await runGate({ schedule: '17 18 * * *', repo: { private: true }, runs: [run(1, OLD)], jobs: { 1: JOBS.green } });
+    assert.equal(r2.run, 'run=true', r2.log);
+    assert.match(r2.log, /::warning::知らない cron/);
+  });
+
+  test('nightly.yml の gate: 権限は contents: read と actions: read だけ。トークンは gate の step 1 つだけ。npm・setup-node を使わない', () => {
+    assert.deepEqual(names(nightly), ['gate', 'e2e-nightly'], 'nightly.yml のジョブは gate と e2e-nightly');
+    const g = jobOf(nightly, 'gate');
+    const c = codeOf(g);
+    const perms = /^ {4}permissions:\n((?: {6}.*\n)+)/m.exec(g)?.[1] ?? '';
+    assert.deepEqual([...perms.matchAll(/^ {6}([\w-]+): (\w+)/gm)].map((m) => `${m[1]}: ${m[2]}`), ['contents: read', 'actions: read'], 'gate の permissions');
+    assert.match(c, /^ {4}outputs:\n {6}run: \$\{\{ steps\.gate\.outputs\.run \}\}$/m, 'gate の outputs.run が steps.gate.outputs.run でない');
+    const ss = stepsOf(g);
+    const withToken = ss.filter((s) => /github\.token|GITHUB_TOKEN|GH_TOKEN/.test(codeOf(s)));
+    assert.equal(withToken.length, 1, 'トークンを使う step が 1 つでない');
+    const st = codeOf(withToken[0]);
+    assert.match(st, /^ {8}id: gate$/m);
+    assert.match(st, /^ {8}run: node scripts\/nightly-gate\.mjs$/m, 'トークンの step は node scripts/nightly-gate.mjs だけ');
+    assert.match(st, /^ {10}GH_TOKEN: \$\{\{ github\.token \}\}$/m);
+    assert.match(st, /^ {10}EVENT_SCHEDULE: \$\{\{ github\.event\.schedule \}\}$/m, 'github.event.schedule を渡していない（月・木を見分けられない）');
+    assert.match(st, /^ {10}EVENT_PRIVATE: \$\{\{ github\.event\.repository\.private \}\}$/m);
+    assert.doesNotMatch(c, /\bnpm\b|\bnpx\b|setup-node|\bsecrets\b/, 'gate で npm・npx・setup-node・secrets を使っている（トークンのあるジョブで依存のコードを動かさない）');
+    assert.match(g, /sparse-checkout: \|\n {12}scripts\/nightly-gate\.mjs\n {10}sparse-checkout-cone-mode: false\n/, 'gate の checkout は scripts/nightly-gate.mjs だけ');
+  });
+
+  test('nightly-gate.mjs は node: の組み込みだけを読み込み、既定の送り先は api.github.com だけ', () => {
+    const src = readFileSync(join(root, 'scripts', 'nightly-gate.mjs'), 'utf8');
+    const imports = [...src.matchAll(/^import .* from '([^']+)';$/gm)].map((m) => m[1]);
+    assert.ok(imports.length > 0);
+    for (const m of imports) assert.match(m, /^node:/, `node: 以外の読み込み: ${m}`);
+    assert.doesNotMatch(src, /\bimport\(|\brequire\(|child_process/, '動的な読み込み・子プロセス');
+    assert.equal((src.match(/\bfetch\(/g) ?? []).length, 1, 'fetch が 1 か所でない');
+    assert.deepEqual([...src.matchAll(/https?:\/\/[^\s'`)]+/g)].map((m) => m[0]), ['https://api.github.com'], '既定の送り先が api.github.com だけでない');
+  });
+});
+
+/** ワークフローのジョブの名前の一覧（jobs: の直下） */
+function names(text) {
+  return [...(/^jobs:\n([\s\S]*)$/m.exec(text)?.[1] ?? '').matchAll(/^ {2}([a-z][\w-]*):\n/gm)].map((m) => m[1]);
+}
