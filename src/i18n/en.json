@@ -162,5 +162,13 @@
   "upgrade.yumomiSalt": "Stirring paddle (Salt spring)",
   "upgrade.twinBit": "Twin bit",
   "upgrade.polisher": "Polishing table",
-  "upgrade.yumomiSulfur": "Stirring paddle (Sulfur spring)"
+  "upgrade.yumomiSulfur": "Stirring paddle (Sulfur spring)",
+  "upgrade.bought": "Bought",
+  "upgrades.intro": "Each upgrade can be bought once. Its effect lasts for this run and resets when you prestige.",
+  "upgrades.available": "Not bought yet",
+  "upgrades.boughtHead": "Bought",
+  "upgrades.noneAvailable": "No upgrades to buy right now",
+  "upgrades.next": "Next upgrade: {name}",
+  "upgrades.condDepth": "Unlocks at {n} m ({left} m to go)",
+  "upgrades.condPump": "Unlocks at {spring} pump Lv {n} (now {cur})"
 }

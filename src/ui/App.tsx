@@ -1,6 +1,6 @@
 // UI（Preact・DOM。arch §15・gdd §11-1）: HUD の帯・キャンバスの下端のボタン（BL-042）、タブと一覧（BL-043）
 // - 縦・横の配置は styles/global.css（#app の data-layout。判定は ui/layout.ts の layoutOf）
-// - タブは 5 つ（tab-1〜tab-5。クリックか 1〜5 キー）。中身があるのは T1・T2（BL-044）で、T3〜T5 は「準備中」（panel-placeholder。Q-09）
+// - タブは 5 つ（tab-1〜tab-5。クリックか 1〜5 キー）。中身があるのは T1・T2・T3（BL-044）で、T4・T5 は「準備中」（panel-placeholder。Q-09）
 // - 湯宿の「！」（BL-044。Q-38 (b)）: SpringFound のたびに（T2 を開いていないとき）立て、T2 を開いたら消す。保存しない（メモリだけ）
 // - 購入数（×1 → ×10 → 最大）は切り替えボタン（qty-toggle）か Shift。タブをまたいで共通で、保存しない（再読み込みで ×1）
 // - ご褒美のシート（R2: ブーストのボタン、R3: 鉱脈のチップ）とトースト（BL-046）。モーダル・シートの表示中は 1〜5・Shift を使わない
@@ -18,6 +18,7 @@ import { Toasts } from './overlay/Toasts.tsx';
 import { WelcomeModal, type WelcomeChoice } from './overlay/WelcomeModal.tsx';
 import { DigPanel } from './panels/DigPanel.tsx';
 import { InnPanel } from './panels/InnPanel.tsx';
+import { UpgradesPanel } from './panels/UpgradesPanel.tsx';
 
 export type { TabNo } from './keys.ts';
 
@@ -33,7 +34,7 @@ export const TABS: readonly { no: TabNo; key: TextKey; icon: string }[] = [
 /** 購入の一覧があるタブ（購入数の切り替えを出す。T3 には出さない。Q-38 (e)） */
 const BUY_TABS: readonly TabNo[] = [1, 2];
 
-/** S1 で中身のないタブ（T2〜T5）の仮の表示（Q-09）。T5 だけ言語の切り替えと版を残す（設定の本体は S3 の BL-045） */
+/** 中身のないタブ（T4・T5）の仮の表示（Q-09）。T5 だけ言語の切り替えと版を残す（設定の本体は S3 の BL-045） */
 function Placeholder({ tab, lang, onLang }: { tab: TabNo; lang: Lang; onLang: (l: Lang) => void }) {
   const { platform, version } = useUi();
   return (
@@ -156,6 +157,8 @@ export function App() {
             <DigPanel qty={qty} lang={lang} />
           ) : tab === 2 ? (
             <InnPanel qty={qty} lang={lang} />
+          ) : tab === 3 ? (
+            <UpgradesPanel lang={lang} />
           ) : (
             <Placeholder tab={tab} lang={lang} onLang={onLang} />
           )}
