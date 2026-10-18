@@ -3,10 +3,18 @@
 // - 保存は同期の 1 回の処理。処理中に別の保存が求められたら、終わった後に 1 回だけ行う（途中に割り込まない。TS-027-16）
 // - hidden と pagehide が続けて来たら 2 回書く（内容が同じでも省かない）
 // ブラウザがなくても確かめられるように、EventTarget とタイマーを引数で受け取る（tests/integration/autosave.test.ts）
-import type { GameState } from '../core/index.ts';
+import type { GameEvent, GameState } from '../core/index.ts';
 import type { SaveSlots, SaveStatus } from '../save/slots.ts';
 
 export type SaveReason = 'interval' | 'hidden' | 'pagehide' | 'prestige' | 'ad' | 'manual';
+
+/**
+ * すぐ保存する出来事（BL-021）: 転生の完了（PrestigeDone）。転生の直後にタブを閉じても、新しい周回・湯の華・チケットを失わない
+ * （次の 15 秒ごとの保存を待たない）。それ以外は null
+ */
+export function saveReasonForEvents(evs: readonly GameEvent[]): SaveReason | null {
+  return evs.some((e) => e.type === 'PrestigeDone') ? 'prestige' : null;
+}
 
 export interface AutosaveTimers {
   setInterval(fn: () => void, ms: number): unknown;

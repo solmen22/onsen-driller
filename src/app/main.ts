@@ -12,7 +12,7 @@ import { applyLayout, layoutOf } from '../ui/layout.ts';
 import { Ctx } from '../ui/hooks/use-game.ts';
 import { onModalChange } from '../ui/overlay/modal-state.ts';
 import { playBreak, playHit, resumeAudio, setMuted, unlockAudio } from '../audio/sfx.ts';
-import { startAutosave } from './autosave.ts';
+import { saveReasonForEvents, startAutosave } from './autosave.ts';
 import { createAppClock } from './clock.ts';
 import { createRewardHooks } from './rewards.ts';
 import { createAdFlow, type LateKind } from './ad-flow.ts';
@@ -130,6 +130,11 @@ async function boot(): Promise<void> {
     doc: document,
     isSuppressed: () => settings.recordingMode || slots.readOnly || params.demo,
     onStatus: (st) => store.setSaveStatus(saveDisplay(st, slots.readOnly)),
+  });
+  // 転生の後はすぐ保存する（BL-021。録画モード・読み取り専用・デモでは isSuppressed で書かない）
+  store.onEvents((evs) => {
+    const reason = saveReasonForEvents(evs);
+    if (reason) autosave.saveNow(reason);
   });
   // タブを隠したら gameplay とループを止める（保存は autosave が先に行う。戻ったときの早送りは S3 の BL-030）。
   // 見えるようになったら、ほかに止まる理由がなければ gameplay を再開する（CrazyGames は gameplay の合図を送らず、ループだけ止める）
