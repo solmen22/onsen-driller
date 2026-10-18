@@ -70,15 +70,14 @@ export function manualHitsPerSec(s: GameState, bot: BotDef): number {
   return autoDigUnlocked(s) ? PARAMS.input.autoDigPerSec : Math.min(PARAMS.input.manualMaxPerSec, m.tapsBefore);
 }
 
-/** 1 ブロックの価値の期待値の倍率（鉱石の出現率 × 鉱石の倍率 × 鉱石の価値の倍率。改良の選鉱ざる・研磨台、硫黄泉を見積もりに入れる。BL-018） */
-const avgOre = (oreValue: number): number => 1 + PARAMS.block.oreChance * (PARAMS.block.oreMult * oreValue - 1);
+const AVG_ORE = 1 + PARAMS.block.oreChance * (PARAMS.block.oreMult - 1);
 
 /** 掘削と入湯料を合わせた 1 秒あたりの収入の見積もり（このボットの打ち方で。鉱石は出現率の期待値） */
 export function totalRate(s: GameState, bot: BotDef): Num {
   const m = modifiers(s);
   const d = s.run.depth;
   const hits = manualHitsPerSec(s, bot) + autoDiggerHitsPerSec(s, m);
-  const dig = drillPower(s, m).mul(hits).div(blockHp(s, d, m)).mul(blockValue(s, d, false, m)).mul(avgOre(m.oreValue));
+  const dig = drillPower(s, m).mul(hits).div(blockHp(s, d, m)).mul(blockValue(s, d, false, m)).mul(AVG_ORE);
   return dig.add(bathIncomePerSec(s, m));
 }
 
