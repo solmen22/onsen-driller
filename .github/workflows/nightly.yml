@@ -18,10 +18,14 @@
 #     build:all もする（手元で数秒。PR #6 のコードレビュー S-3: build:e2e だけだと「dist/web がありません」で必ず落ちる）。
 #
 # 失敗したときの記録（BL-099 と同じ方針。QA の同意の条件 ③）
-#   - playwright-report/ だけを 3 日（HTML レポートがトレース・スクリーンショットを自分の中に写すので、原因はこれで追える）。
+#   - playwright-report/ だけを 7 日（HTML レポートがトレース・スクリーンショットを自分の中に写すので、原因はこれで追える）。
 #   - test-results/ は HTML レポートができなかったとき（playwright-report/index.html がないとき。step のタイムアウトなど）だけ。
+#   - 緑の回は playwright-report/results.json だけを 7 日（skip の理由・注記〔TS-035-09 の描画の方式・TS-104-02 の対照など〕は
+#     ログの list の行に出ないため。赤の回は HTML レポートの中に results.json が入るので、この step は動かない）。
+#   - 保存は 7 日（BL-128）: schedule が週 2 回（月・木）で、3 日では次の回の前に消えていた（QA の S2 判定書 §2-2 の 5）。
+#     保存量への影響は 1 か月で数 MB〜数十 MB・月【推定。infra.md §4-3】。ci.yml の PR の記録は 3 日のまま。
 #   - テストの step に timeout-minutes を付ける（ジョブのタイムアウトで止まると failure() の step も動かず、何も残らないため）。
-#   - 失敗の原因（エラーの要約・分類）は、3 日で消える成果物ではなく実行記録（org/30_quality/test-engineer/runs/）に残す。
+#   - 失敗の原因（エラーの要約・分類）は、7 日で消える成果物ではなく実行記録（org/30_quality/test-engineer/runs/）に残す。
 #
 # schedule: 週 2 回（月・木の 03:17 JST。CEO 決定 2026-09-28 の 03:00 を、GitHub が混みやすい毎時 0 分から 17 分ずらした。
 #   PR #9 のレビュー N-3・CEO 決定）。PR #8（BL-102）のマージの後の手動実行（workflow_dispatch）の結果を報告してから有効にした
@@ -105,7 +109,7 @@ jobs:
         with:
           name: nightly-e2e-report
           path: playwright-report/
-          retention-days: 3
+          retention-days: 7
           if-no-files-found: ignore
       - name: 失敗したときの記録を残す（HTML レポートができなかったときだけ test-results/）
         if: failure() && hashFiles('playwright-report/index.html') == ''
@@ -113,5 +117,13 @@ jobs:
         with:
           name: nightly-e2e-test-results
           path: test-results/
-          retention-days: 3
+          retention-days: 7
           if-no-files-found: ignore
+      - name: 緑の回の注記を残す（playwright-report/results.json だけ。skip の理由・注記を読むため。BL-128）
+        if: steps.changed.outputs.run == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-e2e-results-json
+          path: playwright-report/results.json
+          retention-days: 7
+          if-no-files-found: error

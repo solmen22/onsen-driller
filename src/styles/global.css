@@ -216,6 +216,7 @@ body {
 }
 
 .act {
+  flex: none; /* ボタンは縮めない（案内が出ている間に自動掘りのボタンが縮み、1 打で案内が消えると広がって跳ねた。S-2） */
   pointer-events: auto;
   min-width: 44px;
   min-height: 44px;
@@ -237,6 +238,15 @@ body {
 .act-state {
   font-size: 12px;
   color: var(--muted);
+  white-space: nowrap; /* 状態の行は 1 行（PR #55 のレビュー S-2） */
+}
+
+/*
+ * btn-boost の幅は固定（PR #55 のレビュー S-2）: いちばん長い active の表記（ja「×2（掘削機×4） 5:00」・en「×2 (digger ×4) 5:00」）が
+ * 1 行で入る幅。ready・cooldown・active で幅が変わると、右寄せの並びで隣の「自動掘り」のボタンが横に跳ぶ（効果の終わりは操作と関係なく来る）
+ */
+.act-boost {
+  width: 9.5rem;
 }
 
 .act-auto[data-state='on'] {
@@ -254,6 +264,7 @@ body {
 
 .hint {
   flex: 1 1 auto;
+  min-width: 0; /* 幅が足りないときは案内の側が縮む（ボタンを 2 行に折り返させない。S-2） */
   align-self: center;
   margin: 0;
   font-size: 13px;
