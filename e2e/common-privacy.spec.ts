@@ -163,27 +163,38 @@ test.describe('TS-COM-08 偽の緑を防ぐ自己テスト（共通の検査が�
     await expect(harness.assertCommonChecks(['TS-COM-01'])).rejects.toThrow(ExpectedViolationMissingError);
   });
 
-  test('TS-COM-08 時計: Clock API のタイマーの中の例外は uncaughtErrors() に入り、自分で出した console.error(new Error) は入らない（BL-119）', async ({
+  test('TS-COM-08 時計: Clock API のタイマーの中の例外は uncaughtErrors() に入り、自分で出した console.error(new Error) は、タイマーの外でも、アプリのスクリプト（http の URL）からタイマーの中で出しても入らない（BL-119・BL-131）', async ({
     page,
     harness,
   }) => {
     // privacy.ts の clockUncaughtErrorOf は Playwright の内部の関数名（CLOCK_TIMER_RUNNER）に頼る。Playwright の版を上げて名前が
     // 変わると見分けが黙って効かなくなるので、常設の自己テストで確かめる（BL-108 の後続。PR #36 のレビューの S-1）
+    // clockUncaughtErrorOf の 2 つの見分けを、それぞれ 1 件で試す（BL-131。PR #45 のレビューの Nit 2）
+    // - own: page.evaluate から出す（位置は http でない）。スタックに CLOCK_TIMER_RUNNER がないので外れる（スタックの名前の見分け）
+    // - app-in-timer: アプリと同じオリジンの http の URL のスクリプトが、Clock API のタイマーの中で出す（スタックに CLOCK_TIMER_RUNNER がある）。
+    //   位置が http(s) なので外れる（位置の URL の見分け。store の購読者の例外などアプリが自分で出す console.error の形）。
+    //   page.evaluate・addScriptTag({ content }) から出すと、Chromium では位置が http にならず、この見分けを試せない（2026-10-18 の手元の実測）
+    await page.route('**/__clock-probe-app.js', (r) =>
+      r.fulfill({ contentType: 'text/javascript', body: "setTimeout(() => { console.error(new Error('app-in-timer')); }, 10);" }),
+    );
     await bootGame(page, { pauseClock: false });
     const before = harness.consoleErrors.length;
+    await page.addScriptTag({ url: '/__clock-probe-app.js' });
     await page.evaluate(() => {
       console.error(new Error('own'));
       setTimeout(() => {
         throw new Error('clock-probe');
-      }, 10);
+      }, 30);
     });
     await expect
       .poll(() => harness.uncaughtErrors(), { message: 'Clock API のタイマーの中の例外が uncaughtErrors() に入る（見分けの関数名が変わった？）' })
       .toContain('Error: clock-probe');
-    // 見張りが 2 つの console.error（own・clock-probe）を受けて見分けたこと（偽の緑を防ぐ。Firefox は text() が「Error」だけなので
-    // 文では探さず数で見る）と、タイマーの外の console.error を例外に数えないこと
-    expect(harness.consoleErrors.length - before, 'console.error を 2 件受けた').toBeGreaterThanOrEqual(2);
-    expect((await harness.uncaughtErrors()).filter((e) => e.includes('own'))).toEqual([]);
+    // 見張りが 3 つの console.error（app-in-timer・own・clock-probe）を受けて見分けたこと（偽の緑を防ぐ。Firefox は text() が「Error」
+    // だけなので文では探さず数で見る）と、own・app-in-timer を例外に数えないこと
+    expect(harness.consoleErrors.length - before, 'console.error を 3 件受けた').toBeGreaterThanOrEqual(3);
+    const uncaught = await harness.uncaughtErrors();
+    expect(uncaught.filter((e) => e.includes('own')), 'タイマーの外の console.error（スタックの名前の見分け）').toEqual([]);
+    expect(uncaught.filter((e) => e.includes('app-in-timer')), 'アプリのスクリプトの console.error（位置の URL の見分け）').toEqual([]);
   });
 
   test('TS-COM-08 (e) ふつうのテスト（expectViolations なし）で外部へ fetch すると、テストの終わりの検査がそのテストを失敗にする（R-S1。test.fail: 一覧の ✘ が合格）', async ({

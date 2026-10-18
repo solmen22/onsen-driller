@@ -9,8 +9,9 @@ import {
   step,
   type GameEvent,
   type GameState,
+  type Num,
 } from '../../src/core/index.ts';
-import { botAct, botTap, canBuyAnything, newBotMemory, totalRate, type BotDef } from './bots.ts';
+import { botAct, botTap, canBuyAnything, newBotMemory, type BotDef } from './bots.ts';
 import { MilestoneRecorder, type MilestoneId } from './milestones.ts';
 
 /** 入湯料の割合（#18）を数えるロジックの時刻の範囲（5 分〜60 分。コインが number で表せる範囲に収める） */
@@ -32,6 +33,8 @@ export interface SimOptions {
   seed: number;
   /** 計測用の時計（ms）。省略時は計測しない */
   now?: () => number;
+  /** 始めの状態を変える（テスト専用。新しいゲームの状態を作った直後に 1 回だけ呼ぶ。`test:balance`・`npm run sim` のレポートを作る実行では使わない〔目標表の値が黙って変わるため〕） */
+  setup?: (s: GameState) => void;
 }
 
 /** グラフ・CSV の点（ロジックの時間ごと） */
@@ -67,8 +70,8 @@ export interface SimResult {
   /** 何も買えない最長の時間（ms。#14＝0〜10 分、#15＝10〜30 分）。範囲の途中で終わった実行は数えた分だけ */
   buyGapMs: [number, number];
   /**
-   * 完全な詰み（買えるものがなく、手動を含む収入も 0）が続いた最長の時間（ms。BL-032 の受け入れ基準 4: 10 分以上がないこと）。
-   * 判断の時刻だけでなく毎ステップの始めの状態で見る
+   * 完全な詰み（買えるものがなく、累計コイン `stats.totalCoins` が増えない）が続いた最長の時間（ms。BL-032 の受け入れ基準 4:
+   * 10 分以上がないこと。Q-40 (e) ②。収入の見積もりではなく、実際に増えたかで見る）。判断の時刻だけでなく毎ステップの始めの状態で見る
    */
   maxStuckMs: number;
   /** 2 周目で 1 周目の最深に届くまでの時間 ÷ 1 周目の長さ（#11）。届いていなければ null */
@@ -84,6 +87,7 @@ export interface SimResult {
 export function runBot(bot: BotDef, opt: SimOptions): SimResult {
   const now = opt.now ?? ((): number => 0);
   const s = createInitialState(opt.seed);
+  opt.setup?.(s);
   const mem = newBotMemory(opt.seed);
   const totalMs = opt.hours * 3_600_000;
   const actEveryMs = bot.buyEverySec * 1000;
@@ -102,6 +106,8 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
   const gapStart: [number | null, number | null] = [null, null];
   let depthAt60: number | null = null;
   let stuckFrom: number | null = null;
+  /** 詰みの区間の始め（または最後に増えた時点）の累計コイン */
+  let stuckCoins: Num | null = null;
   let maxStuckMs = 0;
   const samples: Sample[] = [];
   let nextSample = 0;
@@ -140,11 +146,17 @@ export function runBot(bot: BotDef, opt: SimOptions): SimResult {
         buyGap[w] = Math.max(buyGap[w] ?? 0, played + opt.stepMs - (gapStart[w] ?? played));
       }
     }
-    // 詰み（BL-032）: 収入（手動を含む）が 0 のときだけ、買えるものがあるかを見る
-    if (totalRate(s, bot).eq(0) && !canBuyAnything(s)) {
-      stuckFrom ??= played;
+    // 詰み（BL-032・Q-40 (e)）: 買えるものがなく、累計コインが区間の始めから増えていない。増えたらそこから数え直す
+    if (canBuyAnything(s)) {
+      stuckFrom = null;
+      stuckCoins = null;
+    } else {
+      if (stuckFrom === null || stuckCoins === null || s.stats.totalCoins.gt(stuckCoins)) {
+        stuckFrom = played;
+        stuckCoins = s.stats.totalCoins;
+      }
       maxStuckMs = Math.max(maxStuckMs, played + opt.stepMs - stuckFrom);
-    } else stuckFrom = null;
+    }
     if (played >= nextSample) {
       samples.push({ tMs: played, coins: s.run.coins.toNumber(), incomePerSec: incomePerSec(s).toNumber(), depth: s.run.depth, maxDepth: s.run.maxDepth });
       nextSample += SAMPLE_EVERY_MS;
