@@ -14,6 +14,7 @@
 //   アダプタの onLateReward（要求ごとの id つき）を受けて報酬を 1 回だけ付ける。同じ id は 2 回目から無視し（壊れたアダプタでも二重にしない）、
 //   その要求の placement に付ける（今の要求〔pending〕とは別。今の要求の Promise・報酬には触れない）。core が断ったら
 //   （R2 が休み中・R3 の鉱脈が消えたなど）何も付けず、知らせもしない。付けたら onLateReward の購読者（UI のトースト・シート）に知らせる
+// - 要求の前に予約する（reserve。R3 は鉱脈。要求の間に鉱脈が消えても、見終えたら報酬を付ける。PR #55 のレビュー S-5）
 // - 1 つの止まる理由の書き手は 1 か所: ライフサイクルの 'ad'・'break' と、入力の 'ad' を書くのはこのファイルだけ
 import type { GameEvent } from '../core/index.ts';
 import type { LateReward, Platform, RewardPlacement, RewardResult } from '../platform/types.ts';
@@ -33,6 +34,8 @@ export interface AdFlowDeps {
   resumeAudio: () => void;
   /** 広告の前の保存（autosave.saveNow('ad')。結果は見ない） */
   saveBeforeAd: () => void;
+  /** 要求の前の予約（R3 は出ている鉱脈を予約する。app/rewards.ts の reserveAd。PR #55 のレビュー S-5） */
+  reserve?: (p: RewardPlacement) => void;
   /** 'rewarded' のとき（と遅れた報酬のとき）だけ呼ぶ（app/rewards.ts の grantAd）。core が受けたら ok: true */
   grant: (p: RewardPlacement) => { ok: boolean };
   onError?: (e: unknown) => void;
@@ -100,6 +103,11 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
       d.saveBeforeAd();
     } catch (e) {
       onError(e); // 保存の失敗で広告の流れを止めない（Q-41 (a)）
+    }
+    try {
+      d.reserve?.(p); // 要求を始めた時点で予約する（R3 の鉱脈が要求の間に消えても、見終えたら報酬を付ける。S-5）
+    } catch (e) {
+      onError(e);
     }
     let r: RewardResult;
     try {

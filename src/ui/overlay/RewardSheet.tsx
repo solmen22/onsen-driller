@@ -7,9 +7,11 @@
 // - 要求中（結果が返るまで）は、どのボタンも押せず、Esc・×・背景でも閉じない（Q-41 (b)）
 // - 失敗（failed・unavailable）では「今は広告を表示できません」（ad-unavailable）をシートの中に出したままにする（トーストにしない）。
 //   その後に rewardedAvailable() を読み直し、false なら動画のボタンを隠す
-// - 失敗（開始の時間切れ）の後に遅れて始まった広告を最後まで見て報酬が付いたら（Q-45。onLateReward）、同じ placement のシートは
-//   成功のときと同じく閉じる（「今は広告を表示できません」を出したまま報酬が付いた状態にしない）。別の要求の最中なら閉じない
+// - 失敗（開始の時間切れ）の後に始まった広告を最後まで見て報酬が付いたら（Q-45。onLateReward）、同じ placement のシートは
+//   rewarded のときと同じく閉じる（「今は広告を表示できません」を出したまま報酬が付いた状態にしない）。ほかの要求の最中なら閉じない
 //   （その要求の結果で閉じる）
+// - R3 は、鉱脈が開いた・消えたら閉じる（押しても何も起きないシートを残さない）。ただし要求中は閉じない（Q-41 (b)。要求の時点で鉱脈を
+//   reserveVein するので、要求の間に消えても最後まで見たら報酬が付く。結果が返った後に閉じる。PR #55 のレビュー S-5）
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { boostMult, veinView } from '../../core/index.ts';
 import { PARAMS } from '../../content/params.ts';
@@ -26,13 +28,14 @@ export function RewardSheet({ placement, onClose }: { placement: Extract<RewardP
   const tickets = useGame((s) => s.meta.tickets);
   // R3 の「自分で叩く」の残りの回数（core の veinView。叩いた分だけ減る）
   const hitsLeft = useGame((s) => veinView(s).hitsLeft);
+  const veinActive = useGame((s) => veinView(s).active);
   const [requesting, setRequesting] = useState(false);
   const [failed, setFailed] = useState(false);
   const [videoOk, setVideoOk] = useState(() => requestReward !== undefined && platform.ads.rewardedAvailable());
   /** 1 回押したら閉じるまで次を受け付けない（すばやく 2 回押しても 1 回。TS-046-04） */
   const used = useRef(false);
 
-  // 遅れた報酬（Q-45）で閉じる。購読は開いている間 1 つ（onClose は描画ごとに変わるので ref で最新を読む）
+  // Q-45 の報酬で閉じる。購読は開いている間 1 つ（onClose は描画ごとに変わるので ref で最新を読む）
   const live = useRef({ requesting, onClose });
   live.current = { requesting, onClose };
   useEffect(
@@ -44,6 +47,12 @@ export function RewardSheet({ placement, onClose }: { placement: Extract<RewardP
       }),
     [onLateReward, placement],
   );
+
+  useEffect(() => {
+    if (placement !== 'R3' || veinActive || requesting) return;
+    used.current = true;
+    live.current.onClose();
+  }, [placement, veinActive, requesting]);
 
   const once = (fn: () => void): void => {
     if (used.current || requesting) return;

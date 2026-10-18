@@ -2,7 +2,7 @@
 // - お客さん: 初来訪だけ（GuestArrived{ first: true }）。温泉チケット +1 も同じトーストに出す（付与は BL-058。口がない間は出さない）
 // - 保存の失敗: 保存の状態が ok → failing に変わったときだけ 1 回（起動時からの failing・unavailable・readonly では出さない。
 //   出したままの save-warning があるため）
-// - 動画の報酬（Q-45）: 開始の時間切れ（「今は広告を表示できません」）の後に遅れて始まった広告を最後まで見て、報酬が付いたとき
+// - 動画の報酬（Q-45）: 開始の時間切れ（「今は広告を表示できません」）の後に始まった広告を最後まで見て、報酬が付いたとき
 //   （BL-059 の onLateReward。シートが閉じていても何をもらえたか分かるように）
 // - 押せない（pointer-events: none。下の購入ボタン・ステージの操作を妨げない）。role="status"（aria-live="polite"）
 import { useEffect, useRef, useState } from 'preact/hooks';

@@ -33,7 +33,7 @@ export interface UiContext {
    */
   requestReward?: (p: RewardPlacement) => Promise<RewardResult>;
   /**
-   * 遅れた報酬（Q-45）を付けたときの知らせを購読する（BL-059 の adFlow.onLateReward）。戻り値で購読をやめる。
+   * Q-45 の報酬（時間切れの後に最後まで見た広告）を付けたときの知らせを購読する（BL-059 の adFlow.onLateReward）。戻り値で購読をやめる。
    * トースト（動画の報酬）と、同じ placement のシートを閉じるのに使う
    */
   onLateReward?: (cb: (p: RewardPlacement) => void) => () => void;

@@ -146,6 +146,7 @@ async function boot(): Promise<void> {
     setMuted,
     resumeAudio,
     saveBeforeAd: () => void autosave.saveNow('ad'),
+    reserve: (p) => rewards.reserveAd(p),
     grant: (p) => rewards.grantAd(p),
     onError: (e) => errorLog.push(e),
   });

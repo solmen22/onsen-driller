@@ -303,7 +303,7 @@ describe('btn-boost の状態（TS-046-05。Q-37 (a)）', () => {
 describe('おかえり（M1。TS-046-06・07）', () => {
   const mountWelcome = (ctx: Partial<UiContext>, tickets: number, ticketHook = true) => {
     const got: WelcomeChoice[] = [];
-    m = mount({ state: withTickets(tickets), ctx, node: h(WelcomeModal, { amount: '1,234', onClaim: (c) => got.push(c), ticketHook }) });
+    m = mount({ state: withTickets(tickets), ctx, node: h(WelcomeModal, { amount: '1,234', onClaim: (c) => void got.push(c), ticketHook }) });
     return got;
   };
 

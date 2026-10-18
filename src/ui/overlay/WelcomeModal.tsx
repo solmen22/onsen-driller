@@ -13,8 +13,11 @@ export type WelcomeChoice = 'claim' | 'video' | 'ticket';
 export interface WelcomeProps {
   /** 留守の間に得たコイン（表記済み） */
   amount: string;
-  /** 受け取り（×1・×2）。動画の ×2 は requestReward('R1') が rewarded のときだけ。1 回だけ呼ぶ */
-  onClaim: (choice: WelcomeChoice) => void;
+  /**
+   * 受け取り（×1・×2）。動画の ×2 は requestReward('R1') が rewarded のときだけ。受け取れたら 1 回だけ呼ぶ。
+   * false を返したら（受け取れなかった）もう一度押せるように戻す（閉じられないモーダルを残さない。PR #55 のレビュー S-4）
+   */
+  onClaim: (choice: WelcomeChoice) => boolean | void;
   /** チケットで ×2 を使えるか（BL-058 の口。ない間は押せない） */
   ticketHook?: boolean;
   /** ×2 を受け取れるか（core の offlineClaimView の canDouble。留守が 60 秒未満なら false で、動画を出さずチケットも押せない） */
@@ -32,7 +35,7 @@ export function WelcomeModal({ amount, onClaim, ticketHook = false, canDouble = 
   const finish = (c: WelcomeChoice): void => {
     if (done.current) return;
     done.current = true;
-    onClaim(c);
+    if (onClaim(c) === false) done.current = false;
   };
 
   const onVideo = (): void => {

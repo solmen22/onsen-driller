@@ -10,6 +10,11 @@ import type { GameStore } from './store.ts';
 /** app の側の口: grantAd は core の結果を返す（遅れた報酬〔Q-45〕で、付いたときだけ知らせるため） */
 export interface AppRewardHooks extends RewardHooks {
   grantAd(p: RewardPlacement): ActionResult;
+  /**
+   * 動画を要求する前に呼ぶ（BL-059 の広告の流れ）。R3 は出ている鉱脈を予約する（core の reserveVein。要求の間に消えても、
+   * 見終えたら grantAd('R3') が報酬を付ける。PR #55 のレビュー S-5）。R1・R2 は何もしない（R2 の休み・R1 の受け取りは要求の間に変わらない）
+   */
+  reserveAd(p: RewardPlacement): void;
 }
 
 export function createRewardHooks(store: GameStore): AppRewardHooks {
@@ -28,6 +33,9 @@ export function createRewardHooks(store: GameStore): AppRewardHooks {
         case 'R3':
           return store.dispatch({ type: 'openVein', source: 'ad' });
       }
+    },
+    reserveAd: (p: RewardPlacement) => {
+      if (p === 'R3') store.dispatch({ type: 'reserveVein' });
     },
   };
 }

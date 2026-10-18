@@ -147,6 +147,7 @@ export function tickVein(s: GameState, startMs: number, out: GameEvent[]): void 
   const v = s.run.vein;
   const now = s.clock.playedMs;
   if (v.active && now >= v.active.expiresAtMs) {
+    if (v.reserved?.at === v.active.expiresAtMs) v.reserved.gone = true; // 動画の要求中に消えた（見終えたら報酬を付ける。S-5）
     v.active = null;
     out.push({ type: 'VeinExpired' });
   }
@@ -165,12 +166,24 @@ export function tickVein(s: GameState, startMs: number, out: GameEvent[]): void 
   out.push({ type: 'VeinSpawned', depth: v.active.depth, expiresAtMs: v.active.expiresAtMs });
 }
 
-/** 鉱脈を開く（報酬: 今の毎秒の収入 × 90 秒のコイン、25% で温泉チケット 1 枚。抽選は周回の擬似乱数） */
-function openActiveVein(s: GameState, source: 'ad' | 'hits', out: GameEvent[]): void {
+/** 鉱脈の報酬（今の毎秒の収入 × 90 秒のコイン、25% で温泉チケット 1 枚。抽選は周回の擬似乱数）。出ている鉱脈は触らない */
+function payVein(s: GameState, source: 'ad' | 'hits', out: GameEvent[]): void {
   const coins = mul(incomePerSec(s), V.incomeSec);
   addCoins(s, coins);
   const ticket = sfc32Float(s.rng.run) < V.ticketChance;
-  s.run.vein.active = null;
+  out.push({ type: 'VeinOpened', source, coins: toStr(coins), ticket });
+  if (ticket) gainTickets(s, 'vein', T.vein, out);
+}
+
+/** 出ている鉱脈を開く（報酬は payVein。この鉱脈の予約は外す） */
+function openActiveVein(s: GameState, source: 'ad' | 'hits', out: GameEvent[]): void {
+  const v = s.run.vein;
+  if (v.reserved && v.reserved.at === v.active?.expiresAtMs) delete v.reserved;
+  // 乱数の使い方・イベントの順は以前と同じ（報酬の計算 → 鉱脈を消す → VeinOpened → チケット）
+  const coins = mul(incomePerSec(s), V.incomeSec);
+  addCoins(s, coins);
+  const ticket = sfc32Float(s.rng.run) < V.ticketChance;
+  v.active = null;
   out.push({ type: 'VeinOpened', source, coins: toStr(coins), ticket });
   if (ticket) gainTickets(s, 'vein', T.vein, out);
 }
@@ -186,11 +199,35 @@ export function countVeinHits(s: GameState, k: number, out: GameEvent[]): void {
   if (a.hits >= V.hits) openActiveVein(s, 'hits', out);
 }
 
-/** 広告で鉱脈をすぐ開く（source は 'ad' だけ）。出ていなければ notFound */
-export function openVeinByAd(s: GameState, out: GameEvent[]): RewardFail | null {
-  if (!s.run.vein.active) return 'notFound';
-  openActiveVein(s, 'ad', out);
+/**
+ * 動画の要求を始めた時点で、出ている鉱脈を予約する（PR #55 のレビュー S-5。BL-059 の requestReward('R3') の前）。
+ * 予約した鉱脈が要求の間に消えても、広告を見終えたら openVeinByAd が 1 回だけ報酬を付ける。出ていなければ notFound。
+ * 予約は 1 つだけ（次の予約で上書き）。タップで開く・広告で開く・消えた予約の報酬を付けると外れる
+ */
+export function reserveVein(s: GameState): RewardFail | null {
+  const a = s.run.vein.active;
+  if (!a) return 'notFound';
+  s.run.vein.reserved = { at: a.expiresAtMs, gone: false };
   return null;
+}
+
+/**
+ * 広告で鉱脈をすぐ開く（source は 'ad' だけ）。出ていればそれを開く。出ていなくても、予約した鉱脈が要求の間に消えていれば
+ * （reserved.gone）その報酬を 1 回だけ付ける（S-5。Q-45 と同じ考え方: 見終えたのに何ももらえないことをなくす）。どちらでもなければ notFound
+ */
+export function openVeinByAd(s: GameState, out: GameEvent[]): RewardFail | null {
+  const v = s.run.vein;
+  if (v.active) {
+    openActiveVein(s, 'ad', out);
+    delete v.reserved; // 広告の報酬は 1 回: 前の鉱脈の消えた予約が残っていても、ここで外す（後でもう一度払わない）
+    return null;
+  }
+  if (v.reserved?.gone) {
+    delete v.reserved;
+    payVein(s, 'ad', out);
+    return null;
+  }
+  return 'notFound';
 }
 
 export interface VeinView {

@@ -46,7 +46,16 @@ export interface RunState {
    * ラッキー鉱脈（S2。BL-058）。時刻はすべてロジックの時間（clock.playedMs）。nextAtMs は次の出現の時刻（0 は未予約で、次のステップで予約する）。
    * active は出ている鉱脈（depth は出たときの深さ、hits はタップの打撃の数、expiresAtMs で消える）
    */
-  vein: { nextAtMs: number; active: null | { depth: number; hits: number; expiresAtMs: number } };
+  vein: {
+    nextAtMs: number;
+    active: null | { depth: number; hits: number; expiresAtMs: number };
+    /**
+     * 動画の要求の予約（PR #55 のレビュー S-5。BL-059）。R3 の動画を要求した時点の鉱脈（at は その expiresAtMs）を予約し、
+     * 要求の間に消えたら gone にする。消えた予約の鉱脈は、広告を見終えたときに 1 回だけ報酬を付ける（Q-45 と同じ考え方）。
+     * タップで開いたら予約は外れる（二重にしない）。**保存しない**（toSaveGame に入れない。読み込み・転生で消える＝要求も消えているため）
+     */
+    reserved?: { at: number; gone: boolean };
+  };
   /**
    * 未受け取りのオフライン収入（R1。BL-058・Q-36 (d)）。coins は「受け取る」で入る額、ms はオフラインの経過時間（壁時計）。
    * 付けるのは S3 の BL-030。受け取ったら null に戻す（復帰 1 回につき 1 回）。保存する（おかえりを閉じても失わない）

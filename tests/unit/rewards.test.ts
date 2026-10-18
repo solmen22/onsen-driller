@@ -665,6 +665,53 @@ describe('R3 ラッキー鉱脈（TS-058-13〜18）', () => {
     expect(dispatch(s, { type: 'openVein', source: 'ad' }).reason).toBe('notFound');
   });
 
+  it('S-5（PR #55 のレビュー。BL-059）: 動画の要求の時点で予約した鉱脈は、要求の間に消えても openVein(ad) で 1 回だけ報酬。予約がなければ消えた後は notFound（TS-058-17 のまま）', () => {
+    const s = withIncome();
+    expect(dispatch(s, { type: 'reserveVein' })).toEqual({ ok: false, reason: 'notFound', events: [] }); // 出ていなければ予約できない
+    spawnVeinNow(s);
+    const h = stateHash(s);
+    expect(dispatch(s, { type: 'reserveVein' })).toEqual({ ok: true, events: [] });
+    expect(stateHash(s)).toBe(h); // 予約は保存しない（保存の形・stateHash は変わらない）
+    expect(toSaveGame(s).run.vein).not.toHaveProperty('reserved');
+    advance(s, MIN); // 要求の間に消える
+    expect(veinView(s).active).toBe(false);
+    const R = incomePerSec(s);
+    const r = dispatch(s, { type: 'openVein', source: 'ad' });
+    expect(r.ok).toBe(true);
+    const opened = ofType(r.events, 'VeinOpened');
+    expect(opened.map((e) => e.source)).toEqual(['ad']);
+    expect(num(opened[0]?.coins).toNumber()).toBeCloseTo(R.toNumber() * PARAMS.vein.incomeSec, 6);
+    expect(dispatch(s, { type: 'openVein', source: 'ad' }).reason).toBe('notFound'); // 2 回目はない
+  });
+
+  it('S-5: 予約した鉱脈をタップで開いたら予約は外れる（消えた後の広告で二重にしない）。新しい鉱脈が出ていればそれを開き、予約は外れる。読み込みで消える', () => {
+    const s = withIncome();
+    spawnVeinNow(s);
+    dispatch(s, { type: 'reserveVein' });
+    advance(s, 1000);
+    const hits = tapSlowly(s, PARAMS.vein.hits);
+    expect(ofType(hits.events, 'VeinOpened').map((e) => e.source)).toEqual(['hits']);
+    expect(s.run.vein.reserved).toBeUndefined();
+    expect(dispatch(s, { type: 'openVein', source: 'ad' }).reason).toBe('notFound');
+    // 予約した鉱脈が消えた後に次の鉱脈が出た: 広告は出ている鉱脈を開き（1 回）、消えた予約も外れる
+    spawnVeinNow(s);
+    dispatch(s, { type: 'reserveVein' });
+    advance(s, MIN);
+    spawnVeinNow(s);
+    expect(dispatch(s, { type: 'openVein', source: 'ad' }).ok).toBe(true);
+    expect(veinView(s).active).toBe(false);
+    expect(s.run.vein.reserved).toBeUndefined();
+    expect(dispatch(s, { type: 'openVein', source: 'ad' }).reason).toBe('notFound');
+    // 保存しないので、読み込みで予約は消える
+    const p = withIncome(3);
+    spawnVeinNow(p);
+    dispatch(p, { type: 'reserveVein' });
+    advance(p, MIN);
+    expect(p.run.vein.reserved?.gone).toBe(true);
+    const back = parseGame(toSaveGame(p));
+    expect(back.ok && back.state.run.vein.reserved).toBeUndefined(); // 読み込みでも消える（要求も消えているため）
+  });
+
   it('TS-058-18 温泉チケットが付く割合は 25% 前後（シード 1,000 個で 20〜30%）。同じシードなら同じ結果', () => {
     const roll = (seed: number): boolean => {
       const s = createInitialState(seed);

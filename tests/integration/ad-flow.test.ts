@@ -131,6 +131,32 @@ describe('リワード（requestReward）', () => {
     await expect(pr).resolves.toBe('rewarded');
   });
 
+  it('S-5: 要求の前に reserve(p) を 1 回（保存の後・showRewarded の前）。連打でも 1 回。reserve の例外でも広告は要求する', async () => {
+    const order: string[] = [];
+    const r = rig({
+      saveBeforeAd: () => void order.push('save'),
+      reserve: (p) => void order.push(`reserve:${p}`),
+    });
+    r.a.ads.showRewarded = ((orig) => (p: RewardPlacement) => {
+      order.push(`show:${p}`);
+      return orig(p);
+    })(r.a.ads.showRewarded);
+    const prs = [r.flow.requestReward('R3'), r.flow.requestReward('R3')];
+    await flush();
+    expect(order).toEqual(['save', 'reserve:R3', 'show:R3']);
+    r.a.result('rewarded');
+    await Promise.all(prs);
+    const bad = rig({
+      reserve: () => {
+        throw new Error('core');
+      },
+    });
+    void bad.flow.requestReward('R3');
+    await flush();
+    expect(bad.a.calls).toEqual(['showRewarded:R3']);
+    expect(bad.errors).toHaveLength(1);
+  });
+
   it('TS-059-02: 要求中に何度呼んでも、要求は 1 回・報酬は 1 回（同じ Promise）', async () => {
     const r = rig();
     const prs = [1, 2, 3, 4, 5].map(() => r.flow.requestReward('R2'));
