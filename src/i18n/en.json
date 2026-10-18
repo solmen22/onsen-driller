@@ -155,11 +155,11 @@
   "upgrade.noren": "Noren curtain",
   "upgrade.ledger": "Guest ledger",
   "upgrade.drillOil": "Drill oil",
-  "upgrade.yumomiSimple": "Stirring paddle (Simple)",
+  "upgrade.yumomiSimple": "Stirring paddle (Simple spring)",
   "upgrade.milk": "After-bath milk",
-  "upgrade.yumomiCo2": "Stirring paddle (Carbonated)",
-  "upgrade.yumomiSalt": "Stirring paddle (Salt)",
+  "upgrade.yumomiCo2": "Stirring paddle (Carbonated spring)",
+  "upgrade.yumomiSalt": "Stirring paddle (Salt spring)",
   "upgrade.twinBit": "Twin bit",
   "upgrade.polisher": "Polishing table",
-  "upgrade.yumomiSulfur": "Stirring paddle (Sulfur)"
+  "upgrade.yumomiSulfur": "Stirring paddle (Sulfur spring)"
 }

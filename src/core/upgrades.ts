@@ -5,7 +5,7 @@
 // - 解放の条件を満たしていない購入済みの ID（手で書き換えたデータ）は残す（Q-39 (a)）。捨てるのは知らない ID だけ（save/schema.ts）
 import { PARAMS } from '../content/params.ts';
 import { SPRING_BY_ID } from '../content/springs.ts';
-import { UPGRADE_BY_ID, UPGRADES, type UpgradeDef, type UpgradeId } from '../content/upgrades.ts';
+import { UPGRADE_BY_ID, UPGRADES, isUpgradeId, type UpgradeDef, type UpgradeId } from '../content/upgrades.ts';
 import { gt, num } from './num.ts';
 import type { GameState } from './state.ts';
 
@@ -37,6 +37,9 @@ export interface UpgradeQuote {
 
 /** 改良 1 つの見積もり（buyQuote が使う） */
 export function upgradeQuote(s: Readonly<GameState>, id: UpgradeId): UpgradeQuote {
+  // 型を外れた ID（'upgrade:foo' を as で渡す・prototype の名前）でも例外にせず、買えない（locked）として返す。
+  // buyQuote は core の公開の関数で、T3 の UI から直接呼ばれるため（dispatch は isItemId で先に止める。PR #62 のレビュー N-3）
+  if (!isUpgradeId(id)) return { state: 'locked', n: 0, cost: num(0), level: 0 };
   const def = UPGRADE_BY_ID[id];
   const cost = num(def.cost);
   if (upgradeBought(s, id)) return { state: 'maxed', n: 0, cost, level: 1 };
