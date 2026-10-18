@@ -25,10 +25,11 @@ on:
     # skip のチェックとして同じ head に並んで、前の run の verify の赤を隠しうるため。ラベルを付けたときのプレビューは preview.yml
     # （ジョブ名 preview-label。同じ head のこのワークフローの verify が success の run の dist-web を出す。verify を回し直さない）
     types: [opened, synchronize, reopened]
-    paths-ignore: ['docs/**']
+    # paths・paths-ignore は置かない（リポジトリの公開〔2026-10-18〕の後。test:checks が検査する）: main のルールセットで verify を
+    # 必須のチェックにすると、run の出ない PR（前は docs/ だけの PR）は「待機中」のままマージできなくなるため。公開リポジトリの
+    # 標準のランナーは分数が無料なので、docs/ だけの PR でも verify を回す（org/10_development/devops/2026-10-18_public-repo-checklist.md）
   push:
     branches: [main]
-    paths-ignore: ['docs/**']
   workflow_dispatch:
 
 concurrency:
