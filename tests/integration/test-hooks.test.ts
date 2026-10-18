@@ -37,6 +37,7 @@ function fakePlatform(target: Platform['target'] = 'web', withAdResult = true): 
       showRewarded: () => Promise.resolve('unavailable' as const),
       breakOpportunity: () => Promise.resolve(),
       onPlaying: () => {},
+      onLateReward: () => {},
     },
     storage: { get: () => null, set: () => false, remove: () => {}, kind: 'memory' as const },
     locale: () => null,

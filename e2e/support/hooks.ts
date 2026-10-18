@@ -20,6 +20,8 @@ export interface SerializedState {
     blockDmg: string;
     drill: { level: number; tool: number };
     autoDig: { level: number; on: boolean };
+    /** 掘削ブースト（R2。BL-058）。readyAtWallMs は次に使える壁時計の時刻 */
+    boost?: { remainingMs: number; readyAtWallMs: number };
     [k: string]: unknown;
   };
   meta: { tickets?: number; [k: string]: unknown };

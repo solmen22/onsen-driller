@@ -5,6 +5,7 @@
 import { h } from 'preact';
 import { act } from 'preact/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LateKind } from '../../src/app/ad-flow.ts';
 import { setupInput } from '../../src/app/input.ts';
 import { makePersistSettings, saveDisplay } from '../../src/app/save-display.ts';
 import { DEFAULT_SETTINGS, SETTINGS_KEY } from '../../src/app/settings.ts';
@@ -31,16 +32,28 @@ afterEach(() => {
 const NOW = 1_000_000_000_000;
 
 /** 動画（BL-059 の口）とチケット（BL-058 の口）をつないだ Ctx。requestReward の結果は resolve で返す */
-function wired(opts: { video?: boolean; ticketHook?: boolean } = {}) {
+function wired(opts: { video?: boolean; ticketHook?: boolean; startNow?: boolean } = {}) {
   const calls = { useBoostTicket: 0, requests: [] as RewardPlacement[] };
   let resolve: ((r: RewardResult) => void) | null = null;
   const platform = uiPlatform('crazygames');
   let available = opts.video ?? true;
   platform.ads.rewardedAvailable = () => available;
+  const lateSubs = new Set<(p: RewardPlacement, kind: LateKind) => void>();
+  const playingSubs = new Set<(playing: boolean) => void>();
   const ctx: Partial<UiContext> = {
     platform,
+    onAdPlaying: (cb) => {
+      playingSubs.add(cb);
+      return () => void playingSubs.delete(cb);
+    },
+    onLateReward: (cb) => {
+      lateSubs.add(cb);
+      return () => void lateSubs.delete(cb);
+    },
     requestReward: (p) => {
       calls.requests.push(p);
+      // すぐ始まる広告（dev・e2e の偽の広告・Poki の onStart）: requestReward の中で同期に onAdPlaying(true)（PR #68 のレビュー S-1）
+      if (opts.startNow) for (const cb of [...playingSubs]) cb(true);
       return new Promise<RewardResult>((r) => {
         resolve = r;
       });
@@ -59,6 +72,19 @@ function wired(opts: { video?: boolean; ticketHook?: boolean } = {}) {
       await act(async () => {
         resolve?.(r);
         await Promise.resolve();
+      });
+    },
+    /** 遅れた報酬（Q-45）を付けた知らせ（BL-059 の adFlow.onLateReward と同じ形） */
+    late: (p: RewardPlacement, kind: LateKind = 'reward') => {
+      void act(() => {
+        for (const cb of [...lateSubs]) cb(p, kind);
+      });
+    },
+    lateSubscribers: () => lateSubs.size,
+    /** 広告の再生の始まり・終わり（BL-059 の adFlow.onAdPlaying と同じ形） */
+    play: (on: boolean) => {
+      void act(() => {
+        for (const cb of [...playingSubs]) cb(on);
       });
     },
   };
@@ -166,8 +192,11 @@ describe('ご褒美のシート（R2・R3）', () => {
     const w = wired();
     m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });
     m.click('btn-boost');
+    expect(m.get('sheet-video').dataset.kind).toBe('video');
+    expect(m.get('sheet-video').dataset.state).toBeUndefined();
     m.click('sheet-video');
     expect(w.calls.requests).toEqual(['R2']);
+    expect(m.get('sheet-video').dataset.state).toBe('loading'); // TS-059-01（印は Q-38 (h)。BL-059）
     expect(m.get('sheet-close').hasAttribute('disabled')).toBe(true);
     expect(m.get('sheet-ticket').hasAttribute('disabled')).toBe(true);
     m.key({ key: 'Escape' }, 'keydown', m.get('sheet-reward'));
@@ -190,6 +219,107 @@ describe('ご褒美のシート（R2・R3）', () => {
     m.click('sheet-video');
     await w.finish('rewarded');
     expect(m.q('sheet-reward')).toBeNull();
+  });
+
+  it('Q-45 失敗（開始の時間切れ）の後に、遅れて見終えた報酬が付いたら、同じ placement のシートを閉じ、トーストで何をもらえたかを出す', async () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW, lang: 'ja' });
+    m.click('btn-boost');
+    m.click('sheet-video');
+    await w.finish('failed');
+    expect(m.q('ad-unavailable')).not.toBeNull();
+    w.late('R3'); // 別の placement では閉じない
+    expect(m.q('sheet-reward')).not.toBeNull();
+    w.late('R2');
+    expect(m.q('sheet-reward')).toBeNull(); // 「今は広告を表示できません」を出したまま報酬が付いた状態にしない
+    const toasts = [...m.root.querySelectorAll<HTMLElement>('[data-testid="toast"]')];
+    expect(toasts.map((x) => [x.dataset['kind'], x.dataset['key'], x.textContent])).toEqual([
+      ['ad', 'R3', t('toast.adLate.R3')],
+      ['ad', 'R2', t('toast.adLate.R2')],
+    ]);
+    expect(t('toast.adLate.R2')).toBe('動画の報酬：掘削ブーストが始まりました');
+    expect(w.lateSubscribers()).toBe(1); // シートが閉じたら購読をやめる（残るのはトースト）
+  });
+
+  it('Q-45 別の要求の最中（スピナー）に遅れた報酬が来ても、シートは閉じない（その要求の結果で閉じる）。トーストは出す', async () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });
+    m.click('btn-boost');
+    m.click('sheet-video');
+    w.late('R2');
+    expect(m.q('sheet-reward')).not.toBeNull();
+    expect(m.get('sheet-video').dataset.state).toBe('loading');
+    expect(m.get('toast').dataset['kind']).toBe('ad');
+    await w.finish('rewarded');
+    expect(m.q('sheet-reward')).toBeNull();
+  });
+
+  it('決定 0010 の 7 要求してから広告が始まるまで「広告を読み込んでいます…」（role=status）を出し、始まったら消え、終わった後にもう出さない', async () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW, lang: 'ja' });
+    m.click('btn-boost');
+    expect(m.q('ad-loading')).toBeNull(); // 要求の前は出さない
+    m.click('sheet-video');
+    expect(m.get('ad-loading').textContent).toBe('広告を読み込んでいます…');
+    expect(m.get('ad-loading').getAttribute('role')).toBe('status');
+    expect(m.get('ad-loading').dataset['kind']).toBe('loading'); // 警告の色にしない
+    w.play(true); // 広告が始まった
+    expect(m.q('ad-loading')).toBeNull();
+    w.play(false); // 終わった（結果はまだ）
+    expect(m.q('ad-loading')).toBeNull();
+    await w.finish('rewarded');
+    expect(m.q('sheet-reward')).toBeNull();
+  });
+
+  it('PR #68 のレビュー S-1: 広告が requestReward の中ですぐ始まっても、待ちの案内は出ない（再生中に「読み込んでいます」を残さない）。次の要求でも同じ', async () => {
+    const w = wired({ startNow: true });
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW, lang: 'ja' });
+    m.click('btn-boost');
+    m.click('sheet-video');
+    expect(m.get('sheet-video').dataset.state).toBe('loading'); // 要求中のまま（スピナー）
+    expect(m.q('ad-loading')).toBeNull();
+    w.play(false);
+    await w.finish('failed');
+    m.click('sheet-video');
+    expect(m.q('ad-loading')).toBeNull();
+  });
+
+  it('決定 0010 の 7 要求の外で始まった広告（ミッドゲームなど）は数えない: その後の要求では待ちの案内が出る', () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW, lang: 'ja' });
+    m.click('btn-boost');
+    w.play(true);
+    w.play(false);
+    m.click('sheet-video');
+    expect(m.get('ad-loading').textContent).toBe(t('ad.loading'));
+  });
+
+  it('決定 0010 の 7 時間切れ（failed）で待ちの案内が消えて「今は広告を表示できません」に替わる。もう一度押すと、また待ちの案内が出る（en）', async () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW, lang: 'en' });
+    m.click('btn-boost');
+    m.click('sheet-video');
+    expect(m.get('ad-loading').textContent).toBe('Loading the ad…');
+    await w.finish('failed');
+    expect(m.q('ad-loading')).toBeNull();
+    expect(m.q('ad-unavailable')).not.toBeNull();
+    m.click('sheet-video');
+    expect(m.q('ad-unavailable')).toBeNull();
+    expect(m.get('ad-loading').textContent).toBe('Loading the ad…');
+  });
+
+  it('決定 0010 の 11 遅れた報酬が断られて払ったチケットを返したとき（refund）・上限で返せなかったとき（full）は、トーストで伝える。シートは報酬のときと同じく閉じる（TS-059-22）', () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW, lang: 'ja' });
+    m.click('btn-boost');
+    w.late('R2', 'refund');
+    expect(m.q('sheet-reward')).toBeNull();
+    w.late('R2', 'full');
+    const toasts = [...m.root.querySelectorAll<HTMLElement>('[data-testid="toast"]')];
+    expect(toasts.map((x) => [x.dataset['kind'], x.dataset['key'], x.textContent])).toEqual([
+      ['ad', 'R2:refund', '動画の報酬：使った温泉チケットを 1 枚返しました'],
+      ['ad', 'R2:full', '動画の報酬：温泉チケットが上限のため、返せませんでした'],
+    ]);
   });
 });
 
@@ -255,7 +385,7 @@ describe('btn-boost の状態（TS-046-05。Q-37 (a)）', () => {
 describe('おかえり（M1。TS-046-06・07）', () => {
   const mountWelcome = (ctx: Partial<UiContext>, tickets: number, ticketHook = true) => {
     const got: WelcomeChoice[] = [];
-    m = mount({ state: withTickets(tickets), ctx, node: h(WelcomeModal, { amount: '1,234', onClaim: (c) => got.push(c), ticketHook }) });
+    m = mount({ state: withTickets(tickets), ctx, node: h(WelcomeModal, { amount: '1,234', onClaim: (c) => void got.push(c), ticketHook }) });
     return got;
   };
 
@@ -295,9 +425,19 @@ describe('おかえり（M1。TS-046-06・07）', () => {
     got = mountWelcome(w.ctx, 0);
     m?.click('welcome-video');
     expect(w.calls.requests).toEqual(['R1']);
+    expect(m?.get('welcome-video').dataset.state).toBe('loading'); // BL-059（印は Q-38 (h)）
+    expect(m?.get('ad-loading').textContent).toBe(t('ad.loading')); // 待ちの案内（決定 0010 の 7。シートと同じ）
+    expect(m?.get('ad-loading').getAttribute('role')).toBe('status');
     expect(m?.get('welcome-claim').hasAttribute('disabled')).toBe(false);
     m?.click('welcome-claim');
     expect(got).toEqual(['claim']);
+    m?.unmount();
+
+    const now = wired({ startNow: true }); // すぐ始まる広告では出ない（PR #68 のレビュー S-1。シートと同じ）
+    mountWelcome(now.ctx, 0);
+    m?.click('welcome-video');
+    expect(m?.get('welcome-video').dataset.state).toBe('loading');
+    expect(m?.q('ad-loading')).toBeNull();
   });
 
   it('TS-046-07 チケットの口（BL-058）がない間は、チケットで ×2 は押せない', () => {

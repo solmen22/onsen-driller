@@ -5,7 +5,7 @@
 // - 購入数（×1 → ×10 → 最大）は切り替えボタン（qty-toggle）か Shift。タブをまたいで共通で、保存しない（再読み込みで ×1）
 // - ご褒美のシート（R2: ブーストのボタン、R3: 鉱脈のチップ）とトースト（BL-046）。モーダル・シートの表示中は 1〜5・Shift を使わない
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { offlineClaimView, veinView, type Qty } from '../core/index.ts';
+import { offlineClaimView, type Qty } from '../core/index.ts';
 import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
 import { formatNum } from './format.ts';
 import { useGame, useUi } from './hooks/use-game.ts';
@@ -85,15 +85,18 @@ export function App() {
     const w = offlineClaimView(s);
     return w ? { amount: formatNum(w.coins, lang), canDouble: w.canDouble } : null;
   });
-  const veinActive = useGame((s) => veinView(s).active);
-  // 鉱脈のシート（R3）は、鉱脈が開いた・消えたら閉じる（押しても何も起きないシートを残さない）
-  useEffect(() => {
-    if (sheet === 'R3' && !veinActive) setSheet(null);
-  }, [sheet, veinActive]);
-  const onWelcome = (c: WelcomeChoice): void => {
-    // 'video' の ×2 は requestReward('R1') が rewarded のときに grantAd('R1') が付けている（BL-059）。ここでは何もしない
-    if (c === 'claim') rewards?.claimOffline('normal');
-    else if (c === 'ticket') rewards?.claimOffline('double');
+  // 鉱脈のシート（R3）が鉱脈が開いた・消えたときに閉じるのは RewardSheet の中（要求中は閉じない。PR #55 のレビュー S-5）
+  /**
+   * おかえりの受け取り。受け取れたら true（モーダルは pendingOffline が null になって消える）。
+   * 'video' の ×2 は requestReward('R1') が rewarded のときに grantAd('R1') が付けている（BL-059）。
+   * ×2 が付かなかったら（チケットの不足・core が断った・動画の報酬が断られた）×1 で受け取る。受け取れずに閉じられない
+   * モーダルを残さない（PR #55 のレビュー S-4。放置の報酬を人質にしない）
+   */
+  const onWelcome = (c: WelcomeChoice): boolean => {
+    if (!rewards) return false;
+    if (c === 'ticket') rewards.claimOffline('double');
+    if (store.state.run.pendingOffline !== null) rewards.claimOffline('normal');
+    return store.state.run.pendingOffline === null;
   };
   const onLang = (l: Lang): void => {
     setLang(l);

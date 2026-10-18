@@ -51,6 +51,7 @@ export function createDevPlatform(opts: { adMs?: number; target?: 'dev' | 'web' 
         await fakeAd(`midgame ${p}`);
       },
       onPlaying: (cb) => playingL.add(cb),
+      onLateReward: () => {}, // 偽の広告に開始の時間切れはない（Q-45 の遅れた報酬は CrazyGames のアダプタ）
     },
     storage: localStore(),
     locale: browserLocale,
