@@ -28,7 +28,7 @@ function playingLife(): { life: ReturnType<typeof createLifecycle>; calls: strin
   return { life, calls };
 }
 
-describe('読み込みと最初の入力（TS-E1-03・04 の単体版）', () => {
+describe('TS-056-06 読み込みと最初の入力（TS-E1-03・04 の単体版）', () => {
   it('入力がない間は loadingStart → loadingStop だけ。最初の入力で gameplayStart がちょうど 1 回', () => {
     const { p, calls } = recorder();
     const life = createLifecycle(p);
@@ -63,8 +63,10 @@ describe('読み込みと最初の入力（TS-E1-03・04 の単体版）', () =>
 
 describe('止まる理由（非表示・広告・幕間・転生の演出）', () => {
   const reasons: PauseReason[] = ['hidden', 'ad', 'interlude', 'prestige'];
+  // 名前の ID: hidden は TS-056-07、interlude は TS-056-08（traceability 付録 A-2）。どの理由も TS-056-09
+  const ids: Partial<Record<PauseReason, string>> = { hidden: 'TS-056-07・', interlude: 'TS-056-08・' };
   for (const r of reasons) {
-    it(`${r}: 止まる間は gameplayStop 1 回、外れたら gameplayStart 1 回（同じ合図を二度送らない）`, () => {
+    it(`${ids[r] ?? ''}TS-056-09 ${r}: 止まる間は gameplayStop 1 回、外れたら gameplayStart 1 回（同じ合図を二度送らない）`, () => {
       const { life, calls } = playingLife();
       calls.length = 0;
       life.setPaused(r, true);
@@ -77,7 +79,7 @@ describe('止まる理由（非表示・広告・幕間・転生の演出）', (
       expect(life.playing).toBe(true);
     });
   }
-  it('理由が重なったら、すべて外れるまで再開しない（非表示の間に広告が終わっても止まったまま）', () => {
+  it('TS-056-09 理由が重なったら、すべて外れるまで再開しない（非表示の間に広告が終わっても止まったまま）', () => {
     const { life, calls } = playingLife();
     calls.length = 0;
     life.setPaused('ad', true);
@@ -112,7 +114,7 @@ describe('止まる理由（非表示・広告・幕間・転生の演出）', (
   });
 });
 
-describe('非表示を合図にするかはポータルごと（BL-057。PR #16 のレビュー S-1。arch §7 の表）', () => {
+describe('TS-057-20 非表示を合図にするかはポータルごと（BL-057。PR #16 のレビュー S-1。arch §7 の表）', () => {
   it('crazygames だけ合図にしない（公式: "Don’t call this event when the user switches focus or leaves the game area"）', () => {
     const table = Object.fromEntries((['web', 'itch', 'crazygames', 'poki', 'dev'] as Target[]).map((t) => [t, signalsHidden(t)]));
     expect(table).toEqual({ web: true, itch: true, crazygames: false, poki: true, dev: true });

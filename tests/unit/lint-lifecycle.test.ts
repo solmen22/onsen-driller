@@ -20,7 +20,7 @@ async function ruleIds(filePath: string, code: string): Promise<string[]> {
 
 const SIGNALS = ['loadingStart', 'loadingStop', 'gameplayStart', 'gameplayStop'];
 
-describe('合図の直接の呼び出しを止める（src/app・ui・view）', () => {
+describe('TS-059-18 合図の直接の呼び出しを止める（src/app・ui・view）', () => {
   for (const file of ['src/app/__fixture__.ts', 'src/ui/__fixture__.tsx', 'src/view/__fixture__.ts'])
     for (const name of SIGNALS)
       for (const code of [`declare const platform: Record<string, () => void>;\nplatform.${name}();`, `declare const ctx: { platform: Record<string, () => void> };\nctx.platform.${name}();`])
@@ -29,7 +29,7 @@ describe('合図の直接の呼び出しを止める（src/app・ui・view）', 
         });
 });
 
-describe('許すもの（誤検出がない）', () => {
+describe('TS-059-18 許すもの（誤検出がない）', () => {
   it('main.ts の life.loadingStart()・life.loadingStop()（ライフサイクルそのもの）', async () => {
     const code = 'declare const life: Record<string, (...a: unknown[]) => void>;\nlife.loadingStart();\nlife.loadingStop();\nlife.setPaused("ad", true);';
     expect(await ruleIds('src/app/__fixture__.ts', code)).toEqual([]);

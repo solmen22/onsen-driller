@@ -31,7 +31,7 @@ const rules = async (filePath: string, code: string): Promise<string[]> => (awai
 const HEAD = "import fc from 'fast-check';\nimport { fcRuns } from '../helpers/fc-runs.ts';\nconst p = fc.property(fc.integer(), (x) => x === x);\n";
 const TEST = 'tests/unit/__fixture__.test.ts';
 
-describe('正しい書き方はエラーにならない', () => {
+describe('TS-090-03 正しい書き方はエラーにならない', () => {
   const ok: Record<string, string> = {
     '回数だけ': `${HEAD}fc.assert(p, fcRuns(100));`,
     '回数とシード': `${HEAD}fc.assert(p, fcRuns(2000, 20261007));\nfc.assert(fc.asyncProperty(fc.integer(), async () => true), fcRuns(10));`,
@@ -47,7 +47,7 @@ describe('正しい書き方はエラーにならない', () => {
   });
 });
 
-describe('S-1 fcRuns を通さない呼び出しは、呼び出しごとにエラーになる', () => {
+describe('TS-090-03 S-1 fcRuns を通さない呼び出しは、呼び出しごとにエラーになる', () => {
   it('fcRuns を使うファイルに足した、第 2 引数のない呼び出し（ファイル単位の検査の抜け道）は、その行だけがエラー', async () => {
     const h = await hits(TEST, `${HEAD}fc.assert(p, fcRuns(100));\nfc.assert(p);\nfc.assert(p, fcRuns(5, 1));`);
     expect(h).toEqual([{ rule: RULE, line: 5 }]);

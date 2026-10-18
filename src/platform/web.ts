@@ -23,6 +23,7 @@ export function createWebPlatform(target: 'web' | 'itch'): Platform {
       showRewarded: async () => Promise.resolve('unavailable' as const),
       breakOpportunity: async () => Promise.resolve(),
       onPlaying: () => {},
+      onLateReward: () => {}, // 広告がない（Q-45 の遅れた報酬もない）
     },
     storage,
     locale: browserLocale,

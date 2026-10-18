@@ -24,6 +24,7 @@ export function uiPlatform(target: Platform['target'] = 'web'): Platform {
       showRewarded: () => Promise.resolve('unavailable'),
       breakOpportunity: () => Promise.resolve(),
       onPlaying: () => {},
+      onLateReward: () => {},
     },
     storage: { get: () => null, set: () => false, remove: () => {}, kind: 'memory' },
     locale: () => null,

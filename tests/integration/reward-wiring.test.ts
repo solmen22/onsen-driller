@@ -3,10 +3,12 @@
 // 画面（btn-boost・シート・おかえり）を core の boostView・veinView・offlineClaimView から作る
 // - 壁時計は store.wallTime()（store が R2 の休みを切り詰めるのと同じ時計。PR #42 のレビューの Should）
 // - ブースト中の表記は実際の倍率（ドリル ×2・自動掘削機 ×4。PR #34 のレビューの Nit）
+import { act } from 'preact/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createRewardHooks } from '../../src/app/rewards.ts';
 import { GameStore } from '../../src/app/store.ts';
 import { PARAMS } from '../../src/content/params.ts';
+import type { RewardResult } from '../../src/platform/types.ts';
 import { boostMult, boostView as coreBoostView, num, toStr } from '../../src/core/index.ts';
 import { boostView } from '../../src/ui/overlay/boost-view.ts';
 import { stateWith } from '../support/states.ts';
@@ -31,7 +33,7 @@ function storeAt(wall: { t: number }, tickets = 2): GameStore {
 }
 
 describe('ご褒美の口（createRewardHooks）', () => {
-  it('useBoostTicket: store の壁時計で休みを始め、チケットを 1 枚使う。休みの間は失敗して状態を変えない', () => {
+  it('TS-126-13 useBoostTicket: store の壁時計で休みを始め、チケットを 1 枚使う。休みの間は失敗して状態を変えない', () => {
     const wall = { t: NOW };
     const store = storeAt(wall);
     const r = createRewardHooks(store);
@@ -45,7 +47,7 @@ describe('ご褒美の口（createRewardHooks）', () => {
     expect(store.state.run.boost.readyAtWallMs).toBe(NOW + CD);
   });
 
-  it('grantAd: R2 は source=ad（チケットを使わない）、R3 は出ている鉱脈を開く、R1 は ×2 で受け取る', () => {
+  it('TS-126-13 grantAd: R2 は source=ad（チケットを使わない）、R3 は出ている鉱脈を開く、R1 は ×2 で受け取る', () => {
     const store = storeAt({ t: NOW });
     const r = createRewardHooks(store);
     const ev = (): string[] => store.events().map((e) => e.type);
@@ -66,7 +68,7 @@ describe('ご褒美の口（createRewardHooks）', () => {
     expect(store.state.meta.tickets).toBe(2);
   });
 
-  it('claimOffline: normal は ×1（チケットを使わない）、double はチケット 1 枚で ×2。60 秒未満の double は失敗', () => {
+  it('TS-126-13 claimOffline: normal は ×1（チケットを使わない）、double はチケット 1 枚で ×2。60 秒未満の double は失敗', () => {
     const store = storeAt({ t: NOW }, 1);
     const r = createRewardHooks(store);
     store.state.run.pendingOffline = { coins: num(100), ms: 30_000 };
@@ -85,14 +87,14 @@ describe('ご褒美の口（createRewardHooks）', () => {
 });
 
 describe('btn-boost は core の boostView から作り、store と同じ時計で読む', () => {
-  it('時計が戻って保存の readyAtWallMs が 1 日先でも、休みの残りは core の上限（15:00）で出す', () => {
+  it('TS-126-15 時計が戻って保存の readyAtWallMs が 1 日先でも、休みの残りは core の上限（15:00）で出す', () => {
     const s = stateWith({ depth: 10 });
     s.run.boost.readyAtWallMs = NOW + 24 * 60 * MIN;
     expect(coreBoostView(s, NOW).cooldownLeftMs).toBe(CD);
     expect(boostView(s, NOW, true, true)).toEqual({ state: 'cooldown', time: '15:00' });
   });
 
-  it('HUD は store.wallTime() を読む（UiContext に別の時計はない）', () => {
+  it('TS-126-15 HUD は store.wallTime() を読む（UiContext に別の時計はない）', () => {
     const wall = { t: NOW };
     const store = storeAt(wall);
     store.state.run.boost.readyAtWallMs = NOW + 10 * MIN;
@@ -105,7 +107,7 @@ describe('btn-boost は core の boostView から作り、store と同じ時計�
     expect(m.get('btn-boost').dataset['state']).toBe('ready');
   });
 
-  it('オフライン中に効果が残ったまま休みが明けたら、core で使えるので ready（判定と表示の出どころを 1 つに。CEO 決定 2026-10-12）', () => {
+  it('TS-126-15 オフライン中に効果が残ったまま休みが明けたら、core で使えるので ready（判定と表示の出どころを 1 つに。CEO 決定 2026-10-12）', () => {
     const s = stateWith({ depth: 10 });
     s.meta.tickets = 1;
     s.run.boost.remainingMs = 120_000;
@@ -117,7 +119,7 @@ describe('btn-boost は core の boostView から作り、store と同じ時計�
     expect(boostView(s, NOW, false, true)).toEqual({ state: 'active', time: '2:00' });
   });
 
-  it('ブースト中は実際の倍率: 基本は ×2 だけ。自動掘削機を持っているときだけ、アイテムの名前で ×4 を足す（PR #55 のレビュー S-1。「自動」と書かない）', () => {
+  it('TS-126-01 ブースト中は実際の倍率: 基本は ×2 だけ。自動掘削機を持っているときだけ、アイテムの名前で ×4 を足す（PR #55 のレビュー S-1。「自動」と書かない）', () => {
     expect(boostMult()).toEqual({ drill: PARAMS.boost.mult, auto: PARAMS.boost.mult ** 2 });
     expect(boostMult().auto).toBe(4);
     const store = storeAt({ t: NOW });
@@ -138,7 +140,7 @@ describe('btn-boost は core の boostView から作り、store と同じ時計�
     for (const el of [m.get('btn-boost'), m.get('toggle-auto-dig')]) expect(el.textContent).not.toMatch(/自動×|auto ×/);
   });
 
-  it('チケットで使うと、btn-boost は active になり、チケットが 1 枚減る（シート → sheet-ticket）', () => {
+  it('TS-126-14 チケットで使うと、btn-boost は active になり、チケットが 1 枚減る（シート → sheet-ticket）', () => {
     const store = storeAt({ t: NOW });
     m = mount({ store, ctx: { rewards: createRewardHooks(store) } });
     expect(m.get('btn-boost').dataset['state']).toBe('ready');
@@ -151,7 +153,7 @@ describe('btn-boost は core の boostView から作り、store と同じ時計�
 });
 
 describe('鉱脈（veinView）とおかえり（offlineClaimView）', () => {
-  it('R3 のシートの「自分で叩く」は残りの回数。鉱脈が消えたらシートを閉じる', () => {
+  it('TS-126-12 R3 のシートの「自分で叩く」は残りの回数。鉱脈が消えたらシートを閉じる', () => {
     const store = storeAt({ t: NOW });
     store.state.run.vein.active = { depth: store.state.run.depth, hits: 5, expiresAtMs: store.state.clock.playedMs + 60_000 };
     m = mount({ store, ctx: { rewards: createRewardHooks(store) } });
@@ -177,7 +179,7 @@ describe('鉱脈（veinView）とおかえり（offlineClaimView）', () => {
     expect(m.q('modal-welcome')).toBeNull();
   });
 
-  it('おかえりの「チケットで ×2」: チケットが 1 枚減り、コインが ×2 入り、閉じる（onWelcome の ticket → claimOffline(double)。PR #55 のレビュー S-3）', () => {
+  it('TS-126-08 おかえりの「チケットで ×2」: チケットが 1 枚減り、コインが ×2 入り、閉じる（onWelcome の ticket → claimOffline(double)。PR #55 のレビュー S-3）', () => {
     const store = storeAt({ t: NOW }, 2);
     store.state.run.pendingOffline = { coins: num(100), ms: 5 * MIN };
     const before = store.state.run.coins;
@@ -188,6 +190,66 @@ describe('鉱脈（veinView）とおかえり（offlineClaimView）', () => {
     expect(toStr(store.state.run.coins)).toBe(toStr(before.add(200)));
     expect(store.state.run.pendingOffline).toBeNull();
     expect(m.q('modal-welcome')).toBeNull();
+  });
+
+  it('S-5（PR #55 のレビュー）: R3 の動画の要求中に鉱脈が消えてもシートは閉じない。予約しているので、見終えたら報酬が付き、シートが閉じる', async () => {
+    const store = storeAt({ t: NOW });
+    store.state.run.vein.active = { depth: store.state.run.depth, hits: 0, expiresAtMs: store.state.clock.playedMs + 60_000 };
+    const hooks = createRewardHooks(store);
+    let resolve: ((r: RewardResult) => void) | null = null;
+    // BL-059 の広告の流れと同じ順: 予約 → 広告 → rewarded なら grantAd
+    const requestReward = (p: 'R1' | 'R2' | 'R3'): Promise<RewardResult> => {
+      hooks.reserveAd(p);
+      return new Promise<RewardResult>((r) => {
+        resolve = r;
+      }).then((r) => {
+        if (r === 'rewarded') hooks.grantAd(p);
+        return r;
+      });
+    };
+    const platform = uiPlatform('crazygames');
+    platform.ads.rewardedAvailable = () => true;
+    m = mount({ store, ctx: { rewards: hooks, requestReward, platform } });
+    m.click('chip-vein');
+    m.click('sheet-video');
+    m.run((st) => st.advance(61_000)); // 要求の間に鉱脈が消える
+    expect(store.state.run.vein.active).toBeNull();
+    expect(m.q('sheet-reward')).not.toBeNull(); // 要求中は閉じない（Q-41 (b)）
+    const opened: string[] = [];
+    store.onEvents((evs) => {
+      for (const e of evs) if (e.type === 'VeinOpened') opened.push(e.source);
+    });
+    await act(async () => {
+      resolve?.('rewarded');
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(opened).toEqual(['ad']); // 消えた鉱脈の報酬（予約。1 回）
+    expect(m.q('sheet-reward')).toBeNull();
+  });
+
+  it('S-4（PR #55 のレビュー）: おかえりの「チケットで ×2」が core で断られても（押した時にはチケットが 0 枚）、×1 で受け取って閉じる', () => {
+    const store = storeAt({ t: NOW }, 1);
+    store.state.run.pendingOffline = { coins: num(100), ms: 5 * MIN };
+    const before = store.state.run.coins;
+    m = mount({ store, ctx: { rewards: createRewardHooks(store), platform: uiPlatform() } });
+    store.state.meta.tickets = 0; // 描画の後にチケットがなくなった（通知の前に押す）
+    m.click('welcome-ticket');
+    expect(toStr(store.state.run.coins)).toBe(toStr(before.add(100)));
+    expect(store.state.run.pendingOffline).toBeNull();
+    expect(m.q('modal-welcome')).toBeNull();
+  });
+
+  it('S-4: 受け取りがどれも効かなくても、モーダルの操作は止まらない（もう一度押せる。閉じられないモーダルを残さない）', () => {
+    const store = storeAt({ t: NOW });
+    store.state.run.pendingOffline = { coins: num(100), ms: 5 * MIN };
+    const calls: string[] = [];
+    const rewards = { useBoostTicket: () => {}, claimOffline: (mode: 'normal' | 'double') => void calls.push(mode), grantAd: () => {} };
+    m = mount({ store, ctx: { rewards, platform: uiPlatform() } });
+    m.click('welcome-claim');
+    m.click('welcome-claim');
+    expect(calls).toEqual(['normal', 'normal']); // 1 回目が効かなかったので、もう一度押せた
+    expect(m.q('modal-welcome')).not.toBeNull();
   });
 
   it('留守が 60 秒未満なら、おかえりの ×2（チケット）は押せない', () => {

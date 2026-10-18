@@ -107,7 +107,7 @@ describe('押した瞬間に 1 打、300ms で長押し（Q-04(c)）', () => {
     expect(e.defaultPrevented).toBe(true);
     expect(firstInputs).toBe(1);
   });
-  it('2 本目の指（isPrimary=false）は打撃にしない', () => {
+  it('TS-012-21 2 本目の指（isPrimary=false）は打撃にしない', () => {
     stage.dispatchEvent(ev('pointerdown', { isPrimary: false }));
     expect(hits()).toBe(0);
   });

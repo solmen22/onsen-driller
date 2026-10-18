@@ -38,14 +38,14 @@ import { stateWith } from '../support/states.ts';
 import { TOOLS } from '../../src/content/tools.ts';
 import { UPGRADE_BY_ID, UPGRADES } from '../../src/content/upgrades.ts';
 
-describe('BL-031 ボットの定義（gdd §8-2）', () => {
-  it('標準＝自動掘り（最初の強化の前は毎秒 2 タップ）・5 秒ごと、アクティブ＝長押し・2 秒ごと、放置＝毎秒 0.3 タップ・60 秒ごと', () => {
+describe('TS-032-12 BL-031 ボットの定義（gdd §8-2）', () => {
+  it('TS-031-04 標準＝自動掘り（最初の強化の前は毎秒 2 タップ）・5 秒ごと、アクティブ＝長押し・2 秒ごと、放置＝毎秒 0.3 タップ・60 秒ごと', () => {
     expect(BOTS.standard).toMatchObject({ manual: { kind: 'autoDig', tapsBefore: 2 }, buyEverySec: 5, rewards: 'ads' });
     expect(BOTS.active).toMatchObject({ manual: { kind: 'hold' }, buyEverySec: 2, rewards: 'ads' });
     expect(BOTS.idle).toMatchObject({ manual: { kind: 'taps', perSec: 0.3 }, buyEverySec: 60, rewards: 'none' });
   });
 
-  it('見積もりの手動の打数/秒: 標準はツルハシの前 2・後 2（自動掘り）、アクティブ 4、放置 0.3', () => {
+  it('TS-031-04 見積もりの手動の打数/秒: 標準はツルハシの前 2・後 2（自動掘り）、アクティブ 4、放置 0.3', () => {
     const before = stateWith({});
     const after = stateWith({ tool: 1 });
     expect(manualHitsPerSec(before, BOTS.standard)).toBe(2);
@@ -54,7 +54,7 @@ describe('BL-031 ボットの定義（gdd §8-2）', () => {
     expect(manualHitsPerSec(after, BOTS.idle)).toBe(0.3);
   });
 
-  it('放置ボットは自動掘りを使わず、毎秒 0.3 回タップする（10 分で約 180 回）', () => {
+  it('TS-031-04 放置ボットは自動掘りを使わず、毎秒 0.3 回タップする（10 分で約 180 回）', () => {
     const r = runBot(BOTS.idle, { hours: 10 / 60, stepMs: 1000, seed: 3 });
     expect(r.state.run.autoDig.on).toBe(false);
     expect(r.state.stats.taps).toBeGreaterThanOrEqual(175);
@@ -78,7 +78,7 @@ describe('BL-031 買い方と枠（投資効率・収入が最大の組み合わ
     return [...allSets(rest, n - 1).map((c) => [h, ...c]), ...allSets(rest, n)];
   };
 
-  it('源泉 5 種・枠 4 つ: つなぐ集合は、5 通りの組み合わせのうち収入（掘削＋入湯料。泉質の効果・お客さんを含む）が最大のもの', () => {
+  it('TS-031-03 源泉 5 種・枠 4 つ: つなぐ集合は、5 通りの組み合わせのうち収入（掘削＋入湯料。泉質の効果・お客さんを含む）が最大のもの', () => {
     const s = stateWith({ bath: 35, pumps: { simple: 40, co2: 25, salt: 12, sulfur: 10, iron: 3 }, drill: 80, tool: 5, digger: 60, maxDepth: 420, autoOn: true });
     arrangeSlots(s, BOTS.standard);
     const chosen = new Set(s.run.bath.slots);
@@ -103,7 +103,7 @@ describe('BL-031 買い方と枠（投資効率・収入が最大の組み合わ
     expect(s.run.bath.slots.filter((x) => x !== null).sort()).toEqual(['co2', 'simple']);
   });
 
-  it('二酸化炭素泉のポンプ Lv9: Lv10 でニホンザル（威力 ×2）が来る分も見積もりに入れて、ポンプを選ぶ', () => {
+  it('TS-031-03 二酸化炭素泉のポンプ Lv9: Lv10 でニホンザル（威力 ×2）が来る分も見積もりに入れて、ポンプを選ぶ', () => {
     const s = stateWith({ bath: 5, pumps: { simple: 30, co2: 9 }, drill: 30, tool: 3, digger: 20, maxDepth: 100, autoOn: true });
     // 改良（BL-018）は候補から外す（このテストはポンプとお客さんの見積もりを見る）: 全部買った状態にする
     s.run.upgrades = UPGRADES.map((u) => u.id);
@@ -124,7 +124,7 @@ describe('BL-031 買い方と枠（投資効率・収入が最大の組み合わ
     expect(s.run.guests).toEqual(computeGuests(s));
   });
 
-  it('30 分の標準ボット: 判断のたびに、お客さんは条件どおり・枠に同じ源泉がない・レベルが買った分だけ増える', () => {
+  it('TS-031-06 30 分の標準ボット: 判断のたびに、お客さんは条件どおり・枠に同じ源泉がない・レベルが買った分だけ増える', () => {
     const r = runBot(BOTS.standard, { hours: 0.5, stepMs: 1000, seed: 5 });
     const s = r.state;
     expect(s.run.guests).toEqual(computeGuests(s));
@@ -222,13 +222,13 @@ describe('TS-031-02 投資効率の買い方（最良が買えなければ、最
 });
 
 describe('BL-032 安い順・ランダムのボット（gdd §8-2）', () => {
-  it('定義: 安い順＝標準と同じ打ち方・5 秒ごと・広告なし、ランダム＝毎秒 1 タップ・10 秒ごと・無作為', () => {
+  it('TS-032-12 定義: 安い順＝標準と同じ打ち方・5 秒ごと・広告なし、ランダム＝毎秒 1 タップ・10 秒ごと・無作為', () => {
     expect(BOTS.cheapest).toMatchObject({ manual: { kind: 'autoDig', tapsBefore: 2 }, buyEverySec: 5, buy: 'cheapest', rewards: 'none' });
     expect(BOTS.random).toMatchObject({ manual: { kind: 'taps', perSec: 1 }, buyEverySec: 10, buy: 'random', rewards: 'random' });
     expect([BOTS.standard.buy, BOTS.active.buy, BOTS.idle.buy]).toEqual(['efficiency', 'efficiency', 'efficiency']);
   });
 
-  it('安い順: 1 回の判断で、買える間はそのつどいちばん安いもの（道具を含む）を買い、最安が買えなくなったら止まる', () => {
+  it('TS-032-07 安い順: 1 回の判断で、買える間はそのつどいちばん安いもの（道具を含む）を買い、最安が買えなくなったら止まる', () => {
     const base = stateWith({ bath: 3, coins: '2e3', pumps: { simple: 3 }, drill: 5, digger: 2, tool: 1, maxDepth: 40 });
     const s = cloneState(base);
     const events: GameEvent[] = [];
@@ -260,7 +260,7 @@ describe('BL-032 安い順・ランダムのボット（gdd §8-2）', () => {
     expect(cheapest().affordable).toBe(false);
   });
 
-  it('ランダム: 同じシードなら同じ買い物、買えるものだけを買う（所持は負にならない）', () => {
+  it('TS-032-06 ランダム: 同じシードなら同じ買い物、買えるものだけを買う（所持は負にならない）', () => {
     const base = stateWith({ bath: 3, coins: '5e4', pumps: { simple: 3 }, drill: 5, digger: 2, tool: 1, maxDepth: 90 });
     const run = (seed: number): string => {
       const s = cloneState(base);
