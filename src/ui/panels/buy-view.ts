@@ -62,7 +62,8 @@ export interface BuyView {
 }
 
 /** 改良の ID（'upgrade:<id>' の <id>）。改良でなければ null */
-const upgradeIdOf = (item: ItemId): string | null => (typeof item === 'string' && item.startsWith('upgrade:') ? item.slice(8) : null);
+const UPGRADE_PREFIX = 'upgrade:';
+const upgradeIdOf = (item: ItemId): string | null => (item.startsWith(UPGRADE_PREFIX) ? item.slice(UPGRADE_PREFIX.length) : null);
 
 /** 品目の ID → data-testid（camelCase をハイフンに、':' を '-' に。Q-17） */
 export const buyTestId = (item: ItemId): string => `buy-${item.replace(':', '-').replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;

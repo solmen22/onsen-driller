@@ -45,7 +45,7 @@ describe('T3 の並び（TS-044-12〜15）', () => {
     expect(m.q(`${id('sieve')}-qty`)).toBeNull();
   });
 
-  it('TS-044-13: 買える改良を押すと buy が 1 回で、同じ描画で購入済みの組に移って押せなくなる。購入済みを押しても何も起きない。コインの減り＝表示のコスト', () => {
+  it('TS-044-13（CEO 決定 2026-10-18〔H-1 の案 a〕で期待を変更）: 買える改良を押すと buy が 1 回で、同じ位置のまま購入済み（押せない）になる。組の入れ替えは次に T3 を開いたとき。購入済みを押しても何も起きない。コインの減り＝表示のコスト', () => {
     const s = stateWith({ depth: 45, coins: VIBRO + 7 });
     m = mount({ state: s });
     m.click('tab-3');
@@ -57,14 +57,36 @@ describe('T3 の並び（TS-044-12〜15）', () => {
     m.click(id('vibroBit'));
     expect(m.store.state.run.upgrades).toEqual(['vibroBit']);
     expect(c0 - m.store.state.run.coins.toNumber()).toBeCloseTo(shown, 9);
-    expect(rowIds(m.get('upgrades-bought'))).toEqual([id('vibroBit')]);
-    expect(m.q('upgrades-available')?.dataset['count']).toBe('0');
+    // 開いている間は同じ位置（上の組）のまま購入済み
+    expect(rowIds(m.get('upgrades-available'))).toEqual([id('vibroBit')]);
+    expect(m.get(id('vibroBit')).dataset['state']).toBe('maxed');
+    expect(m.q('upgrades-bought')).toBeNull();
     expect((m.get(id('vibroBit')) as HTMLButtonElement).disabled).toBe(true);
     // 購入済みを押しても何も起きない（disabled なので click が届かない。core も maxed で断る）
     const c1 = m.store.state.run.coins.toString();
     m.click(id('vibroBit'));
     expect(m.store.state.run.coins.toString()).toBe(c1);
     expect(m.store.state.run.upgrades).toEqual(['vibroBit']);
+    // 次に T3 を開くと、購入済みの組に移る
+    m.click('tab-1');
+    m.click('tab-3');
+    expect(rowIds(m.get('upgrades-bought'))).toEqual([id('vibroBit')]);
+    expect(m.get('upgrades-available').dataset['count']).toBe('0');
+  });
+
+  it('H-1（案 a）: 買える改良が 2 つ並んでいるとき、上の行を素早く 2 回押しても、下の改良は買わない（指の下に別の改良が来ない）', () => {
+    const s = stateWith({ depth: 52, coins: VIBRO + SIEVE });
+    m = mount({ state: s });
+    m.click('tab-3');
+    expect(rowIds(m.get('upgrades-available'))).toEqual([id('vibroBit'), id('sieve')]);
+    const first = m.get('upgrades-available').querySelector<HTMLElement>('button[data-testid^="buy-upgrade-"]')!;
+    first.click();
+    m.notify();
+    // 2 回目も同じ位置（1 行目）を押す
+    m.get('upgrades-available').querySelector<HTMLElement>('button[data-testid^="buy-upgrade-"]')!.click();
+    m.notify();
+    expect(m.store.state.run.upgrades).toEqual(['vibroBit']);
+    expect(m.get(id('sieve')).dataset['state']).toBe('affordable');
   });
 
   it('TS-044-14: コインが増えて買える・買えないが変わっても、行の順番は内容定義のまま（data-state と文字だけが変わる）', () => {
@@ -101,7 +123,7 @@ describe('T3 の並び（TS-044-12〜15）', () => {
     expect(e.dataset['kind']).toBe('depth');
     expect(e.dataset['target']).toBe(String(40));
     expect(e.dataset['current']).toBe('12');
-    expect(e.textContent).toContain('Unlocks at 40 m (28 m to go)');
+    expect(e.textContent).toContain('Unlocks at 40m (28m to go)');
   });
 });
 
@@ -176,8 +198,61 @@ describe('ひと目で分かる行（PR #62 のレビューの H-2・H-3）', ()
       st.notify();
     });
     expect(m.q('upgrades-next')).toBeNull();
+    // 開いている間は同じ位置のまま（全部 maxed）。開き直すと購入済みの組に移り、「すべての改良を買いました」
+    expect(m.get('upgrades-available').dataset['count']).toBe(String(UPGRADES.length));
+    for (const u of UPGRADES) expect(m.get(id(u.id)).dataset['state']).toBe('maxed');
+    m.click('tab-1');
+    m.click('tab-3');
     expect(m.get('upgrades-available').dataset['count']).toBe('0');
     expect(m.get('upgrades-bought').dataset['count']).toBe(String(UPGRADES.length));
+    expect(m.get('upgrades-none').textContent).toBe('All upgrades bought');
+  });
+
+  it('解放したものを全部買い、まだ未解放があるときは「解放した改良はすべて買いました」と次の改良', () => {
+    const s = stateWith({ depth: 60 });
+    s.run.upgrades = ['vibroBit', 'sieve'];
+    m = mount({ state: s });
+    m.click('tab-3');
+    expect(m.get('upgrades-none').textContent).toBe('You have bought every unlocked upgrade');
+    expect(m.q('upgrades-next')).not.toBeNull();
+  });
+
+  it('S-1: 未発見の源泉のポンプが条件のときは「〇m で〇〇を見つけ、ポンプ Lv N で解放（あと 〇m）」（Lv 0/25 と出さない）', () => {
+    // 最深 230m・二酸化炭素泉・塩化物泉は Lv25 以上（湯もみ板 2 つは解放）。硫黄泉（250m）は未発見 → 残る未解放は湯もみ板（硫黄泉）だけ
+    const s = stateWith({ depth: 230, pumps: { simple: 30, co2: 25, salt: 25 }, bath: 3 });
+    for (const lang of ['ja', 'en'] as const) {
+      m = mount({ state: s, lang });
+      m.click('tab-3');
+      const n = m.get('upgrades-next');
+      expect(n.dataset['id']).toBe('yumomiSulfur');
+      expect(n.dataset['unfound']).toBe('true');
+      expect(n.textContent).toContain(lang === 'ja' ? '250m で硫黄泉を見つけ、ポンプ Lv 25 で解放（あと 20m）' : 'Find Sulfur spring at 250m, then pump Lv 25 (20m to go)');
+      expect(n.textContent).not.toContain('0/25');
+      m.unmount();
+      m = null;
+    }
+    // 見つけた後は「Lv 今/目標」
+    const s2 = stateWith({ depth: 260, pumps: { simple: 30, co2: 25, salt: 25, sulfur: 3 }, bath: 4 });
+    m = mount({ state: s2, lang: 'ja' });
+    m.click('tab-3');
+    expect(m.get('upgrades-next').dataset['unfound']).toBe('false');
+    expect(m.get('upgrades-next').textContent).toContain('硫黄泉のポンプ Lv 3/25 で解放');
+  });
+
+  it('H-2: 冒頭の説明は、まだ 1 つも買っていないとき（解放 0 を含む）だけ出す', () => {
+    m = mount({ state: stateWith({ depth: 10 }) });
+    m.click('tab-3');
+    expect(m.q('upgrades-intro')).not.toBeNull();
+    m.unmount();
+    m = mount({ state: stateWith({ depth: 60 }) });
+    m.click('tab-3');
+    expect(m.q('upgrades-intro')).not.toBeNull();
+    m.unmount();
+    const s = stateWith({ depth: 60 });
+    s.run.upgrades = ['vibroBit'];
+    m = mount({ state: s });
+    m.click('tab-3');
+    expect(m.q('upgrades-intro')).toBeNull();
   });
 });
 
@@ -249,6 +324,27 @@ describe('改良のタブの「！」（新しい改良の解放。CEO 2026-10-1
       st.state.run.springs.simple = { pump: 5 };
       st.notify();
     });
+    expect(m.get('tab-3').dataset['alert']).toBe('true');
+  });
+
+  it('S-3: 転生で戻った後に、もう一度解放したときも立つ（BL-021 の前なので状態を直接戻す。BL-021 の PR では本物の転生の action で同じことを確かめる）', () => {
+    m = mount({ state: stateWith({ depth: 30 }) });
+    unlockTo(m, 40);
+    expect(m.get('tab-3').dataset['alert']).toBe('true');
+    m.click('tab-3');
+    m.click('tab-1');
+    expect(m.get('tab-3').dataset['alert']).toBeUndefined();
+    // 周回を戻す（転生の代わり）: 解放はなくなるので立たない
+    m.run((st) => {
+      st.state.run.maxDepth = 0;
+      st.state.run.depth = 0;
+      st.state.run.upgrades = [];
+      st.state.run.springs = {};
+      st.notify();
+    });
+    expect(m.get('tab-3').dataset['alert']).toBeUndefined();
+    // 同じ改良をもう一度解放すると立つ（一度見た改良でも、戻った後の再解放は新しい解放として数える）
+    unlockTo(m, 40);
     expect(m.get('tab-3').dataset['alert']).toBe('true');
   });
 });

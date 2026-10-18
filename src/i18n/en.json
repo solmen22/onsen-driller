@@ -167,8 +167,10 @@
   "upgrades.intro": "Each upgrade can be bought once. Its effect lasts for this run and resets when you prestige.",
   "upgrades.available": "Not bought yet",
   "upgrades.boughtHead": "Bought",
-  "upgrades.noneAvailable": "No upgrades to buy right now",
+  "upgrades.noneAvailable": "You have bought every unlocked upgrade",
   "upgrades.next": "Next upgrade: {name}",
-  "upgrades.condDepth": "Unlocks at {n} m ({left} m to go)",
-  "upgrades.condPump": "Unlocks at {spring} pump Lv {n} (now {cur})"
+  "upgrades.condDepth": "Unlocks at {n}m ({left}m to go)",
+  "upgrades.condPump": "Unlocks at {spring} pump Lv {n} (now {cur})",
+  "upgrades.allBought": "All upgrades bought",
+  "upgrades.condPumpUnfound": "Find {spring} at {depth}m, then pump Lv {n} ({left}m to go)"
 }

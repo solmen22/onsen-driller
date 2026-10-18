@@ -5,6 +5,7 @@
 // - 未解放の改良は行を出さず、「次の改良」を 1 行だけ出す（名前・効果・解放の条件と今の進み）。どれを出すかは、条件の進み（今 ÷ 目標）が
 //   いちばん大きいもの（同じなら内容定義の順）。何が来て何をするのかが先に分かると、掘る・ポンプを上げる目標になる
 // - core は変えない（TS-044-18）。足りない表示の値はここで作る
+import { SPRING_BY_ID } from '../../content/springs.ts';
 import { UPGRADES, type UpgradeDef, type UpgradeId } from '../../content/upgrades.ts';
 import { upgradeBought, upgradeUnlocked, upgradeViews, type GameState } from '../../core/index.ts';
 import { t, type TextKey } from '../../i18n/index.ts';
@@ -20,7 +21,9 @@ export interface NextUpgrade {
   target: number;
   /** 今（周回の最深の m か、その源泉のポンプの Lv。未発見は 0） */
   current: number;
-  /** 条件の文（例「70m で解放（あと 15m）」「単純温泉のポンプ Lv 3/5」） */
+  /** ポンプの条件で、その源泉をまだ見つけていない（条件の文は「〇m で〇〇を見つけ、ポンプ Lv N」。PR #72 のレビューの S-1） */
+  unfound: boolean;
+  /** 条件の文（例「70m で解放（あと 15m）」「単純温泉のポンプ Lv 3/5 で解放」「250m で硫黄泉を見つけ、ポンプ Lv 25 で解放（あと 20m）」） */
   condition: string;
 }
 
@@ -54,11 +57,15 @@ function nextOf(s: Readonly<GameState>): NextUpgrade | null {
   if (!best) return null;
   const { def, current, target } = best;
   const u = def.unlock;
-  const condition =
-    u.kind === 'depth'
-      ? t('upgrades.condDepth', { n: target, left: Math.max(0, target - current) })
-      : t('upgrades.condPump', { spring: springName(u.spring), cur: current, n: target });
-  return { id: def.id, name: nameOf(def.id), effect: effectText(def.effect), kind: u.kind, target, current, condition };
+  // 源泉が未発見なら「Lv 0/25」は上げられない目標に見えるので、見つける深さを先に出す（S-1。深さは content の SPRINGS）
+  const unfound = u.kind === 'pump' && s.run.springs[u.spring] === undefined;
+  let condition: string;
+  if (u.kind === 'depth') condition = t('upgrades.condDepth', { n: target, left: Math.max(0, target - current) });
+  else if (unfound) {
+    const depth = SPRING_BY_ID[u.spring].depth;
+    condition = t('upgrades.condPumpUnfound', { depth, spring: springName(u.spring), n: target, left: Math.max(0, depth - s.run.maxDepth) });
+  } else condition = t('upgrades.condPump', { spring: springName(u.spring), cur: current, n: target });
+  return { id: def.id, name: nameOf(def.id), effect: effectText(def.effect), kind: u.kind, target, current, unfound, condition };
 }
 
 export function upgradesView(s: Readonly<GameState>): UpgradesView {
