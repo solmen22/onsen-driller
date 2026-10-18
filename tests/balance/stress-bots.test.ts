@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState } from '../../src/core/index.ts';
 import { TOOLS } from '../../src/content/tools.ts';
+import { UPGRADES } from '../../src/content/upgrades.ts';
 import { BOTS, canBuyAnything } from '../../tools/sim/bots.ts';
 import { runBot } from '../../tools/sim/sim.ts';
 
@@ -14,7 +15,7 @@ const STUCK_LIMIT_MS = 10 * 60_000;
  * runBot がシードをボットの乱数（newBotMemory(seed)）に渡していることを見張る（渡さないと 8 シードの選び方が同じ列になる）。
  * ボット・core・content を意図して変えて結果が変わったときは、この値を更新し、理由を PR の説明に書く
  */
-const RANDOM_1H_SEED1_HASH = 'a7b9b847';
+const RANDOM_1H_SEED1_HASH = '30483b85'; // BL-018（改良 12 項目と案 c の数値）で更新。前は a7b9b847
 
 describe('BL-032 安い順・ランダムの 20 時間（1 秒刻み）', () => {
   it.each([
@@ -57,7 +58,7 @@ describe('BL-032 安い順・ランダムの 20 時間（1 秒刻み）', () => 
   });
 
   it('詰みの数え方（Q-40 (e) ② の後半。PR #61 のレビューの Should 1）: 買えるものはないが、コインが入り続けるなら数え直す（詰みではない）', () => {
-    // 道具は最後の段、ドリル Lv300・自動掘削機 Lv200・湯船 Lv200・源泉 5 種のポンプ Lv300（4 つを枠に）: どれも次のコストが 15 分の収入より大きい。
+    // 道具は最後の段、ドリル Lv300・自動掘削機 Lv200・湯船 Lv200・源泉 5 種のポンプ Lv300（4 つを枠に）・改良は全部買った（BL-018）: どれも次のコストが 15 分の収入より大きい。
     // ボットは最初（0 秒）にしか判断しない（買わない・転生しない）。タップなし。入湯料と掘削で累計コインは毎秒増える
     const rich = (s: GameState): void => {
       s.run.drill.tool = TOOLS.length - 1;
@@ -66,6 +67,7 @@ describe('BL-032 安い順・ランダムの 20 時間（1 秒刻み）', () => 
       s.run.bath.level = 200;
       for (const id of ['simple', 'co2', 'salt', 'sulfur', 'iron'] as const) s.run.springs[id] = { pump: 300 };
       s.run.bath.slots = ['simple', 'co2', 'salt', 'sulfur'];
+      s.run.upgrades = UPGRADES.map((u) => u.id);
     };
     const bot = { ...BOTS.idle, buyEverySec: 1e7, manual: { kind: 'taps' as const, perSec: 0 } };
     const notStuck: number[] = [];
