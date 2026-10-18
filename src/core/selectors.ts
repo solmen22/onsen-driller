@@ -5,6 +5,7 @@ import { GUESTS, type GuestCondition, type GuestEffect, type GuestId } from '../
 import { PARAMS } from '../content/params.ts';
 import { SPRING_BY_ID, SPRINGS, type SpringEffect, type SpringId } from '../content/springs.ts';
 import { TOOLS } from '../content/tools.ts';
+import { isUpgradeId, type UpgradeId } from '../content/upgrades.ts';
 import {
   autoDiggerHitsPerSec,
   bathIncomePerSec,
@@ -23,6 +24,7 @@ import {
 import { autoDigUnlocked } from './input.ts';
 import { add, affordGeometric, div, gt, mul, num, sub, sumGeometric, toNumber, ZERO, type Num } from './num.ts';
 import type { GameState } from './state.ts';
+import { upgradeQuote } from './upgrades.ts';
 
 export { bandOfDepth, oreAt, springAtDepth, temperatureAt } from './formulas.ts';
 export { autoDigUnlocked } from './input.ts';
@@ -30,7 +32,7 @@ export { autoDigUnlocked } from './input.ts';
 /** レベルを買う品目（ドリル・自動掘削機・湯船・源泉ごとのポンプ） */
 export type LevelItem = 'drill' | 'autoDigger' | 'bath' | `pump:${SpringId}`;
 /** 購入の品目（道具の進化は 1 回で 1 段だけ） */
-export type ItemId = LevelItem | 'tool';
+export type ItemId = LevelItem | 'tool' | `upgrade:${UpgradeId}`;
 /** 購入数（×1・×10・最大） */
 export type Qty = 1 | 10 | 'max';
 
@@ -60,9 +62,12 @@ interface Series {
 }
 
 export const isSpringId = (v: unknown): v is SpringId => typeof v === 'string' && Object.hasOwn(SPRING_BY_ID, v);
+/** 改良の品目（'upgrade:<id>'）か。形だけを見る（ID の妥当性は isItemId） */
+export const isUpgradeItem = (item: ItemId): item is `upgrade:${UpgradeId}` => item.startsWith('upgrade:');
 export const isQty = (v: unknown): v is Qty => v === 1 || v === 10 || v === 'max';
 export function isItemId(v: unknown): v is ItemId {
   if (v === 'drill' || v === 'autoDigger' || v === 'bath' || v === 'tool') return true;
+  if (typeof v === 'string' && v.startsWith('upgrade:')) return isUpgradeId(v.slice(8)); // 一度きりの改良（BL-018）
   return typeof v === 'string' && v.startsWith('pump:') && isSpringId(v.slice(5));
 }
 
@@ -104,6 +109,11 @@ function toolQuote(s: Readonly<GameState>, qty: Qty): BuyQuote {
  */
 export function buyQuote(s: Readonly<GameState>, item: ItemId, qty: Qty): BuyQuote {
   if (item === 'tool') return toolQuote(s, qty);
+  if (isUpgradeItem(item)) {
+    // 改良は一度きり（qty によらず 1 回。TS-018-07）。見積もりは core/upgrades.ts
+    const u = upgradeQuote(s, item.slice(8) as UpgradeId);
+    return { item, qty, state: u.state, n: u.n, cost: u.state === 'affordable' || u.state === 'insufficient' ? u.cost : ZERO, nextCost: u.cost, level: u.level, ...(u.unlockDepth !== undefined ? { unlockDepth: u.unlockDepth } : {}) };
+  }
   const se = seriesOf(s, item);
   if (!se) {
     const id = item.slice(5) as SpringId;

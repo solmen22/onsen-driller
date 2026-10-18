@@ -8,6 +8,7 @@ import { ORE_BY_ID, ORES } from '../content/ores.ts';
 import { SPRING_BY_ID, SPRINGS } from '../content/springs.ts';
 import { STRATA } from '../content/strata.ts';
 import { TOOLS } from '../content/tools.ts';
+import { upgradeProblems } from './upgrades.ts';
 
 const dupes = (ids: readonly string[]): string[] => ids.filter((id, i) => ids.indexOf(id) !== i);
 
@@ -90,5 +91,7 @@ export function contentProblems(): string[] {
   });
   if (!(PARAMS.bath.c0 > 0 && PARAMS.bath.r > 1 && PARAMS.bath.bonusPerLv > 0)) p.push('params: bath のコスト・成長率・倍率が正でない');
   if (!(PARAMS.offline.eff > 0 && PARAMS.offline.eff <= PARAMS.offline.maxEff)) p.push('params: offline.eff が 0〜maxEff にない');
+  // 改良（BL-018。TS-018-02）
+  p.push(...upgradeProblems());
   return p;
 }

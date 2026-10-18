@@ -12,3 +12,4 @@ export * from './content-check.ts';
 export * from './debug.ts';
 export * from './selectors.ts';
 export * from './rewards.ts';
+export * from './upgrades.ts';

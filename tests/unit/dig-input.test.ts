@@ -18,6 +18,7 @@ import {
   type GameEvent,
   type GameState,
 } from '../../src/core/index.ts';
+import { PARAMS } from '../../src/content/params.ts';
 import { measure } from '../support/cpu-time.ts';
 import { stateWith } from '../support/states.ts';
 
@@ -193,22 +194,21 @@ describe('TS-012-08 組み合わせ（Q-04(b)）', () => {
 
 describe('TS-012-09 HP(d)・V(d)', () => {
   const s = createInitialState(1);
-  const ref: [number, number, number][] = [
-    [0, 4, 0.5],
-    [10, 7.5794, 0.83009],
-    [30, 27.213, 2.2879],
-    [100, 2386.6, 79.532],
-    [500, 3.0246e14, 0],
-  ];
-  it('式 4×1.066^d・0.5×1.052^d と相対誤差 1e-9 以内、シナリオの参考値と 5 桁で一致', () => {
-    for (const [d, hp, v] of ref) {
+  const { h0, gh, v0, gv } = PARAMS.block;
+  // 数値は content（PARAMS.block）から読む。g_h は BL-034 までの暫定（CEO 決定 0010）なので、参考値をテストに直書きしない
+  // （以後の数値の調整は content/ だけの PR でできる。TS-018-16・PR #62 のレビュー S-4）。シナリオの参考値はテスト設計者の文書に置く
+  it('式 h0×g_h^d・v0×g_v^d と相対誤差 1e-9 以内（d = 0・10・30・100・500）。0m は h0・v0 そのもの', () => {
+    for (const d of [0, 10, 30, 100, 500]) {
       const h = blockHp(s, d).toNumber();
-      expect(Math.abs(h - 4 * 1.066 ** d) / (4 * 1.066 ** d)).toBeLessThan(1e-9);
-      expect(Math.abs(h - hp) / hp).toBeLessThan(1e-4);
+      expect(Math.abs(h - h0 * gh ** d) / (h0 * gh ** d)).toBeLessThan(1e-9);
       const val = blockValue(s, d, false).toNumber();
-      expect(Math.abs(val - 0.5 * 1.052 ** d) / (0.5 * 1.052 ** d)).toBeLessThan(1e-9);
-      if (v > 0) expect(Math.abs(val - v) / v).toBeLessThan(1e-4);
+      expect(Math.abs(val - v0 * gv ** d) / (v0 * gv ** d)).toBeLessThan(1e-9);
     }
+    expect(blockHp(s, 0).toNumber()).toBe(h0);
+    expect(blockValue(s, 0, false).toNumber()).toBe(v0);
+    // 深くなるほど硬く、価値も上がる（g_h・g_v が 1 より大きい）
+    expect(gh).toBeGreaterThan(1);
+    expect(gv).toBeGreaterThan(1);
   });
 });
 

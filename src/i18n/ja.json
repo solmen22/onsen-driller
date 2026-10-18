@@ -150,5 +150,17 @@
   "inn.notConnected": "つないでいない",
   "inn.inSlot": "枠 {n}",
   "inn.guests": "お客さん",
-  "buy.pumpOf": "{spring}のポンプ"
+  "buy.pumpOf": "{spring}のポンプ",
+  "upgrade.vibroBit": "振動ビット",
+  "upgrade.sieve": "選鉱ざる",
+  "upgrade.noren": "のれん",
+  "upgrade.ledger": "宿帳",
+  "upgrade.drillOil": "掘削油",
+  "upgrade.yumomiSimple": "湯もみ板（単純温泉）",
+  "upgrade.milk": "湯上がり牛乳",
+  "upgrade.yumomiCo2": "湯もみ板（二酸化炭素泉）",
+  "upgrade.yumomiSalt": "湯もみ板（塩化物泉）",
+  "upgrade.twinBit": "二重ビット",
+  "upgrade.polisher": "研磨台",
+  "upgrade.yumomiSulfur": "湯もみ板（硫黄泉）"
 }

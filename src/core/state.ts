@@ -11,8 +11,9 @@ import { normalizeSeed, seedSfc32, sfc32Next, type Sfc32State } from './rng.ts';
 export const SAVE_SCHEMA_VERSION = 1;
 
 export type { OreId } from '../content/ores.ts';
-/** 改良・湯の華の木・実績の ID（S2 以降で定義する） */
-export type UpgradeId = string;
+/** 改良の ID（content/upgrades.ts。BL-018）。湯の華の木・実績の ID は S3 以降で定義する */
+import type { UpgradeId } from '../content/upgrades.ts';
+export type { UpgradeId };
 export type PerkId = string;
 export type AchId = string;
 

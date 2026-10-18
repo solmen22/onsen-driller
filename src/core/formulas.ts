@@ -1,5 +1,6 @@
 // 式と派生値（gdd §5・§7-1）。状態を読むだけで、書き換えない
 import type { Effect } from '../content/effects.ts';
+import { UPGRADE_BY_ID } from '../content/upgrades.ts';
 import { PARAMS } from '../content/params.ts';
 import { SPRINGS, SPRING_BY_ID, type SpringId } from '../content/springs.ts';
 import { GUEST_BY_ID, GUESTS, type GuestDef, type GuestId } from '../content/guests.ts';
@@ -100,13 +101,9 @@ export function applyEffect(m: Modifiers, e: Effect): void {
   }
 }
 
-/**
- * 改良（BL-018）の効果を引く「口」。BL-016 の時点では改良の定義がないので、何も返さない（知らない ID も効果なし）。
- * BL-018 で `import { UPGRADE_BY_ID } from '../content/upgrades.ts'` を足し、本体を
- * `return Object.hasOwn(UPGRADE_BY_ID, id) ? UPGRADE_BY_ID[id]?.effect : undefined;` にする（この 2 か所だけ）
- */
-export function upgradeEffect(_id: UpgradeId): Effect | undefined {
-  return undefined;
+/** 改良（BL-018）の効果を引く「口」（core-api.md §6b）。知らない ID は効果なし */
+export function upgradeEffect(id: UpgradeId): Effect | undefined {
+  return Object.hasOwn(UPGRADE_BY_ID, id) ? UPGRADE_BY_ID[id]?.effect : undefined;
 }
 
 /** 倍率の初期値（どの効果もない状態） */
