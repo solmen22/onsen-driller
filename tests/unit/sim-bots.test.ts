@@ -163,39 +163,41 @@ describe('TS-031-02 投資効率の買い方（最良が買えなければ、最
   });
 
   it('botAct は、実際の状態で測った効率から pickByEfficiency が選んだものを買う（最良が足りない状態。買う場合と待つ場合の両方）', () => {
-    // 最良が足りず、ほかに買える候補がある状態を小さな格子から探す（数値の調整で個々の状態が変わっても、両方の場合が残るように）
+    // 最良が足りず、ほかに買える候補がある状態を小さな格子から探す（数値の調整で個々の状態が変わっても、両方の場合が残るように）。
+    // 最深 35m は、深さで解放する改良（BL-018。最初は 40m）の前: 効率の高い改良が最良のまま買えない状態ばかりにならないように
     const seen = { buy: 0, wait: 0 };
-    for (const drill of [10, 20, 30, 40, 60])
-      for (const digger of [5, 10, 20, 30])
-        for (const bath of [2, 5, 10]) {
-          const base = stateWith({ bath, pumps: { simple: 15, co2: 5 }, drill, tool: 3, digger, maxDepth: 90, autoOn: true });
-          arrangeSlots(base, BOTS.standard);
-          for (const c0 of scoreCandidates(base, BOTS.standard)) {
-            const s = cloneState(base);
-            s.run.coins = buyQuote(base, c0.item, 1).cost; // その候補がちょうど買えるコイン
-            const t = nextTool(s);
-            if (t && s.run.coins.gte(t.cost)) continue; // 道具の進化が買えると先に買うので除く
-            const scored = scoreCandidates(s, BOTS.standard);
-            const best = scored.reduce((a, b) => (b.score > a.score ? b : a));
-            if (best.affordable || !scored.some((x) => x.affordable)) continue;
-            const want = pickByEfficiency(scored);
-            const before = stateHash(s);
-            const events: GameEvent[] = [];
-            botAct(s, BOTS.standard, newBotMemory(), events);
-            const first = events.find((e) => e.type === 'Purchased');
-            const where = `drill ${drill} digger ${digger} bath ${bath} coins=${c0.item}`;
-            if (want === null) {
-              expect(first, where).toBeUndefined();
-              expect(stateHash(s), where).toBe(before);
-              seen.wait++;
-            } else {
-              expect(first, where).toMatchObject({ type: 'Purchased', item: want });
-              const w = scored.find((x) => x.item === want)!;
-              expect(w.score, where).toBeGreaterThanOrEqual(best.score * 0.5);
-              seen.buy++;
+    for (const maxDepth of [90, 35])
+      for (const drill of [10, 20, 30, 40, 60])
+        for (const digger of [5, 10, 20, 30])
+          for (const bath of [2, 5, 10]) {
+            const base = stateWith({ bath, pumps: { simple: 15, co2: 5 }, drill, tool: 3, digger, maxDepth, autoOn: true });
+            arrangeSlots(base, BOTS.standard);
+            for (const c0 of scoreCandidates(base, BOTS.standard)) {
+              const s = cloneState(base);
+              s.run.coins = buyQuote(base, c0.item, 1).cost; // その候補がちょうど買えるコイン
+              const t = nextTool(s);
+              if (t && s.run.coins.gte(t.cost)) continue; // 道具の進化が買えると先に買うので除く
+              const scored = scoreCandidates(s, BOTS.standard);
+              const best = scored.reduce((a, b) => (b.score > a.score ? b : a));
+              if (best.affordable || !scored.some((x) => x.affordable)) continue;
+              const want = pickByEfficiency(scored);
+              const before = stateHash(s);
+              const events: GameEvent[] = [];
+              botAct(s, BOTS.standard, newBotMemory(), events);
+              const first = events.find((e) => e.type === 'Purchased');
+              const where = `maxDepth ${maxDepth} drill ${drill} digger ${digger} bath ${bath} coins=${c0.item}`;
+              if (want === null) {
+                expect(first, where).toBeUndefined();
+                expect(stateHash(s), where).toBe(before);
+                seen.wait++;
+              } else {
+                expect(first, where).toMatchObject({ type: 'Purchased', item: want });
+                const w = scored.find((x) => x.item === want)!;
+                expect(w.score, where).toBeGreaterThanOrEqual(best.score * 0.5);
+                seen.buy++;
+              }
             }
           }
-        }
     expect(seen.buy).toBeGreaterThan(0);
     expect(seen.wait).toBeGreaterThan(0);
   });
