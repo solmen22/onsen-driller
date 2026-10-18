@@ -2,7 +2,15 @@
 // 仕様: https://docs.crazygames.com/sdk/intro/ ・ /sdk/video-ads/ ・ /sdk/data/ ・ /sdk/game/ ・ /sdk/user/
 import { browserLocale, CallLog, gameplayGate, Listeners, withTimeout } from './base.ts';
 import { localStore } from './storage.ts';
-import { AD_END_TIMEOUT_MS, AD_START_TIMEOUT_MS, type KeyValueStore, type Platform, type RewardResult } from './types.ts';
+import {
+  AD_END_TIMEOUT_MS,
+  AD_START_TIMEOUT_MS,
+  type KeyValueStore,
+  type LateReward,
+  type Platform,
+  type RewardPlacement,
+  type RewardResult,
+} from './types.ts';
 
 export type CgAdType = 'midgame' | 'rewarded';
 /** 既知のエラーコード（docs.crazygames.com/sdk/video-ads/）。未知の値も来うるので code は string で受ける */
@@ -55,6 +63,19 @@ export interface CrazyGamesOptions {
 export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
   const log = new CallLog();
   const playingL = new Listeners<boolean>();
+  const lateL = new Listeners<LateReward>();
+  /** 遅れた報酬の id（要求ごとに 1 つ） */
+  let lateSeq = 0;
+  /**
+   * 再生中の広告の数。onPlaying は 0 → 1 で true、1 → 0 で false（Q-45: 時間切れの後に遅れて始まった広告と次の要求の広告が
+   * 重なっても、片方の終わりでゲームを戻さない。ふだんは 0 か 1）
+   */
+  let playingCount = 0;
+  const setPlaying = (on: boolean): void => {
+    if (on) {
+      if (playingCount++ === 0) playingL.emit(true);
+    } else if (playingCount > 0 && --playingCount === 0) playingL.emit(false);
+  };
   const mutedL = new Listeners<boolean>();
   let sdk: CrazySdk | null = null; // init が成功し environment が disabled でないときだけ入る
   /** 広告ブロッカー・Basic Launch の広告の無効（どちらもセッションの間は変わらない）。真なら以後は動画のボタンを出さない（Q-35 (c)） */
@@ -93,14 +114,18 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
   /**
    * 広告を 1 回要求する。結果はちょうど 1 回返し、onPlaying は true の後に必ず false を出す。
    * SDK が答えないとき（Q-35 (d)）: 開始が AD_START_TIMEOUT_MS 来なければ failed を返す（遅れて始まったら、その間だけ止める）。
-   * 開始の後に終了も失敗も AD_END_TIMEOUT_MS 来なければ、failed を返して onPlaying(false) でゲームを戻す（後から来た終了は無視）
+   * 開始の後に終了も失敗も AD_END_TIMEOUT_MS 来なければ、failed を返して onPlaying(false) でゲームを戻す（後から来た終了は無視）。
+   * 開始の時間切れの後に遅れて始まったリワード広告が最後まで見られたら（adStarted → adFinished）、onLateReward を 1 回出す
+   * （Q-45。placement はその要求のもの。結果はもう failed で返しているので、報酬はこの知らせだけ＝二重にならない）
    */
-  function request(type: CgAdType): Promise<RewardResult> {
+  function request(type: CgAdType, placement?: RewardPlacement): Promise<RewardResult> {
     return new Promise((resolve) => {
       const s = sdk;
       if (!s) return resolve('unavailable');
       let phase: 'waiting' | 'playing' | 'over' = 'waiting';
       let settled = false;
+      /** 開始の時間切れで failed を返した（この後の adFinished は遅れた報酬。Q-45） */
+      let startTimedOut = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const settle = (r: RewardResult): void => {
         if (settled) return;
@@ -113,13 +138,18 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
         clearTimeout(timer);
         const wasPlaying = phase === 'playing';
         phase = 'over';
-        if (wasPlaying) playingL.emit(false);
+        if (wasPlaying) setPlaying(false);
+        if (startTimedOut && wasPlaying && r === 'rewarded' && placement) {
+          log.push('lateReward', placement);
+          lateL.emit({ id: ++lateSeq, placement });
+        }
         settle(r);
       };
       log.push('requestAd', type);
       timer = setTimeout(() => {
         if (phase !== 'waiting') return;
         log.push('adTimeout', 'start');
+        startTimedOut = true;
         settle('failed'); // 遅れて adStarted が来たら、その再生の間は止める（phase は waiting のまま）
       }, AD_START_TIMEOUT_MS);
       try {
@@ -128,7 +158,7 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
             if (phase !== 'waiting') return;
             clearTimeout(timer);
             phase = 'playing';
-            playingL.emit(true);
+            setPlaying(true);
             timer = setTimeout(() => {
               log.push('adTimeout', 'end');
               end('failed');
@@ -248,7 +278,7 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
         log.push('showRewarded', p);
         if (!(opts.adsEnabled && sdk !== null && !adsOff)) return Promise.resolve('unavailable');
         // 連打しても要求は 1 回
-        inFlight ??= request('rewarded').finally(() => {
+        inFlight ??= request('rewarded', p).finally(() => {
           inFlight = null;
         });
         return inFlight;
@@ -259,6 +289,7 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
         await request('midgame');
       },
       onPlaying: (cb) => playingL.add(cb),
+      onLateReward: (cb) => lateL.add(cb),
     },
     get storage() {
       return storage;

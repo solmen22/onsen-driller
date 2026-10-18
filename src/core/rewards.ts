@@ -1,5 +1,6 @@
 // ご褒美の core（R1〜R3・温泉チケット。BL-058。gdd §5-9・arch §6-1〜6-3）。時刻は読まない（壁時計は引数で受け取る。arch §8-2）
-// - 温泉チケット: 得るのは決まった出来事（TicketSource の 4 つ）だけで、1 回の量は固定。上限を超えた分は「毎秒の収入 × 60 秒」のコイン。
+// - 温泉チケット: 得るのは決まった出来事（TicketSource の 5 つ）だけで、1 回の量は固定。上限を超えた分は「毎秒の収入 × 60 秒」のコイン
+//   （返却〔adRefund〕だけはコインにしない）。
 //   コイン → チケットの道はない（QA §3-2(b)・Q-36 (a) の条件 1〜4）。減るのは useBoost('ticket')・claimOffline('double','ticket') の成功だけ
 // - R2 掘削ブースト: 効果はロジックの時間で減る（オンライン中だけ）。休みは壁時計（使った時刻 + 15 分）。広告でもチケットでも同じ
 // - R3 ラッキー鉱脈: 出現は周回の擬似乱数（rng.run）で 5〜8 分ごと（ロジックの時間）、60 秒で消える。タップの打撃 15 回か広告で開く
@@ -98,6 +99,7 @@ export function useBoost(s: GameState, source: 'ad' | 'ticket', wallMs: number, 
   if (block) return block;
   if (source === 'ticket' && s.meta.tickets < 1) return 'insufficient';
   if (source === 'ticket') s.meta.tickets -= 1;
+  markTicketPaid(s, 'R2', source === 'ticket'); // 今の回をチケットで払ったか（返却の印。広告の回では外す）
   const b = s.run.boost;
   b.remainingMs = B.durationMs;
   b.readyAtWallMs = wallMs + B.cooldownMs;
@@ -147,6 +149,7 @@ export function tickVein(s: GameState, startMs: number, out: GameEvent[]): void 
   const v = s.run.vein;
   const now = s.clock.playedMs;
   if (v.active && now >= v.active.expiresAtMs) {
+    if (v.reserved?.at === v.active.expiresAtMs) v.reserved.gone = true; // 動画の要求中に消えた（見終えたら報酬を付ける。S-5）
     v.active = null;
     out.push({ type: 'VeinExpired' });
   }
@@ -165,12 +168,24 @@ export function tickVein(s: GameState, startMs: number, out: GameEvent[]): void 
   out.push({ type: 'VeinSpawned', depth: v.active.depth, expiresAtMs: v.active.expiresAtMs });
 }
 
-/** 鉱脈を開く（報酬: 今の毎秒の収入 × 90 秒のコイン、25% で温泉チケット 1 枚。抽選は周回の擬似乱数） */
-function openActiveVein(s: GameState, source: 'ad' | 'hits', out: GameEvent[]): void {
+/** 鉱脈の報酬（今の毎秒の収入 × 90 秒のコイン、25% で温泉チケット 1 枚。抽選は周回の擬似乱数）。出ている鉱脈は触らない */
+function payVein(s: GameState, source: 'ad' | 'hits', out: GameEvent[]): void {
   const coins = mul(incomePerSec(s), V.incomeSec);
   addCoins(s, coins);
   const ticket = sfc32Float(s.rng.run) < V.ticketChance;
-  s.run.vein.active = null;
+  out.push({ type: 'VeinOpened', source, coins: toStr(coins), ticket });
+  if (ticket) gainTickets(s, 'vein', T.vein, out);
+}
+
+/** 出ている鉱脈を開く（報酬は payVein。この鉱脈の予約は外す） */
+function openActiveVein(s: GameState, source: 'ad' | 'hits', out: GameEvent[]): void {
+  const v = s.run.vein;
+  if (v.reserved && v.reserved.at === v.active?.expiresAtMs) delete v.reserved;
+  // 乱数の使い方・イベントの順は以前と同じ（報酬の計算 → 鉱脈を消す → VeinOpened → チケット）
+  const coins = mul(incomePerSec(s), V.incomeSec);
+  addCoins(s, coins);
+  const ticket = sfc32Float(s.rng.run) < V.ticketChance;
+  v.active = null;
   out.push({ type: 'VeinOpened', source, coins: toStr(coins), ticket });
   if (ticket) gainTickets(s, 'vein', T.vein, out);
 }
@@ -186,11 +201,35 @@ export function countVeinHits(s: GameState, k: number, out: GameEvent[]): void {
   if (a.hits >= V.hits) openActiveVein(s, 'hits', out);
 }
 
-/** 広告で鉱脈をすぐ開く（source は 'ad' だけ）。出ていなければ notFound */
-export function openVeinByAd(s: GameState, out: GameEvent[]): RewardFail | null {
-  if (!s.run.vein.active) return 'notFound';
-  openActiveVein(s, 'ad', out);
+/**
+ * 動画の要求を始めた時点で、出ている鉱脈を予約する（PR #55 のレビュー S-5。BL-059 の requestReward('R3') の前）。
+ * 予約した鉱脈が要求の間に消えても、広告を見終えたら openVeinByAd が 1 回だけ報酬を付ける。出ていなければ notFound。
+ * 予約は 1 つだけ（次の予約で上書き）。タップで開く・広告で開く・消えた予約の報酬を付けると外れる
+ */
+export function reserveVein(s: GameState): RewardFail | null {
+  const a = s.run.vein.active;
+  if (!a) return 'notFound';
+  s.run.vein.reserved = { at: a.expiresAtMs, gone: false };
   return null;
+}
+
+/**
+ * 広告で鉱脈をすぐ開く（source は 'ad' だけ）。出ていればそれを開く。出ていなくても、予約した鉱脈が要求の間に消えていれば
+ * （reserved.gone）その報酬を 1 回だけ付ける（S-5。Q-45 と同じ考え方: 見終えたのに何ももらえないことをなくす）。どちらでもなければ notFound
+ */
+export function openVeinByAd(s: GameState, out: GameEvent[]): RewardFail | null {
+  const v = s.run.vein;
+  if (v.active) {
+    openActiveVein(s, 'ad', out);
+    delete v.reserved; // 広告の報酬は 1 回: 前の鉱脈の消えた予約が残っていても、ここで外す（後でもう一度払わない）
+    return null;
+  }
+  if (v.reserved?.gone) {
+    delete v.reserved;
+    payVein(s, 'ad', out);
+    return null;
+  }
+  return 'notFound';
 }
 
 export interface VeinView {
@@ -245,6 +284,35 @@ export function claimOffline(
   const coins = mode === 'double' ? mul(p.coins, 2) : p.coins;
   addCoins(s, coins);
   s.run.pendingOffline = null;
+  markTicketPaid(s, 'R1', mode === 'double' && source === 'ticket'); // この復帰をチケットで ×2 にしたか（返却の印）
   out.push(mode === 'double' ? { type: 'OfflineClaimed', mode, source, coins: toStr(coins) } : { type: 'OfflineClaimed', mode, coins: toStr(coins) });
+  return null;
+}
+
+// ---- 払ったチケットの返却（決定 0010 の 11。QA の判断 qa-lead/2026-10-18_compensation-and-public.md §1-3 の条件 1〜6） ----
+
+function markTicketPaid(s: GameState, p: 'R1' | 'R2', paid: boolean): void {
+  const m = s.run.ticketPaid;
+  if (paid) s.run.ticketPaid = { ...m, [p]: true };
+  else if (m?.[p]) {
+    delete m[p];
+    if (!m.R1 && !m.R2) delete s.run.ticketPaid;
+  }
+}
+
+/**
+ * 払ったチケットを 1 枚返す（R1・R2。source は adRefund）。app（BL-059 の広告の流れ）が、遅れて見終えた広告の報酬（Q-45）を
+ * core に断られた（R2 は効果中か休み中、R1 は受け取り済み）ときだけ呼ぶ。
+ * - 返すのは、今の回（R2）・今の復帰（R1）をチケットで払い、まだ返していないときだけ（条件 2。広告で始めた回・休みだけの回では notFound）
+ * - 1 回につき最大 1 枚（条件 3。返したら印を外す。2 つ目の遅れた報酬では notFound）
+ * - 上限（10 枚）で入らないときは 0 枚で、コインにもしない（条件 4。TicketGained{n:0, overflow:1, coins:"0"}。印は外す）
+ * - 印は保存しない（条件 5。state.ts の ticketPaid）。休みが明けた後の遅れた報酬は useBoost('ad') が通るので、ここには来ない（条件 6）
+ */
+export function refundAdTicket(s: GameState, p: 'R1' | 'R2', out: GameEvent[]): RewardFail | null {
+  if (!s.run.ticketPaid?.[p]) return 'notFound';
+  markTicketPaid(s, p, false);
+  const added = s.meta.tickets < T.max ? T.adRefund : 0;
+  s.meta.tickets += added;
+  out.push({ type: 'TicketGained', source: 'adRefund', n: added, overflow: T.adRefund - added, coins: toStr(ZERO) });
   return null;
 }

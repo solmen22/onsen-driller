@@ -114,6 +114,26 @@ describe('TS-072-01 モックの振る舞い（QA §4-2 の表）', () => {
     expect(await adEvents(createCrazyMock(), 'midgame')).toEqual(['adStarted', 'adFinished']);
   });
 
+  it('requestAd: adStartDelayMs の後に始まる（アダプタの開始の時間切れの後に遅れて始まる広告。Q-45）', async () => {
+    vi.useFakeTimers();
+    const m = createCrazyMock({ adStartDelayMs: 31_000, adDurationMs: 1_000 });
+    const got: string[] = [];
+    m.ad.requestAd('rewarded', { adStarted: () => got.push('s'), adFinished: () => got.push('f'), adError: () => got.push('e') });
+    await vi.advanceTimersByTimeAsync(30_999);
+    expect(got).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(got).toEqual(['s']);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(got).toEqual(['s', 'f']);
+    const e = createCrazyMock({ adStartDelayMs: 5_000, adBehavior: 'unfilled' });
+    const ge: string[] = [];
+    e.ad.requestAd('rewarded', { adError: (x) => ge.push(x.code) });
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(ge, '始まる前の失敗も遅れて来る').toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ge).toEqual(['unfilled']);
+  });
+
   it.each(['unfilled', 'adblock', 'adsDisabledBasicLaunch', 'adCooldown', 'other'] as const)('requestAd: adError %s（始まる前／始まった後）', async (code) => {
     expect(await adEvents(createCrazyMock({ adBehavior: code }), 'rewarded')).toEqual([`adError:${code}`]);
     expect(await adEvents(createCrazyMock({ adBehavior: code, adErrorAfterStart: true }), 'rewarded')).toEqual(['adStarted', `adError:${code}`]);

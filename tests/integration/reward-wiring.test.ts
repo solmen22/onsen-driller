@@ -3,10 +3,12 @@
 // 画面（btn-boost・シート・おかえり）を core の boostView・veinView・offlineClaimView から作る
 // - 壁時計は store.wallTime()（store が R2 の休みを切り詰めるのと同じ時計。PR #42 のレビューの Should）
 // - ブースト中の表記は実際の倍率（ドリル ×2・自動掘削機 ×4。PR #34 のレビューの Nit）
+import { act } from 'preact/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createRewardHooks } from '../../src/app/rewards.ts';
 import { GameStore } from '../../src/app/store.ts';
 import { PARAMS } from '../../src/content/params.ts';
+import type { RewardResult } from '../../src/platform/types.ts';
 import { boostMult, boostView as coreBoostView, num, toStr } from '../../src/core/index.ts';
 import { boostView } from '../../src/ui/overlay/boost-view.ts';
 import { stateWith } from '../support/states.ts';
@@ -188,6 +190,66 @@ describe('鉱脈（veinView）とおかえり（offlineClaimView）', () => {
     expect(toStr(store.state.run.coins)).toBe(toStr(before.add(200)));
     expect(store.state.run.pendingOffline).toBeNull();
     expect(m.q('modal-welcome')).toBeNull();
+  });
+
+  it('S-5（PR #55 のレビュー）: R3 の動画の要求中に鉱脈が消えてもシートは閉じない。予約しているので、見終えたら報酬が付き、シートが閉じる', async () => {
+    const store = storeAt({ t: NOW });
+    store.state.run.vein.active = { depth: store.state.run.depth, hits: 0, expiresAtMs: store.state.clock.playedMs + 60_000 };
+    const hooks = createRewardHooks(store);
+    let resolve: ((r: RewardResult) => void) | null = null;
+    // BL-059 の広告の流れと同じ順: 予約 → 広告 → rewarded なら grantAd
+    const requestReward = (p: 'R1' | 'R2' | 'R3'): Promise<RewardResult> => {
+      hooks.reserveAd(p);
+      return new Promise<RewardResult>((r) => {
+        resolve = r;
+      }).then((r) => {
+        if (r === 'rewarded') hooks.grantAd(p);
+        return r;
+      });
+    };
+    const platform = uiPlatform('crazygames');
+    platform.ads.rewardedAvailable = () => true;
+    m = mount({ store, ctx: { rewards: hooks, requestReward, platform } });
+    m.click('chip-vein');
+    m.click('sheet-video');
+    m.run((st) => st.advance(61_000)); // 要求の間に鉱脈が消える
+    expect(store.state.run.vein.active).toBeNull();
+    expect(m.q('sheet-reward')).not.toBeNull(); // 要求中は閉じない（Q-41 (b)）
+    const opened: string[] = [];
+    store.onEvents((evs) => {
+      for (const e of evs) if (e.type === 'VeinOpened') opened.push(e.source);
+    });
+    await act(async () => {
+      resolve?.('rewarded');
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(opened).toEqual(['ad']); // 消えた鉱脈の報酬（予約。1 回）
+    expect(m.q('sheet-reward')).toBeNull();
+  });
+
+  it('S-4（PR #55 のレビュー）: おかえりの「チケットで ×2」が core で断られても（押した時にはチケットが 0 枚）、×1 で受け取って閉じる', () => {
+    const store = storeAt({ t: NOW }, 1);
+    store.state.run.pendingOffline = { coins: num(100), ms: 5 * MIN };
+    const before = store.state.run.coins;
+    m = mount({ store, ctx: { rewards: createRewardHooks(store), platform: uiPlatform() } });
+    store.state.meta.tickets = 0; // 描画の後にチケットがなくなった（通知の前に押す）
+    m.click('welcome-ticket');
+    expect(toStr(store.state.run.coins)).toBe(toStr(before.add(100)));
+    expect(store.state.run.pendingOffline).toBeNull();
+    expect(m.q('modal-welcome')).toBeNull();
+  });
+
+  it('S-4: 受け取りがどれも効かなくても、モーダルの操作は止まらない（もう一度押せる。閉じられないモーダルを残さない）', () => {
+    const store = storeAt({ t: NOW });
+    store.state.run.pendingOffline = { coins: num(100), ms: 5 * MIN };
+    const calls: string[] = [];
+    const rewards = { useBoostTicket: () => {}, claimOffline: (mode: 'normal' | 'double') => void calls.push(mode), grantAd: () => {} };
+    m = mount({ store, ctx: { rewards, platform: uiPlatform() } });
+    m.click('welcome-claim');
+    m.click('welcome-claim');
+    expect(calls).toEqual(['normal', 'normal']); // 1 回目が効かなかったので、もう一度押せた
+    expect(m.q('modal-welcome')).not.toBeNull();
   });
 
   it('留守が 60 秒未満なら、おかえりの ×2（チケット）は押せない', () => {

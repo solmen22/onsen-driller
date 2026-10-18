@@ -559,6 +559,11 @@ body {
   color: #fff0a8;
 }
 
+/* 待ちの案内（「広告を読み込んでいます…」。BL-059・決定 0010 の 7）は警告の色にしない（失敗ではないので説明と同じ色） */
+.sheet-note[data-kind='loading'] {
+  color: var(--muted);
+}
+
 /* 選択肢のボタンはどれも同じ部品（同じ大きさ・字体・色）。どれかだけを強調しない（gdd §13-2） */
 .sheet-btn {
   min-height: 44px;
@@ -587,6 +592,28 @@ body {
   border-top: 6px solid transparent;
   border-bottom: 6px solid transparent;
   border-left: 10px solid var(--text);
+}
+
+/* 動画の要求中（BL-059。data-state="loading"）: 動画アイコンの代わりに回る印（スピナー）。動きを減らす設定では回さない */
+.sheet-btn[data-state='loading'] .video-icon {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--line);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-btn[data-state='loading'] .video-icon {
+    animation: none;
+  }
 }
 
 /* トースト（BL-046。Q-37 (c)）: 画面の下部に縦に最大 3 つ。押せない（下の購入ボタン・ステージの操作を妨げない） */

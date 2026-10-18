@@ -3,6 +3,7 @@ import { render } from 'preact';
 import { h } from 'preact';
 import { createInitialState, interludeLeftMs, type GameState } from '../core/index.ts';
 import { loadPlatform } from '../platform/index.ts';
+import type { RewardPlacement, RewardResult } from '../platform/types.ts';
 import { moveLegacySlots } from '../save/legacy.ts';
 import { SaveSlots } from '../save/slots.ts';
 import { resolveLang, setLang, type Lang } from '../i18n/index.ts';
@@ -14,6 +15,7 @@ import { playBreak, playHit, resumeAudio, setMuted, unlockAudio } from '../audio
 import { startAutosave } from './autosave.ts';
 import { createAppClock } from './clock.ts';
 import { createRewardHooks } from './rewards.ts';
+import { createAdFlow, type LateKind } from './ad-flow.ts';
 import type { View } from '../view/game.ts';
 import type { DevParams } from './dev-params.ts';
 import { captureErrors, createErrorLog } from './errors.ts';
@@ -120,15 +122,6 @@ async function boot(): Promise<void> {
   // モーダル・シートの表示中は掘削の入力を止める（ゲームは止めない。Q-37 (e)。BL-046）
   onModalChange((open) => input.setBlocked('modal', open));
 
-  // 広告の再生中はループ・入力・音を止め、gameplay も止める
-  platform.ads.onPlaying((playing) => {
-    life.setPaused('ad', playing);
-    input.setBlocked('ad', playing);
-    setMuted(playing || platform.isMuted());
-    if (playing) loop.pause();
-    else loop.resume();
-  });
-
   // 保存の契機（15 秒ごと・hidden・pagehide。録画モード・読み取り専用・デモでは保存しない）
   const autosave = startAutosave({
     slots,
@@ -140,11 +133,29 @@ async function boot(): Promise<void> {
   });
   // タブを隠したら gameplay とループを止める（保存は autosave が先に行う。戻ったときの早送りは S3 の BL-030）。
   // 見えるようになったら、ほかに止まる理由がなければ gameplay を再開する（CrazyGames は gameplay の合図を送らず、ループだけ止める）
+  // 広告の流れ（BL-059）: 再生中（onPlaying）・ミッドゲームの機会の間はループ・入力・音・gameplay を止める。ループは理由
+  // （hidden・ad・break）から決める（広告の最中に見せても動かない。PR #16 のレビュー S-3）。要求の前に保存を 1 回試す
+  const rewards = createRewardHooks(store);
+  const ads = createAdFlow({
+    ads: platform.ads,
+    isMuted: () => platform.isMuted(),
+    life,
+    input,
+    loop,
+    isHidden: () => document.hidden,
+    setMuted,
+    resumeAudio,
+    saveBeforeAd: () => void autosave.saveNow('ad'),
+    reserve: (p) => rewards.reserveAd(p),
+    grant: (p) => rewards.grantAd(p),
+    refund: (p) => rewards.refundAd(p),
+    onError: (e) => errorLog.push(e),
+  });
+  store.onEvents((evs) => ads.onEvents(evs));
   life.setPaused('hidden', document.hidden);
   document.addEventListener('visibilitychange', () => {
     life.setPaused('hidden', document.hidden);
-    if (document.hidden) loop.pause();
-    else loop.resume();
+    ads.syncHidden();
   });
   // 幕間（新しい帯に入った直後の 1.5 秒。ドリルが止まる）の間は gameplay を止める（ストアの通知は 200ms ごと）
   store.subscribe(() => life.setPaused('interlude', interludeLeftMs(store.state) > 0));
@@ -153,10 +164,16 @@ async function boot(): Promise<void> {
     settings.lang = l;
     persistSettings();
   };
-  // ご褒美の口（R1 のチケット・R2 のチケット・動画の付与）。壁時計は store.wallTime()（startLoop がつないだ app の時計。BL-059）。
-  // 動画の要求（requestReward）は BL-059 の広告の流れでつなぐ（'rewarded' のときだけ rewards.grantAd を呼ぶ）
-  const rewards = createRewardHooks(store);
-  render(h(Ctx.Provider, { value: { store, platform, version: APP_VERSION, onLangChange, rewards } }, h(App, {})), uiRoot);
+  // ご褒美の口（R1 のチケット・R2 のチケット）と動画の要求（requestReward。'rewarded' のときだけ rewards.grantAd を呼ぶ。BL-059）。
+  // 壁時計は store.wallTime()（startLoop がつないだ app の時計）
+  const requestReward = (p: RewardPlacement): Promise<RewardResult> => ads.requestReward(p);
+  const onLateReward = (cb: (p: RewardPlacement, kind: LateKind) => void): (() => void) => ads.onLateReward(cb); // 遅れた報酬（Q-45）の知らせ
+  const onAdPlaying = (cb: (playing: boolean) => void): (() => void) => ads.onAdPlaying(cb); // 待ちの案内を消す（決定 0010 の 7）
+  const ctx = { store, platform, version: APP_VERSION, onLangChange, rewards, requestReward, onLateReward, onAdPlaying };
+  render(
+    h(Ctx.Provider, { value: ctx }, h(App, {})),
+    uiRoot,
+  );
 
   const contextEvents: string[] = [];
   // 描画（Phaser）の起動。チャンクの読み込みや起動の失敗は記録に残し（errors()・S3 の「エラー情報をコピー」）、
