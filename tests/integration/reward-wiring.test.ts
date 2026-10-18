@@ -117,17 +117,25 @@ describe('btn-boost は core の boostView から作り、store と同じ時計�
     expect(boostView(s, NOW, false, true)).toEqual({ state: 'active', time: '2:00' });
   });
 
-  it('ブースト中は実際の倍率（ドリル ×2・自動掘削機 ×4）を出す。シートの説明も同じ', () => {
+  it('ブースト中は実際の倍率: 基本は ×2 だけ。自動掘削機を持っているときだけ、アイテムの名前で ×4 を足す（PR #55 のレビュー S-1。「自動」と書かない）', () => {
     expect(boostMult()).toEqual({ drill: PARAMS.boost.mult, auto: PARAMS.boost.mult ** 2 });
     expect(boostMult().auto).toBe(4);
     const store = storeAt({ t: NOW });
     store.state.run.boost.remainingMs = 299_001;
     store.state.run.boost.readyAtWallMs = NOW + 899_001;
+    store.state.run.autoDig.level = 0;
     m = mount({ store, ctx: { rewards: createRewardHooks(store) } });
-    const b = m.get('btn-boost');
-    expect(b.textContent).toContain('×2');
-    expect(b.textContent).toContain('×4');
-    expect(b.getAttribute('aria-label')).toContain('×4');
+    const state = (): string => m!.get('btn-boost').querySelector('.act-state')!.textContent ?? '';
+    expect(state()).toBe('×2 5:00');
+    expect(m.get('btn-boost').getAttribute('aria-label')).toBe('Boost: ×2 5:00');
+    store.state.run.autoDig.level = 1;
+    m.notify();
+    expect(state()).toBe('×2 (digger ×4) 5:00');
+    expect(m.get('btn-boost').getAttribute('aria-label')).toBe('Boost: ×2 (digger ×4) 5:00');
+    m.unmount();
+    m = mount({ store, lang: 'ja', ctx: { rewards: createRewardHooks(store) } });
+    expect(state()).toBe('×2（掘削機×4） 5:00');
+    for (const el of [m.get('btn-boost'), m.get('toggle-auto-dig')]) expect(el.textContent).not.toMatch(/自動×|auto ×/);
   });
 
   it('チケットで使うと、btn-boost は active になり、チケットが 1 枚減る（シート → sheet-ticket）', () => {
@@ -135,7 +143,7 @@ describe('btn-boost は core の boostView から作り、store と同じ時計�
     m = mount({ store, ctx: { rewards: createRewardHooks(store) } });
     expect(m.get('btn-boost').dataset['state']).toBe('ready');
     m.click('btn-boost');
-    expect(m.get('sheet-reward').textContent).toContain('×4');
+    expect(m.get('sheet-reward').textContent).toContain('auto-digger coins ×4'); // シートの説明もアイテムの名前（S-1）
     m.click('sheet-ticket');
     expect(store.state.meta.tickets).toBe(1);
     expect(m.get('btn-boost').dataset['state']).toBe('active');
@@ -166,6 +174,19 @@ describe('鉱脈（veinView）とおかえり（offlineClaimView）', () => {
     m.click('welcome-claim');
     expect(store.state.run.pendingOffline).toBeNull();
     expect(toStr(store.state.run.coins)).toBe(toStr(before.add(1234)));
+    expect(m.q('modal-welcome')).toBeNull();
+  });
+
+  it('おかえりの「チケットで ×2」: チケットが 1 枚減り、コインが ×2 入り、閉じる（onWelcome の ticket → claimOffline(double)。PR #55 のレビュー S-3）', () => {
+    const store = storeAt({ t: NOW }, 2);
+    store.state.run.pendingOffline = { coins: num(100), ms: 5 * MIN };
+    const before = store.state.run.coins;
+    m = mount({ store, ctx: { rewards: createRewardHooks(store), platform: uiPlatform() } });
+    expect(m.get('welcome-ticket').hasAttribute('disabled')).toBe(false);
+    m.click('welcome-ticket');
+    expect(store.state.meta.tickets).toBe(1);
+    expect(toStr(store.state.run.coins)).toBe(toStr(before.add(200)));
+    expect(store.state.run.pendingOffline).toBeNull();
     expect(m.q('modal-welcome')).toBeNull();
   });
 
