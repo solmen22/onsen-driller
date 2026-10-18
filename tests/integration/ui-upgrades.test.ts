@@ -197,3 +197,58 @@ describe('TS-044-17 言語の切り替え', () => {
     expect(en).not.toMatch(/upgrades?\.\w+/);
   });
 });
+
+describe('改良のタブの「！」（新しい改良の解放。CEO 2026-10-18。消え方は T2 と同じ）', () => {
+  const unlockTo = (mm: Mounted, depth: number): void =>
+    mm.run((st) => {
+      st.state.run.maxDepth = Math.max(st.state.run.maxDepth, depth);
+      st.notify();
+    });
+
+  it('解放で「！」（文字と aria-label つき）。T3 を開くと消え、T1 に戻っても消えたまま。次の解放でまた立つ。T3 を開いている間は立たない', () => {
+    m = mount({ state: stateWith({ depth: 30 }) });
+    const tab = (): HTMLElement => m!.get('tab-3');
+    expect(tab().dataset['alert']).toBeUndefined();
+    unlockTo(m, 40); // 振動ビット（40m）
+    expect(tab().dataset['alert']).toBe('true');
+    const mark = tab().querySelector<HTMLElement>('.tab-alert');
+    expect(mark?.textContent).toBe('!');
+    expect(mark?.getAttribute('aria-label')).toBeTruthy();
+    // 湯宿のタブには出ない
+    expect(m.get('tab-2').dataset['alert']).toBeUndefined();
+    m.click('tab-3');
+    expect(tab().dataset['alert']).toBeUndefined();
+    unlockTo(m, 50); // T3 を開いている間の解放（選鉱ざる）
+    expect(tab().dataset['alert']).toBeUndefined();
+    m.click('tab-1');
+    expect(tab().dataset['alert']).toBeUndefined();
+    unlockTo(m, 70); // 宿帳
+    expect(tab().dataset['alert']).toBe('true');
+    m.key({ key: '3', code: 'Digit3' }); // キーで開いても消える
+    expect(tab().dataset['alert']).toBeUndefined();
+  });
+
+  it('起動・読み込みの直後に解放済みのものでは立たない。保存しない（作り直すと消えている）。買っても（解放は増えない）立たない', () => {
+    const s = stateWith({ depth: 60, coins: VIBRO * 10 });
+    m = mount({ state: s });
+    expect(m.get('tab-3').dataset['alert']).toBeUndefined();
+    m.run((st) => st.dispatch({ type: 'buy', item: 'upgrade:vibroBit', qty: 1 }));
+    expect(m.store.state.run.upgrades).toEqual(['vibroBit']);
+    expect(m.get('tab-3').dataset['alert']).toBeUndefined();
+    unlockTo(m, 70);
+    expect(m.get('tab-3').dataset['alert']).toBe('true');
+    m.unmount();
+    m = mount({ state: s });
+    expect(m.get('tab-3').dataset['alert']).toBeUndefined();
+  });
+
+  it('ポンプの条件での解放でも立つ（のれん: 単純温泉のポンプ Lv5）', () => {
+    m = mount({ state: stateWith({ depth: 35, pumps: { simple: 4 }, bath: 1 }) });
+    expect(m.get('tab-3').dataset['alert']).toBeUndefined();
+    m.run((st) => {
+      st.state.run.springs.simple = { pump: 5 };
+      st.notify();
+    });
+    expect(m.get('tab-3').dataset['alert']).toBe('true');
+  });
+});
