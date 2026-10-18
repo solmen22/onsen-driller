@@ -693,6 +693,20 @@ describe('ci.yml', () => {
   /** ワークフローのジョブの名前の一覧（jobs: の直下） */
   const names = (text) => [...(/^jobs:\n([\s\S]*)$/m.exec(text)?.[1] ?? '').matchAll(/^ {2}([a-z][\w-]*):\n/gm)].map((m) => m[1]);
 
+  // BL-137（PR #58 のレビューの範囲外の気づき 1）: verify の検査の step（TS-008-23 の順番）に step の if: を足すと、PR・push のどちらかで
+  // 検査が黙って外れる。if: を持ってよいのは、失敗したときの記録の 2 つ（中身は assertFailureReportPolicy が検査する）だけ
+  test('BL-137: verify の step に if: があるのは、失敗したときの記録の 2 つだけ（検査の step が黙って外れない）', () => {
+    const named = (s) => /^ {6}- name: (.*)$/m.exec(s)?.[1] ?? s.trim().split('\n')[0];
+    const withIf = steps(job('verify'))
+      .filter((s) => /^ {6}(?:- | {2})if:/m.test(s))
+      .map(named);
+    assert.deepEqual(
+      withIf,
+      ['失敗したときの記録を残す（HTML レポート）', '失敗したときの記録を残す（HTML レポートができなかったときだけ test-results/）'],
+      `verify で if: を持つ step: ${withIf.join(' / ')}`,
+    );
+  });
+
   // verify は E2E まで 1 つのジョブ（Actions の分数の削減 A1。org/10_development/devops/2026-09-29_actions-minutes.md）
   test('TS-008-23 verify の順番: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets → check:text（BL-077） → check-e2e-dist → Playwright → test:e2e', () => {
     const v = job('verify');
@@ -1180,6 +1194,24 @@ describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別の�
     const c = codeOf(e);
     assert.doesNotMatch(c, /^ {8}run: npm run test:e2e$/m, 'test:e2e（--project=chromium。PR ごとに流している）は毎晩に使わない');
     assert.doesNotMatch(c, /PW_DIST/, 'PW_DIST を渡さない（serve.mjs で mode の outDir より優先される）');
+  });
+
+  // BL-137 と同じ考え（PR #58 のレビューの Nit 1 は、前の steps.changed の if: がなくなって解消）: e2e-nightly で step の if: を持つのは、
+  // mode で分ける 2 つのテストの step と、失敗したときの記録の 2 つだけ（緑の回の注記の保存・ビルド・導入は条件なしで動く）
+  test('BL-137: e2e-nightly で if: を持つ step は、mode の 2 つのテストと失敗したときの記録の 2 つだけ', () => {
+    const withIf = stepsOf(e)
+      .filter((s) => /^ {6}(?:- | {2})if:/m.test(s))
+      .map((s) => /^ {6}- name: (.*)$/m.exec(s)?.[1] ?? s.trim().split('\n')[0]);
+    assert.deepEqual(
+      withIf,
+      [
+        'E2E（webkit・firefox・mobile-safari・mobile-chrome）',
+        'e2e-full（chromium-full・毎晩の 4 つ・prod-builds）',
+        '失敗したときの記録を残す（HTML レポート）',
+        '失敗したときの記録を残す（HTML レポートができなかったときだけ test-results/）',
+      ],
+      `e2e-nightly で if: を持つ step: ${withIf.join(' / ')}`,
+    );
   });
 
   test('package.json の test:e2e:nightly は WebKit・Firefox・モバイル 2 種で、PR ごとの chromium・prod-builds を重ねず、失敗の件数に上限がある（PR #9 のレビュー S-1・N-6）', () => {
