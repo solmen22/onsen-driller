@@ -168,7 +168,10 @@ export function isAllowedUrl(url: string, allowedOrigins: readonly string[]): bo
   return allowedOrigins.includes(u.origin);
 }
 
-/** Playwright の Clock API がタイマー・rAF を実行する関数の名前（Playwright 1.63 の ClockController。例外のスタックに必ず出る） */
+/**
+ * Playwright の Clock API がタイマー・rAF を実行する関数の名前（Playwright 1.63 の ClockController。例外のスタックに必ず出る）。
+ * 見張っている自己テスト: `e2e/common-privacy.spec.ts` の「TS-COM-08 時計」（BL-119）。Playwright の版を上げて名前が変わると赤になる
+ */
 const CLOCK_TIMER_RUNNER = '_callFirstTimer';
 
 /**
