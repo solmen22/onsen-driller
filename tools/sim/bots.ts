@@ -290,7 +290,7 @@ export function botAct(s: GameState, bot: BotDef, mem: BotMemory, out?: GameEven
 function buyCheapest(s: GameState, bot: BotDef, out?: GameEvent[]): void {
   for (let i = 0; i < 40; i++) {
     arrangeSlots(s, bot, out);
-    let best: { item: LevelItem | 'tool'; cost: Num; affordable: boolean } | null = null;
+    let best: { item: BotItem | 'tool'; cost: Num; affordable: boolean } | null = null;
     const t = nextTool(s);
     if (t) best = { item: 'tool', cost: num(t.cost), affordable: s.run.coins.gte(t.cost) };
     for (const item of candidates(s)) {
@@ -316,7 +316,7 @@ function buyRandom(s: GameState, bot: BotDef, mem: BotMemory, out?: GameEvent[])
     if (!s.run.bath.slots.includes(id)) act(s, { type: 'assignSlot', slot, spring: id }, out);
   }
   for (let i = 0; i < 40; i++) {
-    const options: (LevelItem | 'tool')[] = [];
+    const options: (BotItem | 'tool')[] = [];
     const t = nextTool(s);
     if (t && s.run.coins.gte(t.cost)) options.push('tool');
     for (const item of candidates(s)) if (buyQuote(s, item, 1).state === 'affordable') options.push(item);
