@@ -1,9 +1,10 @@
 // E2E E9 保存できない環境（e2e_E9_no-storage.md）
-// PR: TS-E9-01〜04（V1）、TS-E9-07（V2 で 01〜04）、TS-E9-08（V3 で 01〜04 と設定の保存）、TS-E9-10（V5）、TS-E9-13（共通の検査）、
-//     TS-E9-14（V6）、TS-E9-15（V7）（S1）。TS-E9-09（V4。S2 の BL-094 で毎晩から PR へ。QA 判定書 sprint-01 §4・決定 0006-5:
-//     気づけないセーブの消失の唯一の守りが案内で、毎晩のジョブは Chromium を流さないため）。
-//     S2: TS-046-18（BL-046 の保存のトースト。V5。BL-103）。
-//     毎晩: TS-E9-05・06（BL-089）。保留: TS-E9-11（S3）。S2: TS-E9-12（e2e-crazygames。BL-103）。
+// PR: TS-E9-01〜04（V1）、TS-E9-07（V2 で 01〜03。03 に保存のたびの setItem の再試行を含む）、TS-E9-08（V3 で 01〜03 と設定の保存）、
+//     TS-E9-10（V5）、TS-E9-13（共通の検査）、TS-E9-14（V6）、TS-E9-15（V7）（S1）。TS-E9-09（V4。S2 の BL-094 で毎晩から PR へ。
+//     QA 判定書 sprint-01 §4・決定 0006-5: 気づけないセーブの消失の唯一の守りが案内で、毎晩のジョブは Chromium を流さないため）。
+//     S2: TS-046-18（BL-046 の保存のトースト。V5。BL-103）。S2: TS-E9-12（e2e-crazygames。BL-103）。
+// 毎晩: TS-E9-05・06（BL-089）。TS-E9-07・08 の 04 の操作（V2・V3 の 60 秒の自動保存。PR の e2e の時間のため。QA の記録は
+//     org/30_quality/qa-lead/2026-10-18_e2e-time-trigger.md §3-1 の 1-1・1-2。V1 の 04 は PR に残す）。保留: TS-E9-11（S3）。
 // 保存できない状態は context.addInitScript でページのスクリプトより先に入れる（e2e/support/storage.ts の V1〜V7）。
 // 文言は S1 では data-testid（save-warning）で存在だけを見る。文言の一致は S2（BL-052）から。
 // 技術リードの回答（traceability.md §5-2）に合わせた期待
@@ -115,11 +116,19 @@ function noStorageSuite(v: 'V1' | 'V2' | 'V3', id: (n: string) => string): void 
       await expectWarning(page, status);
       await triggerAutosave(page); // 最初の保存
       await expectWarning(page, status);
-      if (v === 'V2') expect(await saveSetItemCalls(page), '最初の保存で枠への setItem が 1 回試される').toBe(1);
+      if (v === 'V2') {
+        expect(await saveSetItemCalls(page), '最初の保存で枠への setItem が 1 回試される').toBe(1);
+        // TS-E9-07: failing の間も保存のたびに setItem が 1 回ずつ試される（再試行）。04（毎晩）と同じ見張りを PR に残す
+        // （QA 判定書 2026-10-18_e2e-time-trigger.md §3-1 の 1-2）
+        await triggerAutosave(page); // 2 回目の保存
+        expect(await saveSetItemCalls(page), '2 回目の保存でも setItem がもう 1 回試される').toBe(2);
+        await expectWarning(page, status);
+      }
       await expectNoKeys(page);
     });
 
-    test(`${id('04')} 自動掘りで 60 秒（自動保存 4 回）動かしても、打撃・コインが増え続け、捕まえていない例外がない`, async ({ page, harness }) => {
+    // V2・V3 の 04 は毎晩（同じ操作の繰り返しで、PR の e2e の時間のため。QA 判定書 2026-10-18_e2e-time-trigger.md §3-1 の 1-1・1-2）
+    test(`${id('04')} 自動掘りで 60 秒（自動保存 4 回）動かしても、打撃・コインが増え続け、捕まえていない例外がない${v === 'V1' ? '' : ' @nightly'}`, async ({ page, harness }) => {
       const g = await bootGame(page);
       await autoDigOn(g);
       const s0 = await g.getState();
