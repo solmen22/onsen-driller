@@ -48,7 +48,7 @@ const stale = targets.filter((t) => t.stale).map((t) => `#${t.def.no}`);
 if (stale.length > 0) console.warn(`test:balance: 受け入れた項目が範囲内に戻った ${stale.join('・')}（tools/sim/targets.ts の ACCEPTED から消す。失敗にはしない）`);
 const benchFail = stepBench !== undefined && !(stepBench.lateUs < 50);
 if (stepBench) console.log(`#23 step: late median ${stepBench.lateUs.toFixed(2)} µs, early ${stepBench.earlyUs.toFixed(2)} µs -> ${benchFail ? 'NG' : 'OK'} (target < 50 µs)`);
-// BL-032 の受け入れ基準 4: 完全な詰み（買えるものがなく、手動を含む収入も 0）が 10 分以上続いた実行がない（全ボット・全シード）
+// BL-032 の受け入れ基準 4: 完全な詰み（買えるものがなく、累計コインが増えない。Q-40 (e)）が 10 分以上続いた実行がない（全ボット・全シード）
 const stuck = runs.filter((r) => r.maxStuckMs >= 10 * 60_000).map((r) => `${r.bot}/s${r.seed}`);
 console.log(`stuck (>= 10 min, all runs): ${stuck.length === 0 ? 'none' : stuck.join(', ')} -> ${stuck.length === 0 ? 'OK' : 'NG'}`);
 console.log(`runs=${runs.length} wall=${((performance.now() - t0) / 1000).toFixed(1)}s report=${outDir}`);
