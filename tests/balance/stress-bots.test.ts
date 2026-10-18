@@ -21,29 +21,29 @@ describe('BL-032 安い順・ランダムの 20 時間（1 秒刻み）', () => 
   it.each([
     ['cheapest', 1],
     ['random', 1],
-  ] as const)('%s・seed %i: 例外なし・健全・詰みなし・転生まで進む', (id, seed) => {
+  ] as const)('TS-032-05 %s・seed %i: 例外なし・健全・詰みなし・転生まで進む', (id, seed) => {
     const r = runBot(BOTS[id], { hours: 20, stepMs: 1000, seed });
     expect(r.healthy).toBe(true);
     expect(r.maxStuckMs).toBeLessThan(STUCK_LIMIT_MS);
     expect(r.prestiges).toBeGreaterThan(0);
   }, 60_000);
 
-  it('ランダムは同じシードで同じ結果（ボットの乱数もシードから決まる）', () => {
+  it('TS-032-06 ランダムは同じシードで同じ結果（ボットの乱数もシードから決まる）', () => {
     const a = runBot(BOTS.random, { hours: 1, stepMs: 1000, seed: 7 });
     const b = runBot(BOTS.random, { hours: 1, stepMs: 1000, seed: 7 });
     expect(a.hash).toBe(b.hash);
   });
 
-  it('ランダム・シード 1・1 時間: ハッシュが固定値と一致（ボットの乱数がシードから決まることの見張り）', () => {
+  it('TS-032-06 ランダム・シード 1・1 時間: ハッシュが固定値と一致（ボットの乱数がシードから決まることの見張り）', () => {
     expect(runBot(BOTS.random, { hours: 1, stepMs: 1000, seed: 1 }).hash).toBe(RANDOM_1H_SEED1_HASH);
   });
 
-  it('詰みの数え方: 新しいゲームで何もしない（タップなし・買わない）と、コインが増えず買えるものもないので詰みとして数える', () => {
+  it('TS-032-05 詰みの数え方: 新しいゲームで何もしない（タップなし・買わない）と、コインが増えず買えるものもないので詰みとして数える', () => {
     const r = runBot({ ...BOTS.idle, id: 'idle', manual: { kind: 'taps', perSec: 0 } }, { hours: 0.25, stepMs: 1000, seed: 1 });
     expect(r.maxStuckMs).toBe(15 * 60_000);
   });
 
-  it('詰みの数え方（Q-40 (e) ②）: 打ってはいるが岩の HP が大きすぎて 1 つも割れない（コインが増えない）状態も詰みとして数える', () => {
+  it('TS-032-05 詰みの数え方（Q-40 (e) ②）: 打ってはいるが岩の HP が大きすぎて 1 つも割れない（コインが増えない）状態も詰みとして数える', () => {
     // 深さ 140m（転生の解放 150m の手前）で威力 1・毎秒 1 タップ: HP 約 3 万で 15 分では割れない。収入の見積もりは正だが、コインは増えない
     const wall = (s: GameState): void => {
       s.run.depth = 140;
@@ -57,7 +57,7 @@ describe('BL-032 安い順・ランダムの 20 時間（1 秒刻み）', () => 
     expect(r.maxStuckMs).toBe(15 * 60_000);
   });
 
-  it('詰みの数え方（Q-40 (e) ② の後半。PR #61 のレビューの Should 1）: 買えるものはないが、コインが入り続けるなら数え直す（詰みではない）', () => {
+  it('TS-032-05 詰みの数え方（Q-40 (e) ② の後半。PR #61 のレビューの Should 1）: 買えるものはないが、コインが入り続けるなら数え直す（詰みではない）', () => {
     // 道具は最後の段、ドリル Lv300・自動掘削機 Lv200・湯船 Lv200・源泉 5 種のポンプ Lv300（4 つを枠に）・改良は全部買った（BL-018）: どれも次のコストが 15 分の収入より大きい。
     // ボットは最初（0 秒）にしか判断しない（買わない・転生しない）。タップなし。入湯料と掘削で累計コインは毎秒増える
     const rich = (s: GameState): void => {

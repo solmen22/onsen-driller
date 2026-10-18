@@ -634,7 +634,7 @@ describe('ダイアログの属性・フォーカス・入力（TS-046-13・14�
   });
 });
 
-describe('要求中・失敗の後のフォーカスと Esc（PR #32 のレビューの S-2。TS-046-13 の追加）', () => {
+describe('TS-046-19 要求中・失敗の後のフォーカスと Esc（PR #32 のレビューの S-2。TS-046-13 の追加）', () => {
   it('動画を押す → ボタンが disabled になりフォーカスが落ちても、本体に戻る。失敗の後に Esc（フォーカスは外）で閉じる', async () => {
     const w = wired();
     m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });

@@ -361,7 +361,7 @@ describe('setClock・rect・renderStats・platform・errors・saveNow', () => {
     const { g } = rig();
     expect(g.renderStats()).toEqual(STATS);
   });
-  it('platform.calls はアダプタの記録（呼び出し順）、setAdResult は dev アダプタに渡し、ほかのアダプタでは何もしない', () => {
+  it('TS-071-18 platform.calls はアダプタの記録（呼び出し順）、setAdResult は dev アダプタに渡し、ほかのアダプタでは何もしない', () => {
     const r = rig();
     r.platform.loadingStart();
     r.platform.loadingStop();

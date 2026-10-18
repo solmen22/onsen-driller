@@ -28,7 +28,7 @@ function track<T>(p: Promise<T>): { done: () => boolean; value: () => T | undefi
   return { done: () => done, value: () => value };
 }
 
-describe('S-2: init の前に来た loadingStart も SDK に届く（main.ts は init の前に life.loadingStart() を呼ぶ）', () => {
+describe('TS-057-21 S-2: init の前に来た loadingStart も SDK に届く（main.ts は init の前に life.loadingStart() を呼ぶ）', () => {
   it('main.ts と同じ順番（loadingStart → init → loadingStop → 最初の入力）で、SDK に loadingStart → loadingStop → gameplayStart が 1 回ずつ', async () => {
     const sdk = crazyMock('crazygames');
     const p = createCrazyGamesPlatform({ getSdk: () => sdk, adsEnabled: true });

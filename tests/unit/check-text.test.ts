@@ -10,7 +10,7 @@ const compiled = compileRules(words.rules as TextRule[]);
 const check = (text: string, c: typeof compiled, opts?: { fileName?: boolean }): Hit[] => checkText(text, c, opts);
 
 describe('語のリスト（scripts/text-words.json）', () => {
-  it('QA の文書の付録 A をそのまま写している（version・updated・source が残り、25 規則・719 語）', () => {
+  it('TS-077-11 QA の文書の付録 A をそのまま写している（version・updated・source が残り、25 規則・719 語）', () => {
     expect(words.version).toBe(1);
     expect(words.updated).toBe('2026-09-29');
     expect(words.source).toBe('org/30_quality/qa-lead/2026-09-29_check-text-words.md');
@@ -19,17 +19,17 @@ describe('語のリスト（scripts/text-words.json）', () => {
   });
 });
 
-describe('付録 B の自己テスト（受け入れ基準 3 行目）', () => {
+describe('TS-077-01 付録 B の自己テスト（受け入れ基準 3 行目）', () => {
   it.each(selftest.mustHit)('検出する: %s', (s) => {
     expect(check(s, compiled).length).toBeGreaterThan(0);
   });
   it.each(selftest.mustPass)('検出しない: %s', (s) => {
     expect(check(s, compiled)).toEqual([]);
   });
-  it.each(selftest.fileNamesHit)('ファイル名で検出する: %s', (s) => {
+  it.each(selftest.fileNamesHit)('TS-077-08 ファイル名で検出する: %s', (s) => {
     expect(check(s, compiled, { fileName: true }).length).toBeGreaterThan(0);
   });
-  it.each(selftest.fileNamesPass)('ファイル名で検出しない: %s', (s) => {
+  it.each(selftest.fileNamesPass)('TS-077-08 ファイル名で検出しない: %s', (s) => {
     expect(check(s, compiled, { fileName: true })).toEqual([]);
   });
   it('件数: 検出 65・検出しない 100・ファイル名 3＋16', () => {
@@ -56,7 +56,7 @@ describe('照合の規則', () => {
     expect(check('完全­無料', compiled).map((h) => h.rule)).toContain('C1');
     expect(check('kid​-friendly', compiled).map((h) => h.rule)).toContain('K2');
   });
-  it('ファイル名は P・W・N の英字の規則だけ（C2 の no ads はファイル名では見ない）', () => {
+  it('TS-077-09 ファイル名は P・W・N の英字の規則だけ（C2 の no ads はファイル名では見ない）', () => {
     expect(check('balance-no-ads.test.ts', compiled, { fileName: true })).toEqual([]);
   });
 });
@@ -64,7 +64,7 @@ describe('照合の規則', () => {
 describe('許可リスト（受け入れ基準 2・3 行目）', () => {
   const file = 'src/i18n/ja.json';
   const body = JSON.stringify({ 'x.claim': '完全無料で遊べる' });
-  it('検出語を含む文字列は失敗し、許可リストに入れると通る（ファイル＋キー＋規則＋語で 1 件だけ）', () => {
+  it('TS-077-02 検出語を含む文字列は失敗し、許可リストに入れると通る（ファイル＋キー＋規則＋語で 1 件だけ）', () => {
     const hits = checkFile(file, body, compiled);
     expect(hits.length).toBeGreaterThan(0);
     const h = hits[0]!;
@@ -80,7 +80,7 @@ describe('許可リスト（受け入れ基準 2・3 行目）', () => {
     const allow = [{ file: 'ASSETS.md', line: '完全無料の素材', rule: hits[0]!.rule, word: hits[0]!.word, reason: 'r', approvedBy: 'qa-lead', date: '2026-10-12' }];
     expect(isAllowed(allow, hits[0]!)).toBe(true);
   });
-  it('reason・approvedBy・date がない・場所がない（ファイル全体）・説明文で H・P・C の許可はエラー', () => {
+  it('TS-077-03・TS-077-04 reason・approvedBy・date がない・場所がない（ファイル全体）・説明文で H・P・C の許可はエラー', () => {
     const ok = { file, key: 'k', rule: 'C1', word: '完全無料', reason: 'r', approvedBy: 'qa-lead', date: '2026-10-12' };
     expect(allowlistProblems([ok])).toEqual([]);
     for (const k of ['reason', 'approvedBy', 'date'] as const) expect(allowlistProblems([{ ...ok, [k]: '' }])).not.toEqual([]);
@@ -92,12 +92,12 @@ describe('許可リスト（受け入れ基準 2・3 行目）', () => {
 });
 
 describe('検査の対象（CEO 決定 2026-09-29）', () => {
-  it('i18n・content・assets-src・index.html・ASSETS.md・docs/store を見て、語のリスト・許可リスト・tests・e2e・LICENSES は見ない', () => {
+  it('TS-077-06・TS-077-08 i18n・content・assets-src・index.html・ASSETS.md・docs/store を見て、語のリスト・許可リスト・tests・e2e・LICENSES は見ない', () => {
     for (const f of ['src/i18n/ja.json', 'src/content/springs.ts', 'assets-src/palette.json', 'index.html', 'ASSETS.md', 'docs/store/itch.en.md']) expect(isTarget(f)).toBe(true);
     for (const f of ['scripts/text-words.json', 'scripts/text-allowlist.json', 'tests/unit/check-text.test.ts', 'e2e/e1.spec.ts', 'LICENSES/OFL.txt', 'src/ui/App.tsx', 'assets-src/fonts/a.ttf'])
       expect(isTarget(f)).toBe(false);
   });
-  it('i18n の JSON はキーを見ない（値だけ）', () => {
+  it('TS-077-05 i18n の JSON はキーを見ない（値だけ）', () => {
     expect(checkFile('src/i18n/en.json', JSON.stringify({ 'health.free': 'ok' }), compiled)).toEqual([]);
   });
 });

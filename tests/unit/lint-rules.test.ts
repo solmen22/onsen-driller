@@ -22,7 +22,7 @@ async function ruleIds(filePath: string, code: string): Promise<string[]> {
 const DET_LAYERS = ['src/core', 'src/content', 'src/save', 'tools/sim'];
 const TIMER_LAYERS = ['src/core', 'src/content'];
 
-describe('TS-006-05 決定論を壊す API（core・content・save・tools/sim）', () => {
+describe('TS-006-05・TS-031-01 決定論を壊す API（core・content・save・tools/sim）', () => {
   const codes = ['export const a = Math.random();', 'export const a = Date.now();', 'export const a = performance.now();', 'export const a = new Date();'];
   for (const dir of DET_LAYERS)
     for (const code of codes)
@@ -196,7 +196,7 @@ describe('レビュー S-7: ディレクトリの import（index.ts を省いた
   });
 });
 
-describe('レビュー N-2: eval・new Function・constructor 経由の関数の生成（core・content・save・tools/sim）', () => {
+describe('TS-026-19 レビュー N-2: eval・new Function・constructor 経由の関数の生成（core・content・save・tools/sim）', () => {
   const codes = [
     "export const a = eval('Date.now()');",
     "export const a = new Function('return Date.now()')();",

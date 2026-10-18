@@ -130,7 +130,7 @@ describe('TS-015-02・03 深さに届くと源泉を発見し、ポンプ Lv1 �
     expect(rel(s.run.coins.toNumber(), coinsBefore.add(gained).toNumber())).toBeLessThan(1e-12);
   });
 
-  it('発見した源泉は空いている最初の枠につながる（2 つ目以降も。Q-31 (a)）。空きがなければつながない', () => {
+  it('TS-015-22 発見した源泉は空いている最初の枠につながる（2 つ目以降も。Q-31 (a)）。空きがなければつながない', () => {
     const t = stateWith({ bath: 5, pumps: { simple: 3 } });
     expect(t.run.bath.slots).toEqual(['simple', null]);
     reach(t, 80);
@@ -190,7 +190,7 @@ describe('TS-015-04・05 発見の境目', () => {
     expect(found(exact.ev)).toEqual([{ type: 'SpringFound', spring: 'simple', depth: 30 }]);
   });
 
-  it('Q-31 (e) 源泉の深さを越えた状態（読み込み・地形）から掘っても見逃さない: 次に壊したブロックで浅い順に発見し、depth は源泉の深さ', () => {
+  it('TS-015-21 Q-31 (e) 源泉の深さを越えた状態（読み込み・地形）から掘っても見逃さない: 次に壊したブロックで浅い順に発見し、depth は源泉の深さ', () => {
     const s = createInitialState(2);
     s.run.depth = 100; // 単純温泉・二酸化炭素泉の深さを越えているが未発見
     s.run.maxDepth = 100;

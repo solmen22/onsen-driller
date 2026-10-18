@@ -41,11 +41,11 @@ function fake(bot: string, seed: number, over: Partial<SimResult> = {}): SimResu
 }
 
 describe('BL-033 目標表の定義（gdd §8-3）', () => {
-  it('24 項目が #1〜#24 の順にある', () => {
+  it('TS-033-01 24 項目が #1〜#24 の順にある', () => {
     expect(TARGETS.map((t) => t.no)).toEqual(Array.from({ length: 24 }, (_, i) => i + 1));
   });
 
-  it('範囲は受け入れ基準のとおり（#2 5〜15 秒 … #10 25:00〜40:00、#17 250m 以上、#18 50% 超）', () => {
+  it('TS-033-01 範囲は受け入れ基準のとおり（#2 5〜15 秒 … #10 25:00〜40:00、#17 250m 以上、#18 50% 超）', () => {
     const r = (no: number): [number | undefined, number | undefined, number | undefined] => {
       const t = TARGETS.find((x) => x.no === no);
       return [t?.min, t?.max, t?.gt];
@@ -91,7 +91,7 @@ describe('BL-033 目標表の定義（gdd §8-3）', () => {
 });
 
 describe('BL-033 判定の規則', () => {
-  it('中央値（偶数個は真ん中の 2 つの平均）・範囲（両端を含む・「超」は含まない）', () => {
+  it('TS-033-02 中央値（偶数個は真ん中の 2 つの平均）・範囲（両端を含む・「超」は含まない）', () => {
     expect(median([3, 1, 2])).toBe(2);
     expect(median([4, 1, 3, 2])).toBe(2.5);
     expect(median([])).toBeNull();
@@ -110,12 +110,12 @@ describe('BL-033 判定の規則', () => {
     expect(t(at([16_000, 16_000, 14_000]))?.judged).toBe(16_000);
   });
 
-  it('出来事が半分より多いシードで起きていなければ失敗（起きていない＝範囲外）', () => {
+  it('TS-033-04 出来事が半分より多いシードで起きていなければ失敗（起きていない＝範囲外）', () => {
     const runs = [fake('standard', 1, { milestones: { simple: 40_000 } }), fake('standard', 2), fake('standard', 3)];
     expect(judgeTargets(runs, []).find((x) => x.def.no === 3)?.verdict).toBe('fail');
   });
 
-  it('範囲外でも、保留の項目は失敗にしない。受け入れた項目は幅の中なら「受け入れ」になる', () => {
+  it('TS-033-04 範囲外でも、保留の項目は失敗にしない。受け入れた項目は幅の中なら「受け入れ」になる', () => {
     const runs = [fake('standard', 1, { newElementGapMs: 10 * MIN, milestones: { sulfur: 13 * MIN } })];
     const res = judgeTargets(runs, [acc8]);
     expect(res.find((x) => x.def.no === 9)?.verdict).toBe('pending');
@@ -175,18 +175,18 @@ describe('BL-033 判定の規則', () => {
   });
 });
 
-describe('BL-033 npm run test の短縮版（標準・放置 × シード 1〜8 × 1 時間）', () => {
+describe('TS-031-10 BL-033 npm run test の短縮版（標準・放置 × シード 1〜8 × 1 時間）', () => {
   const runs = runSuite({ bots: ['standard', 'idle'], seeds: DEFAULT_SEEDS, longHours: 1, shortHours: 1 });
   const res = judgeTargets(runs);
 
-  it('判定する項目（#2〜#8・#10・#14・#15・#17・#18・#22）に失敗がない（受け入れた項目は ACCEPTED の理由つき）', () => {
+  it('TS-014-19・TS-015-16・TS-015-17・TS-015-18・TS-015-19・TS-015-20・TS-016-19・TS-017-14・TS-031-09・TS-033-07 判定する項目（#2〜#8・#10・#14・#15・#17・#18・#22）に失敗がない（受け入れた項目は ACCEPTED の理由つき）', () => {
     const fails = res.filter((r) => r.verdict === 'fail').map((r) => `#${r.def.no} ${String(r.judged)}`);
     expect(fails).toEqual([]);
     const judged = res.filter((r) => r.def.kind === 'judge').map((r) => r.def.no);
     expect(judged).toEqual([2, 3, 4, 5, 6, 7, 8, 10, 14, 15, 17, 18, 22]);
   });
 
-  it('レポートの Markdown・CSV・グラフができる（シードごとの値と判定に使った値が出る）', () => {
+  it('TS-033-06・TS-090-07 レポートの Markdown・CSV・グラフができる（シードごとの値と判定に使った値が出る）', () => {
     const files = buildReport(runs, res, { seeds: DEFAULT_SEEDS });
     expect(files['summary.md']).toMatch(/判定に使った値（中央値）/);
     expect(files['summary.md']).toMatch(/s8 /);
