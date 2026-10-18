@@ -729,6 +729,9 @@ describe('ci.yml', () => {
     // verify にはジョブの if: を置かない（どのきっかけでも必ず動く。BL-098・PR #28 のレビュー S-1 (b)。ラベルの run は preview.yml）
     assert.doesNotMatch(v, /^ {4}if:/m, 'verify にジョブの if: がある（push や特定のきっかけで E2E を含む verify が skip になりうる）');
     assert.match(ci, /^on:\n(?: {2}.*\n| {4}.*\n)*? {2}push:\n {4}branches: \[main\]\n/m, 'main への push で ci.yml が動かない');
+    // パスの絞り込みを置かない（リポジトリの公開〔2026-10-18〕の後、main のルールセットで verify を必須のチェックにする前提。
+    // 絞り込みがあると run の出ない PR は verify が「待機中」のまま残り、マージできない）
+    assert.doesNotMatch(code(ci), /^ {4}paths(?:-ignore)?:/m, 'ci.yml の on: に paths・paths-ignore がある（verify が必須のチェックのとき、run の出ない PR がマージできない）');
     // test:e2e の step 自体に if: がない（push で飛ばされない）
     const st = steps(v).find((s) => /^ +run: npm run test:e2e$/m.test(s));
     assert.ok(st, 'verify に npm run test:e2e の step がない');
