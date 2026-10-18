@@ -168,5 +168,15 @@
   "upgrade.yumomiSalt": "湯もみ板（塩化物泉）",
   "upgrade.twinBit": "二重ビット",
   "upgrade.polisher": "研磨台",
-  "upgrade.yumomiSulfur": "湯もみ板（硫黄泉）"
+  "upgrade.yumomiSulfur": "湯もみ板（硫黄泉）",
+  "upgrade.bought": "購入済み",
+  "upgrades.intro": "改良は 1 つずつ 1 回だけ買えます。効果はこの周回のあいだ続き、転生で元に戻ります。",
+  "upgrades.available": "まだ買っていない改良",
+  "upgrades.boughtHead": "買った改良",
+  "upgrades.noneAvailable": "解放した改良はすべて買いました",
+  "upgrades.next": "次の改良「{name}」",
+  "upgrades.condDepth": "{n}m で解放（あと {left}m）",
+  "upgrades.condPump": "{spring}のポンプ Lv {cur}/{n} で解放",
+  "upgrades.allBought": "すべての改良を買いました",
+  "upgrades.condPumpUnfound": "{depth}m で{spring}を見つけ、ポンプ Lv {n} で解放（あと {left}m）"
 }

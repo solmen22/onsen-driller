@@ -4,7 +4,9 @@
 // - 数（-qty）: ×1 以外で n > 0 のとき「×n」。コスト（-cost）: n > 0 なら n 個の合計、0 個（「最大」で 1 個も買えない）なら次の 1 個
 // - 目安（-eta）: 足りないときだけ。secondsUntil が null（収入 0）なら「あと N コイン」
 // - 効果（-effect）: core の関数（drillPower・autoDiggerHitsPerSec・TOOLS の倍率）を、買った後の仮の状態に当てて比べる（式は UI に書かない）
+// - 改良（upgrade:<id>。T3）: 名前と効果（content の effect を T2 と同じ語彙で）。一度きりなのでレベルと数は出さず、買った後も効果を出す（何が効いているか分かるように）
 import { TOOLS } from '../../content/tools.ts';
+import { UPGRADE_BY_ID, isUpgradeId } from '../../content/upgrades.ts';
 import {
   autoDiggerHitsPerSec,
   buyQuote,
@@ -22,6 +24,7 @@ import {
 } from '../../core/index.ts';
 import { t, tn, type Lang, type TextKey } from '../../i18n/index.ts';
 import { etaParts, formatNum, formatShortfall } from '../format.ts';
+import { effectText } from './inn-view.ts';
 
 export interface BuyEta {
   /** 「あと N 秒」の秒（収入 0 なら null） */
@@ -54,7 +57,13 @@ export interface BuyView {
   unlockDepth: number | null;
   /** 道具の次の段の ID（プレビュー用。最後の段なら null） */
   nextToolId: string | null;
+  /** maxed のときの文（ふつうは「完了」、改良は「購入済み」） */
+  doneText: string;
 }
+
+/** 改良の ID（'upgrade:<id>' の <id>）。改良でなければ null */
+const UPGRADE_PREFIX = 'upgrade:';
+const upgradeIdOf = (item: ItemId): string | null => (item.startsWith(UPGRADE_PREFIX) ? item.slice(UPGRADE_PREFIX.length) : null);
 
 /** 品目の ID → data-testid（camelCase をハイフンに、':' を '-' に。Q-17） */
 export const buyTestId = (item: ItemId): string => `buy-${item.replace(':', '-').replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
@@ -86,6 +95,8 @@ function withLevels(s: GameState, drill: number, digger: number): GameState {
 
 function effectOf(s: GameState, item: ItemId, k: number): string {
   const r = s.run;
+  const up = upgradeIdOf(item);
+  if (up !== null) return isUpgradeId(up) ? effectText(UPGRADE_BY_ID[up].effect) : '';
   switch (item) {
     case 'drill': {
       const before = drillPower(s);
@@ -118,6 +129,8 @@ function nameOf(item: ItemId, s: GameState): { name: string; levelText: string }
       levelText: t(`tool.${cur?.id ?? 'shovel'}` as TextKey),
     };
   }
+  const up = upgradeIdOf(item);
+  if (up !== null) return { name: isUpgradeId(up) ? t(`upgrade.${up}` as TextKey) : '', levelText: '' }; // 一度きり（レベルなし）
   const level = buyQuote(s, item, 1).level;
   if (item.startsWith('pump:')) {
     // どの源泉のポンプかを名前に入れる（T2 に同じ名前のボタンが並ぶため。読み上げでも分かるように。PR #46 のレビューの S-2・BL-130）
@@ -137,15 +150,16 @@ export function buyView(s: GameState, item: ItemId, qty: Qty, lang: Lang): BuyVi
     testId: buyTestId(item),
     state: q.state,
     n: q.n,
-    showQty: item !== 'tool' && qty !== 1 && q.n > 0,
+    showQty: item !== 'tool' && upgradeIdOf(item) === null && qty !== 1 && q.n > 0,
     cost: toStr(shown),
     costText: costText(formatNum(shown, lang)), // 所持コインと同じ切り捨て（等しい値は同じ表記。Q-33）
     level: q.level,
     levelText,
     name,
-    effectText: q.state === 'maxed' ? '' : effectOf(s, item, q.n > 0 ? q.n : 1),
+    effectText: q.state === 'maxed' && upgradeIdOf(item) === null ? '' : effectOf(s, item, q.n > 0 ? q.n : 1),
     eta: q.state === 'insufficient' ? etaOf(s, shown, lang) : null,
     unlockDepth: q.state === 'locked' ? (q.unlockDepth ?? null) : null,
     nextToolId: item === 'tool' ? (TOOLS[s.run.drill.tool + 1]?.id ?? null) : null,
+    doneText: upgradeIdOf(item) !== null ? t('upgrade.bought') : t('buy.maxed'),
   };
 }
