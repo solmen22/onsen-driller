@@ -7,6 +7,8 @@
 //   効果の残りはロジックの時間（advance）、休みは壁時計（readyAtWallMs。setClock）で進む（PR #55 の再レビューの S-2 の形）
 // - TS-126-06（BL-136）: 動画もチケットも使えない unavailable（「使えない」／「Unavailable」。en はいちばん長い）でも同じ。
 //   「準備中」／「Soon」はご褒美の口がつながっていないときだけの表記で、e2e のビルドではつながっているので出ない
+// - PR（chromium）に入れるのは優先度 高の TS-126-05 の 390×844 だけ。320×568 の繰り返しと優先度 中の TS-126-06 は最初から @nightly
+//   （QA 2026-10-18 の e2e の時間の判定 §3-3 の後の「新しく足す e2e」の規則）
 import type { Page } from '@playwright/test';
 import { test, expect } from './support/fixtures.ts';
 import { bootGame } from './support/boot.ts';
@@ -82,7 +84,7 @@ for (const [locale, digger, rest, ready, unavailable] of [
         expectSteady(shots);
       });
 
-      test(`TS-126-05 ${vp.width}×${vp.height}: 効果が終わって休み → 休みが明けて ready（操作なしの変化）でも、幅・高さ 44px・1 行・自動掘りの位置が変わらない（${locale}）`, async ({ page }) => {
+      test(`TS-126-05 ${vp.width}×${vp.height}: 効果が終わって休み → 休みが明けて ready（操作なしの変化）でも、幅・高さ 44px・1 行・自動掘りの位置が変わらない（${locale}）${vp.width === 320 ? ' @nightly' : ''}`, async ({ page }) => {
         const g = await bootGame(page, { viewport: vp });
         await settle(page);
         const shots: Shot[] = [];
@@ -109,7 +111,7 @@ for (const [locale, digger, rest, ready, unavailable] of [
         expectSteady(shots);
       });
 
-      test(`TS-126-06 ${vp.width}×${vp.height}: 動画もチケットも使えない（unavailable）でも、幅・高さ 44px・1 行・自動掘りの位置が変わらない（${locale}）`, async ({ page }) => {
+      test(`TS-126-06 ${vp.width}×${vp.height}: 動画もチケットも使えない（unavailable）でも、幅・高さ 44px・1 行・自動掘りの位置が変わらない（${locale}） @nightly`, async ({ page }) => {
         const g = await bootGame(page, { viewport: vp });
         await settle(page);
         const shots: Shot[] = [];
