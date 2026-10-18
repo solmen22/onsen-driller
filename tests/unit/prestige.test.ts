@@ -128,3 +128,35 @@ describe('BL-021 リセットの範囲（gdd §5-8。fast-check）', () => {
     expect(JSON.stringify(cloneState(s))).toBe(before);
   });
 });
+
+describe('BL-021 転生の推奨の基準（CEO 回答 2026-10-18: 前回の獲得の 1.5 倍、最低 30）と「あと何 m」', () => {
+  it('1 周目は 30。前回 36 なら 54、前回 10 なら 30（最低）。前回 9 の 1.5 倍＝13.5 は 30 に届かない', () => {
+    const s = stateWith({ depth: 300 });
+    expect(prestigeView(s).recommendAt).toBe(30);
+    for (const [last, at] of [
+      [36, 54],
+      [10, 30],
+      [9, 30],
+      [21, 32], // 31.5 → 32（湯の華は整数なので切り上げ）
+      [64, 96],
+    ] as const) {
+      s.meta.lastPrestigeGain = num(last);
+      expect(prestigeView(s).recommendAt, String(last)).toBe(at);
+    }
+  });
+  it('転生すると lastPrestigeGain が今回の獲得になり、次の周回の基準が上がる', () => {
+    const s = stateWith({ depth: 300 }); // 36
+    dispatch(s, { type: 'prestige' });
+    expect(s.meta.lastPrestigeGain.toNumber()).toBe(36);
+    expect(prestigeView(s).recommendAt).toBe(54);
+    s.run.maxDepth = 367; // floor(7.34²)=53
+    expect(prestigeView(s).recommended).toBe(false);
+    s.run.maxDepth = 368; // floor(7.36²)=54
+    expect(prestigeView(s).recommended).toBe(true);
+  });
+  it('あと何 m: 120m なら 30、150m 以上なら 0', () => {
+    expect(prestigeView(stateWith({ depth: 120 })).metersToUnlock).toBe(30);
+    expect(prestigeView(stateWith({ depth: 150 })).metersToUnlock).toBe(0);
+    expect(prestigeView(stateWith({ depth: 400 })).metersToUnlock).toBe(0);
+  });
+});

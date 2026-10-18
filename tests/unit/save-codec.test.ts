@@ -104,10 +104,10 @@ describe('TS-026-02 Decimal は文字列、回数・レベル・深さは数値'
 });
 
 describe('TS-026-03・04 封筒と checksum', () => {
-  it('キーは 6 つ、schema 1・savedAt は注入した時刻・appVersion は版', () => {
+  it('キーは 6 つ、schema は今の版・savedAt は注入した時刻・appVersion は版', () => {
     const e = envOf(createInitialState(1), 7, 1_234_567);
     expect(Object.keys(e).sort()).toEqual(['appVersion', 'checksum', 'game', 'savedAt', 'schema', 'seq']);
-    expect([e.schema, e.seq, e.savedAt, e.appVersion]).toEqual([1, 7, 1_234_567, APP]);
+    expect([e.schema, e.seq, e.savedAt, e.appVersion]).toEqual([SAVE_SCHEMA_VERSION, 7, 1_234_567, APP]);
     expect(typeof e.game).toBe('object');
   });
   it('checksum は正規化した game の FNV-1a（小文字 16 進 8 桁）。既知の値も一致', () => {
@@ -244,7 +244,7 @@ describe('TS-026-12・13 拒否（game・run・meta・schema）', () => {
     delete (e.game as Record<string, unknown>).run;
     expect(decodeSave(resign(e))).toEqual({ ok: false, reason: 'invalidGame' });
   });
-  it('schema がない・0 は shape、"1" は 1 として読む、2（新しい版）は newer', () => {
+  it('schema がない・0 は shape、"2" は 2 として読む、1（古い版）も読む、3（新しい版）は newer', () => {
     const withSchema = (schema: unknown): ReturnType<typeof decodeSave> => {
       const e = envOf(createInitialState(1)) as Env & { schema?: unknown };
       if (schema === undefined) delete e.schema;
@@ -254,8 +254,9 @@ describe('TS-026-12・13 拒否（game・run・meta・schema）', () => {
     expect(withSchema(undefined)).toEqual({ ok: false, reason: 'shape' });
     expect(withSchema(0)).toEqual({ ok: false, reason: 'shape' });
     expect(withSchema(1.5)).toEqual({ ok: false, reason: 'shape' });
-    expect(withSchema('1').ok).toBe(true);
-    expect(withSchema(2)).toEqual({ ok: false, reason: 'newer' });
+    expect(withSchema('2').ok).toBe(true);
+    expect(withSchema(1).ok).toBe(true);
+    expect(withSchema(3)).toEqual({ ok: false, reason: 'newer' });
   });
   it('封筒のキーの欠落・seq が負や小数 → shape。savedAt・appVersion の型違いは補正', () => {
     const e = envOf(createInitialState(1)) as Env & { seq?: unknown };
@@ -271,11 +272,11 @@ describe('TS-026-12・13 拒否（game・run・meta・schema）', () => {
   });
 });
 
-describe('TS-026-20 新しい版（schema 2）は封筒の形・checksum より先に newer と判定する（レビュー M-1）', () => {
-  /** schema 2 の封筒（中身は正しい v1 の game。今の版の書き方で作ってから schema だけ変える） */
+describe('TS-026-20 新しい版（今の版＋1）は封筒の形・checksum より先に newer と判定する（レビュー M-1）', () => {
+  /** 新しい版の封筒（中身は正しい今の版の game。今の版の書き方で作ってから schema だけ変える） */
   const newerEnv = (): Env & Record<string, unknown> => {
     const e = envOf(stateWith({ coins: 50, depth: 20 }), 9) as Env & Record<string, unknown>;
-    e.schema = 2;
+    e.schema = SAVE_SCHEMA_VERSION + 1;
     return e;
   };
   it('① checksum 違い ② checksum なし・数値 ③ seq なし・"3"・−1 ④ savedAt・appVersion なし ⑤ game なし・文字列・配列・null ⑥ 知らないキー ⑦ run なし → どれも newer', () => {
@@ -302,7 +303,7 @@ describe('TS-026-20 新しい版（schema 2）は封筒の形・checksum より�
       expect(() => (r = decodeSave(JSON.stringify(e))), name).not.toThrow();
       expect(r, name).toEqual({ ok: false, reason: 'newer' });
     }
-    expect(decodeSave('{"schema":2}')).toEqual({ ok: false, reason: 'newer' });
+    expect(decodeSave('{"schema":3}')).toEqual({ ok: false, reason: 'newer' });
     expect(decodeSave('{"schema":3,"envelope":{"v":1}}')).toEqual({ ok: false, reason: 'newer' });
   });
 });
@@ -318,33 +319,33 @@ describe('TS-026-21 schema の境界（新しい版・今の版・版として�
   const breakSum = (e: Env): void => {
     e.checksum = '00000000';
   };
-  it('2・"2"・999・MAX_SAFE_INTEGER → ほかが正しくても崩れていても newer', () => {
-    for (const v of [2, '2', 999, Number.MAX_SAFE_INTEGER]) {
+  it('3・"3"・999・MAX_SAFE_INTEGER → ほかが正しくても崩れていても newer', () => {
+    for (const v of [3, '3', 999, Number.MAX_SAFE_INTEGER]) {
       expect(withSchema(v), String(v)).toEqual({ ok: false, reason: 'newer' });
       expect(withSchema(v, breakSum), `${v} + checksum`).toEqual({ ok: false, reason: 'newer' });
     }
   });
-  it('1（今の版）は従来どおり検査する: checksum 違い → checksum、seq なし → shape', () => {
-    expect(withSchema(1, breakSum)).toEqual({ ok: false, reason: 'checksum' });
-    expect(withSchema(1, (e) => delete e.seq)).toEqual({ ok: false, reason: 'shape' });
+  it('2（今の版）は従来どおり検査する: checksum 違い → checksum、seq なし → shape', () => {
+    expect(withSchema(2, breakSum)).toEqual({ ok: false, reason: 'checksum' });
+    expect(withSchema(2, (e) => delete e.seq)).toEqual({ ok: false, reason: 'shape' });
   });
   it('0・−1・1.5・"abc"・null・キーなし → shape。封筒がオブジェクトでない → shape', () => {
     for (const v of [0, -1, 1.5, 'abc', null, undefined]) expect(withSchema(v), String(v)).toEqual({ ok: false, reason: 'shape' });
     for (const raw of ['[1,2]', '42', 'null']) expect(decodeSave(raw), raw).toEqual({ ok: false, reason: 'shape' });
   });
-  it('Q-22: 途中で切れた・100 万文字超・入れ子 65 段の schema 2 のセーブも newer（先頭の "schema":2 を拾う）', () => {
-    const raw = encodeSave(stateWith({ coins: 50 }), 9, 1, APP).replace('{"schema":1', '{"schema":2');
-    expect(raw.startsWith('{"schema":2,')).toBe(true);
+  it('Q-22: 途中で切れた・100 万文字超・入れ子 65 段の 新しい版（schema 3）のセーブも newer（先頭の "schema":3 を拾う）', () => {
+    const raw = encodeSave(stateWith({ coins: 50 }), 9, 1, APP).replace('{"schema":2', '{"schema":3');
+    expect(raw.startsWith('{"schema":3,')).toBe(true);
     expect(decodeSave(raw.slice(0, raw.length / 2))).toEqual({ ok: false, reason: 'newer' });
-    expect(decodeSave('{"schema":2')).toEqual({ ok: false, reason: 'newer' });
-    expect(decodeSave('{ "schema" : "2" ,')).toEqual({ ok: false, reason: 'newer' });
-    expect(decodeSave(`{"schema":2,"pad":"${'x'.repeat(1_100_000)}"}`)).toEqual({ ok: false, reason: 'newer' });
-    expect(decodeSave(`{"schema":2,"deep":${'['.repeat(65)}${']'.repeat(65)}}`)).toEqual({ ok: false, reason: 'newer' });
+    expect(decodeSave('{"schema":3')).toEqual({ ok: false, reason: 'newer' });
+    expect(decodeSave('{ "schema" : "3" ,')).toEqual({ ok: false, reason: 'newer' });
+    expect(decodeSave(`{"schema":3,"pad":"${'x'.repeat(1_100_000)}"}`)).toEqual({ ok: false, reason: 'newer' });
+    expect(decodeSave(`{"schema":3,"deep":${'['.repeat(65)}${']'.repeat(65)}}`)).toEqual({ ok: false, reason: 'newer' });
   });
-  it('今の版（schema 1）・先頭が schema でないものの壊れた文字列は今までどおり（newer にしない）', () => {
+  it('今の版（schema 2）・古い版（schema 1）・先頭が schema でないものの壊れた文字列は今までどおり（newer にしない）', () => {
     const raw = encodeSave(stateWith({ coins: 50 }), 1, 1, APP);
     expect(decodeSave(raw.slice(0, raw.length / 2))).toEqual({ ok: false, reason: 'notJson' });
-    expect(decodeSave('{"seq":1,"schema":2')).toEqual({ ok: false, reason: 'notJson' });
+    expect(decodeSave('{"seq":1,"schema":3')).toEqual({ ok: false, reason: 'notJson' });
     expect(decodeSave('{"schema":1,"seq":')).toEqual({ ok: false, reason: 'notJson' });
     expect(decodeSave(`{"schema":1,"pad":"${'x'.repeat(1_100_000)}"}`)).toEqual({ ok: false, reason: 'tooLarge' });
     expect(decodeSave(`{"schema":1,"deep":${'['.repeat(65)}${']'.repeat(65)}}`)).toEqual({ ok: false, reason: 'shape' });
@@ -381,8 +382,8 @@ describe('TS-026-15 序盤の保存データの大きさ（記録）', () => {
 });
 
 describe('TS-026-16 SAVE_SCHEMA_VERSION と新しいゲーム', () => {
-  it('save/schema.ts が 1 を公開し、新しいゲームは補正なしで通る', () => {
-    expect(SAVE_SCHEMA_VERSION).toBe(1);
+  it('save/schema.ts が 2 を公開し、新しいゲームは補正なしで通る', () => {
+    expect(SAVE_SCHEMA_VERSION).toBe(2);
     const r = parseGame(toSaveGame(createInitialState(9)));
     expect(r.ok && r.corrected).toEqual([]);
   });
@@ -455,14 +456,14 @@ describe('TS-026-22 書き出し文字列の往復（property）', () => {
 
 describe('TS-026-23 新しい版の書き出し文字列は newer（checksum より先に判定。Q-24）', () => {
   const game = (): Record<string, unknown> => toSaveGame(stateWith({ coins: 77, depth: 12 })) as unknown as Record<string, unknown>;
-  it('game.schema が 2・"2" → newer（checksum を付け直しても・合わなくても）', () => {
-    for (const v of [2, '2', 999]) {
+  it('game.schema が 3・"3" → newer（checksum を付け直しても・合わなくても）', () => {
+    for (const v of [3, '3', 999]) {
       const g = { ...game(), schema: v };
       expect(reasonOf(importString(exportOf(g))), String(v)).toBe('newer');
       expect(reasonOf(importString(exportOf(g, '00000000'))), `${v} + checksum`).toBe('newer');
     }
   });
-  it('game.schema が 1・"1"・キーなし → 読める（schema は今の版に補正）', () => {
+  it('game.schema が 1・"1"・キーなし（古い版）→ 読める（今の版に移行）', () => {
     for (const v of [1, '1', undefined]) {
       const g = game();
       if (v === undefined) delete g.schema;

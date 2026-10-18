@@ -148,6 +148,7 @@ export function dispatch(s: GameState, input: unknown): ActionResult {
       if (!gain.gt(0)) return fail('locked');
       s.meta.yunohana.lifetime = add(s.meta.yunohana.lifetime, gain);
       s.meta.prestiges += 1;
+      s.meta.lastPrestigeGain = gain; // 次の周回の「転生の推奨」の基準（BL-021）
       // 掘削ブーストは周回をまたいで続く（効果の残りも休みも。転生で休みを消せないように。BL-058）。
       // 未受け取りのオフライン収入は捨てる（コインは転生でなくなるので、受け取ってから転生しても同じ）。鉱脈は新しい周回で予約し直す
       const boost = { ...s.run.boost };

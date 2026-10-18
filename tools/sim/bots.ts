@@ -229,7 +229,7 @@ export function botTap(s: GameState, bot: BotDef, mem: BotMemory, stepMs: number
 function maybePrestige(s: GameState, mem: BotMemory, out?: GameEvent[]): boolean {
   const gain = yunohanaGain(s).toNumber();
   if (!(gain > 0)) return false;
-  const target = Math.max(PARAMS.prestige.recommendGain, mem.lastGain * 1.5);
+  const target = Math.max(PARAMS.prestige.recommendGain, mem.lastGain * PARAMS.prestige.recommendGrowth); // T4 の推奨と同じ規則（ボットは ceil しないが、湯の華は整数なので同じ判定）
   const stalled = s.clock.playedMs - mem.lastDepthChangeMs >= 120_000;
   if (!(gain >= target || (stalled && gain >= Math.max(9, mem.lastGain)))) return false;
   act(s, { type: 'prestige' }, out);

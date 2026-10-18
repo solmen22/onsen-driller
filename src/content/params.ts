@@ -46,8 +46,11 @@ export const PARAMS = {
   /** オフライン（gdd §9）: 効率の基本 50%。塩化物泉などの足し算の効果を足しても maxEff（100%。オンラインを超えない）まで（BL-016。早送りは S3 の BL-030） */
   offline: { eff: 0.5, maxEff: 1 },
   pumpMilestones: [10, 25, 50, 100],
-  /** 転生（gdd §5-8。BL-021）: recommendGain は「転生の推奨」を出す湯の華の数（目標表 #10。T4 の表示とシミュレーターで同じ値） */
-  prestige: { unlockDepth: 150, divisor: 50, bonusPerYunohana: 0.02, recommendGain: 30 },
+  /**
+   * 転生（gdd §5-8。BL-021）: 「転生の推奨」は、今得られる湯の華が max(recommendGain, 前回の獲得 × recommendGrowth) 以上のとき
+   * （1 周目は 30＝目標表 #10。T4 の表示とボットで同じ値。CEO 回答 2026-10-18）
+   */
+  prestige: { unlockDepth: 150, divisor: 50, bonusPerYunohana: 0.02, recommendGain: 30, recommendGrowth: 1.5 },
   /**
    * 温泉チケット（gdd §5-9。BL-058）: 新しいゲームに initial 枚、上限 max 枚。上限を超えた分は「毎秒の収入 × overflowIncomeSec 秒」のコイン。
    * 1 回の出来事で得る量は固定（購入の個数・払ったコインで変わらない。QA §3-2(b)・Q-36 (a) の条件 1）

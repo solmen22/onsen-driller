@@ -24,7 +24,7 @@ describe('TS-010-01・02 新しいゲーム', () => {
   it('arch §6-1 のフィールドがすべて初期値', () => {
     const s = createInitialState(42);
     expect(s.schema).toBe(SAVE_SCHEMA_VERSION);
-    expect(s.schema).toBe(1);
+    expect(s.schema).toBe(2); // 2: meta.lastPrestigeGain（BL-021）
     expect(s.rng.run).toHaveLength(4);
     expect(s.clock).toEqual({ playedMs: 0 });
     const r = s.run;
@@ -42,6 +42,7 @@ describe('TS-010-01・02 新しいゲーム', () => {
     expect(r.interludeMs).toBe(0);
     expect(s.meta.yunohana.lifetime.eq(0) && s.meta.yunohana.spent.eq(0)).toBe(true);
     expect([s.meta.perks, s.meta.prestiges, s.meta.terrainsUnlocked, s.meta.endingSeen]).toEqual([[], 0, ['mountain'], false]);
+    expect(s.meta.lastPrestigeGain.toNumber()).toBe(0);
     expect(s.collection).toEqual({ ores: {}, springsSeen: [], guestsSeen: {}, achievements: [] });
     expect(s.stats.totalCoins.eq(0)).toBe(true);
     expect({ ...s.stats, totalCoins: 0 }).toEqual({ totalCoins: 0, taps: 0, hits: 0, blocks: 0, bestDepth: 0, offlineMaxMs: 0 });
