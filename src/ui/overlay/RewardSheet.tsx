@@ -19,7 +19,7 @@ import { PARAMS } from '../../content/params.ts';
 import { t } from '../../i18n/index.ts';
 import type { RewardPlacement } from '../../platform/types.ts';
 import { useGame, useUi } from '../hooks/use-game.ts';
-import { AdStatus } from './AdStatus.tsx';
+import { AdStatus, useAdWaiting } from './AdStatus.tsx';
 import { Dialog } from './Dialog.tsx';
 
 /** gdd §5-9 の表示用の数（規則は core〔BL-058〕と content/params.ts。ここで数を書き直さない） */
@@ -32,6 +32,7 @@ export function RewardSheet({ placement, onClose }: { placement: Extract<RewardP
   const hitsLeft = useGame((s) => veinView(s).hitsLeft);
   const veinActive = useGame((s) => veinView(s).active);
   const [requesting, setRequesting] = useState(false);
+  const ad = useAdWaiting(requesting);
   const [failed, setFailed] = useState(false);
   const [videoOk, setVideoOk] = useState(() => requestReward !== undefined && platform.ads.rewardedAvailable());
   /** 1 回押したら閉じるまで次を受け付けない（すばやく 2 回押しても 1 回。TS-046-04） */
@@ -64,6 +65,7 @@ export function RewardSheet({ placement, onClose }: { placement: Extract<RewardP
 
   const onVideo = (): void => {
     if (!requestReward || requesting || used.current) return;
+    ad.begin(); // requestReward の前に同じ呼び出しの中で（すぐ始まる広告でも待ちの案内を残さない。PR #68 のレビュー S-1）
     setRequesting(true);
     setFailed(false);
     requestReward(placement).then(
@@ -109,7 +111,7 @@ export function RewardSheet({ placement, onClose }: { placement: Extract<RewardP
             {placement === 'R2' ? t('sheet.video') : t('sheet.videoOpen')}
           </button>
         )}
-        <AdStatus requesting={requesting} failed={failed} />
+        <AdStatus waiting={ad.waiting} failed={failed} />
         {placement === 'R2' ? (
           <button
             type="button"

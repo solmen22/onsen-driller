@@ -7,7 +7,7 @@
 import { useRef, useState } from 'preact/hooks';
 import { t } from '../../i18n/index.ts';
 import { useGame, useUi } from '../hooks/use-game.ts';
-import { AdStatus } from './AdStatus.tsx';
+import { AdStatus, useAdWaiting } from './AdStatus.tsx';
 import { Dialog } from './Dialog.tsx';
 
 export type WelcomeChoice = 'claim' | 'video' | 'ticket';
@@ -30,6 +30,7 @@ export function WelcomeModal({ amount, onClaim, ticketHook = false, canDouble = 
   const { platform, requestReward } = useUi();
   const tickets = useGame((s) => s.meta.tickets);
   const [requesting, setRequesting] = useState(false);
+  const ad = useAdWaiting(requesting);
   const [videoOk, setVideoOk] = useState(() => requestReward !== undefined && platform.ads.rewardedAvailable());
   const [failed, setFailed] = useState(false);
   const done = useRef(false);
@@ -42,6 +43,7 @@ export function WelcomeModal({ amount, onClaim, ticketHook = false, canDouble = 
 
   const onVideo = (): void => {
     if (!requestReward || requesting || done.current) return;
+    ad.begin(); // requestReward の前に同じ呼び出しの中で（すぐ始まる広告でも待ちの案内を残さない。PR #68 のレビュー S-1）
     setRequesting(true);
     setFailed(false);
     const after = (ok: boolean): void => {
@@ -84,7 +86,7 @@ export function WelcomeModal({ amount, onClaim, ticketHook = false, canDouble = 
             {t('modal.welcome.video')}
           </button>
         )}
-        <AdStatus requesting={requesting} failed={failed} />
+        <AdStatus waiting={ad.waiting} failed={failed} />
         <button
           type="button"
           class="sheet-btn"

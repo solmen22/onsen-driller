@@ -109,7 +109,7 @@
   "toast.adLate.R1": "Video reward: ×2 coins from while away",
   "toast.adLate.R2": "Video reward: dig boost started",
   "toast.adLate.R3": "Video reward: lucky vein opened",
-  "toast.adRefund": "Video reward: your used onsen ticket was returned",
+  "toast.adRefund": "Video reward: the onsen ticket you used was returned",
   "toast.adRefundFull": "Video reward: ticket limit reached, so the ticket could not be returned",
   "panel.soon": "Coming soon",
   "effect.power": "Power ×{x}",

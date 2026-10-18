@@ -200,6 +200,7 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
     fc.record({ k: fc.constant('prestige' as const) }),
     fc.record({ k: fc.constant('refund' as const), placement: fc.constantFrom('R1' as const, 'R2' as const) }),
     fc.record({ k: fc.constant('reload' as const) }),
+    fc.record({ k: fc.constant('reserve' as const) }), // 予約が消えた道（S-5）も操作列に入れる（QA の PR #68 の確認 §3 の 2）
   );
 
   it('ランダムな操作列: 増加は TicketGained の合計と一致・source は 5 つ・量は固定・回数に上限・0〜10・減るのは R1/R2 の成功で 1 枚・返却は払った回数以下でコインにしない', () => {
@@ -216,6 +217,8 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
         const refunded = { R1: 0, R2: 0 };
         /** 返してよい回か（テストの側の手書きの模型。チケットで払ったら立て、広告・×1・返却・読み込み・転生で倒す。TS-059-30 (b)） */
         const owed = { R1: false, R2: false };
+        /** イベントで数えた adRefund の数（TS-059-30 (a)。QA の PR #68 の確認 §3 の 1） */
+        let refundEvents = 0;
         const unseenAtStart = GUESTS.filter((g) => !Object.hasOwn(s.collection.guestsSeen, g.id)).length;
         for (const op of ops) {
           const before = s.meta.tickets;
@@ -276,6 +279,9 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
               events = dispatch(s, { type: 'prestige' }).events;
               if (ofType(events, 'PrestigeDone').length > 0) owed.R1 = owed.R2 = false; // 印は新しい周回で消える（条件 5）
               break;
+            case 'reserve':
+              events = dispatch(s, { type: 'reserveVein' }).events;
+              break;
             case 'reload':
               Object.assign(s, fromSaveGameTrusted(toSaveGame(s))); // 保存して読み込む（印は保存しない。条件 5）
               owed.R1 = owed.R2 = false;
@@ -283,6 +289,10 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
           }
           const gained = ofType(events, 'TicketGained');
           for (const e of gained) {
+            if (e.source === 'adRefund') {
+              expect(op.k, 'adRefund を出すのは返却の操作だけ（条件 1）').toBe('refund');
+              refundEvents++;
+            }
             expect(QA_SOURCES).toContain(e.source); // ① source は QA の 4 つに閉じる（src の一覧ではなく、テストの一覧と比べる。BL-121）
             expect(e.n + e.overflow).toBe(FIXED[e.source]); // ③ 量は固定（購入の個数・コインの額で変わらない）
             if (e.source === 'guestFirstVisit') guestFirst++;
@@ -301,6 +311,7 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
         expect(veinTickets).toBeLessThanOrEqual(veinOpened);
         expect(prestiges).toBeLessThanOrEqual(ops.filter((o) => o.k === 'prestige').length);
         // ⑥ 返却の回数 ≤ チケットで払った回数（1 回の R1・R2 につき返却は 0 か 1。純増にならない）
+        expect(refundEvents, 'イベントで数えた返却 = 返却の操作の成功').toBe(refunded.R1 + refunded.R2);
         expect(refunded.R1).toBeLessThanOrEqual(paid.R1);
         expect(refunded.R2).toBeLessThanOrEqual(paid.R2);
       }),
@@ -748,17 +759,32 @@ describe('R3 ラッキー鉱脈（TS-058-13〜18）', () => {
   });
 
   it('TS-058-18 温泉チケットが付く割合は 25% 前後（シード 1,000 個で 20〜30%）。同じシードなら同じ結果', () => {
-    const roll = (seed: number): boolean => {
+    /**
+     * 鉱脈を広告で開く。gone なら予約した鉱脈が消えた後に開く（S-5 の道: spawn → reserveVein → 60 秒 → openVein）。
+     * どちらの道でも、チケットの source は vein だけ（付いたら ['vein']、付かなければ []。QA の PR #68 の確認 §3 の 3）
+     */
+    const roll = (seed: number, gone = false): boolean => {
       const s = createInitialState(seed);
       spawnVeinNow(s);
+      if (gone) {
+        expect(dispatch(s, { type: 'reserveVein' }).ok).toBe(true);
+        advance(s, MIN);
+        expect(veinView(s).active).toBe(false);
+      }
       const r = dispatch(s, { type: 'openVein', source: 'ad' });
-      return ofType(r.events, 'VeinOpened')[0]?.ticket === true;
+      expect(r.ok).toBe(true);
+      const ticket = ofType(r.events, 'VeinOpened')[0]?.ticket === true;
+      expect(ofType(r.events, 'TicketGained').map((e) => e.source)).toEqual(ticket ? ['vein'] : []);
+      return ticket;
     };
     let hit = 0;
     for (let seed = 1; seed <= 1000; seed++) if (roll(seed)) hit++;
     expect(hit / 1000).toBeGreaterThanOrEqual(0.2);
     expect(hit / 1000).toBeLessThanOrEqual(0.3);
     for (const seed of [1, 7, 99]) expect(roll(seed)).toBe(roll(seed));
+    let goneHit = 0;
+    for (let seed = 1; seed <= 200; seed++) if (roll(seed, true)) goneHit++;
+    expect(goneHit, '予約が消えた道でもチケットが付くことがある').toBeGreaterThan(0);
   });
 });
 

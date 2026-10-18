@@ -32,7 +32,7 @@ afterEach(() => {
 const NOW = 1_000_000_000_000;
 
 /** 動画（BL-059 の口）とチケット（BL-058 の口）をつないだ Ctx。requestReward の結果は resolve で返す */
-function wired(opts: { video?: boolean; ticketHook?: boolean } = {}) {
+function wired(opts: { video?: boolean; ticketHook?: boolean; startNow?: boolean } = {}) {
   const calls = { useBoostTicket: 0, requests: [] as RewardPlacement[] };
   let resolve: ((r: RewardResult) => void) | null = null;
   const platform = uiPlatform('crazygames');
@@ -52,6 +52,8 @@ function wired(opts: { video?: boolean; ticketHook?: boolean } = {}) {
     },
     requestReward: (p) => {
       calls.requests.push(p);
+      // すぐ始まる広告（dev・e2e の偽の広告・Poki の onStart）: requestReward の中で同期に onAdPlaying(true)（PR #68 のレビュー S-1）
+      if (opts.startNow) for (const cb of [...playingSubs]) cb(true);
       return new Promise<RewardResult>((r) => {
         resolve = r;
       });
@@ -269,6 +271,29 @@ describe('ご褒美のシート（R2・R3）', () => {
     expect(m.q('sheet-reward')).toBeNull();
   });
 
+  it('PR #68 のレビュー S-1: 広告が requestReward の中ですぐ始まっても、待ちの案内は出ない（再生中に「読み込んでいます」を残さない）。次の要求でも同じ', async () => {
+    const w = wired({ startNow: true });
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW, lang: 'ja' });
+    m.click('btn-boost');
+    m.click('sheet-video');
+    expect(m.get('sheet-video').dataset.state).toBe('loading'); // 要求中のまま（スピナー）
+    expect(m.q('ad-loading')).toBeNull();
+    w.play(false);
+    await w.finish('failed');
+    m.click('sheet-video');
+    expect(m.q('ad-loading')).toBeNull();
+  });
+
+  it('決定 0010 の 7 要求の外で始まった広告（ミッドゲームなど）は数えない: その後の要求では待ちの案内が出る', () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW, lang: 'ja' });
+    m.click('btn-boost');
+    w.play(true);
+    w.play(false);
+    m.click('sheet-video');
+    expect(m.get('ad-loading').textContent).toBe(t('ad.loading'));
+  });
+
   it('決定 0010 の 7 時間切れ（failed）で待ちの案内が消えて「今は広告を表示できません」に替わる。もう一度押すと、また待ちの案内が出る（en）', async () => {
     const w = wired();
     m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW, lang: 'en' });
@@ -406,6 +431,13 @@ describe('おかえり（M1。TS-046-06・07）', () => {
     expect(m?.get('welcome-claim').hasAttribute('disabled')).toBe(false);
     m?.click('welcome-claim');
     expect(got).toEqual(['claim']);
+    m?.unmount();
+
+    const now = wired({ startNow: true }); // すぐ始まる広告では出ない（PR #68 のレビュー S-1。シートと同じ）
+    mountWelcome(now.ctx, 0);
+    m?.click('welcome-video');
+    expect(m?.get('welcome-video').dataset.state).toBe('loading');
+    expect(m?.q('ad-loading')).toBeNull();
   });
 
   it('TS-046-07 チケットの口（BL-058）がない間は、チケットで ×2 は押せない', () => {
