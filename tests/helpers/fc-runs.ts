@@ -7,11 +7,67 @@
 //   FC_NUM_RUNS   … すべての性質の試行回数をこの数にする（正の整数。FC_RUNS_SCALE より優先）
 //   FC_RUNS_SCALE … 各性質の既定の回数に掛ける倍率（正の数。端数は切り上げ）
 //   FC_SEED       … すべての性質のシード（整数）。反例の再現は `FC_SEED=<seed> npm run test:property:full -- <ファイル>`
+//   FC_SHRINK_LIMIT_MS … 反例の縮小（shrink）に使う時間の上限（ミリ秒。0 以上の整数。0 は上限なし。既定 SHRINK_LIMIT_MS）
 // 形の正しくない値は例外にする（毎晩の設定の誤りを、黙って既定の回数で流して見逃さないように）。使い方の説明は docs/testing.md
+
+import fc from 'fast-check';
 
 export interface FcRunOptions {
   numRuns: number;
   seed?: number;
+  /** 縮小の時間の上限（shrinkTimeLimit）。上限なし（FC_SHRINK_LIMIT_MS=0）のときは持たない */
+  plugins?: fc.Plugin<unknown>[];
+}
+
+/**
+ * 反例の縮小の時間の上限の既定（BL-140。PR #62 の再レビューの N-7）。gameStateArb の状態は大きく、テストは同期で動くので
+ * vitest の testTimeout では止まらず、変異で 10 分を超えても縮小が終わらなかった。最初の失敗からこの時間で縮小を打ち切り、
+ * その時点の反例（縮めた途中）とシード・path で赤にする。性質が成り立っている間は何もしない（試行の回数・時間は変わらない）
+ */
+export const SHRINK_LIMIT_MS = 10_000;
+
+/**
+ * fast-check のプラグイン: 最初の失敗から limitMs が過ぎたら、以後の実行（縮小の候補）を中断として返し、縮小を打ち切る。
+ * 失敗が見つかっていれば、fast-check はその時点の反例で失敗を報告する（RunExecution の interrupt。失敗の扱いは変わらない）。
+ * 失敗が見つかる前は何もしない（fc.interruptAfterTimeLimit と違い、遅いだけの緑の実行を打ち切ったり赤にしたりしない）。
+ * 打ち切ったときは、fast-check の報告の後ろに打ち切ったことと、続きを縮める方法を足す。
+ * 性質は同期でも非同期でも、predicate の結果をそのまま返す（打ち切りの判定は実行の前だけ）
+ */
+export function shrinkTimeLimit(limitMs: number, now: () => number = () => performance.now()): fc.Plugin<unknown> {
+  if (!Number.isFinite(limitMs) || limitMs <= 0) throw new Error(`縮小の時間の上限 ${limitMs} は正の数ではない`);
+  return () => {
+    let firstFailureAt: number | undefined;
+    let cut = false;
+    return {
+      decorateRun: (nestedRun) => (value) => {
+        if (firstFailureAt !== undefined && now() - firstFailureAt >= limitMs) {
+          cut = true;
+          return new fc.PreconditionFailure(true);
+        }
+        const mark = (out: fc.PreconditionFailure | fc.PropertyFailure | null): void => {
+          if (firstFailureAt === undefined && out !== null && !fc.PreconditionFailure.isFailure(out)) firstFailureAt = now();
+        };
+        const out = nestedRun(value);
+        if (out !== null && 'then' in out) {
+          return out.then((r) => {
+            mark(r);
+            return r;
+          });
+        }
+        mark(out);
+        return out;
+      },
+      onAllRunsComplete: (details) => {
+        if (!cut || !details.failed) return;
+        const base = fc.defaultReportMessage(details) ?? 'Property failed';
+        throw new Error(
+          `${base}\n\n反例の縮小を最初の失敗から ${limitMs}ms で打ち切った（BL-140。縮めた途中の反例）。` +
+            `最後まで縮めるには FC_SHRINK_LIMIT_MS=0 と、上の seed・path で流し直す（docs/testing.md）`,
+          { cause: details.errorInstance },
+        );
+      },
+    };
+  };
 }
 
 export type FcEnv = Readonly<Record<string, string | undefined>>;
@@ -35,9 +91,12 @@ export function fcRunsFrom(env: FcEnv, numRuns: number, seed?: number): FcRunOpt
   const fixed = parse(env, 'FC_NUM_RUNS', (n) => Number.isSafeInteger(n) && n >= 1, '正の整数');
   const scale = parse(env, 'FC_RUNS_SCALE', (n) => Number.isFinite(n) && n > 0, '正の数');
   const envSeed = parse(env, 'FC_SEED', (n) => Number.isSafeInteger(n), '整数');
+  const shrinkMs = parse(env, 'FC_SHRINK_LIMIT_MS', (n) => Number.isSafeInteger(n) && n >= 0, '0 以上の整数') ?? SHRINK_LIMIT_MS;
   const runs = fixed ?? (scale === undefined ? numRuns : Math.max(1, Math.ceil(numRuns * scale)));
   const s = envSeed ?? seed;
-  return s === undefined ? { numRuns: runs } : { numRuns: runs, seed: s };
+  const out: FcRunOptions = s === undefined ? { numRuns: runs } : { numRuns: runs, seed: s };
+  if (shrinkMs > 0) out.plugins = [shrinkTimeLimit(shrinkMs)];
+  return out;
 }
 
 /**

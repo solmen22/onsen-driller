@@ -21,7 +21,9 @@
 | `FC_NUM_RUNS` | すべての性質の試行回数をこの数にする（正の整数。`FC_RUNS_SCALE` より優先） |
 | `FC_RUNS_SCALE` | 各性質の既定の回数に掛ける倍率（正の数。`test:property:full` の既定は 5） |
 | `FC_SEED` | すべての性質のシード（整数）。`test:property:full` で指定しなければ実行ごとに変わる |
+| `FC_SHRINK_LIMIT_MS` | 反例の縮小（shrink）の時間の上限（ミリ秒。0 以上の整数。**既定 10000**、`0` は上限なし）。最初の失敗から数える（BL-140） |
 
+- 縮小の時間の上限（BL-140。PR #62 の再レビューの N-7）: `fcRuns` は fast-check のプラグイン `shrinkTimeLimit`（`tests/helpers/fc-runs.ts`）を付ける。性質が破れたら、最初の失敗から 10 秒で縮小を打ち切り、その時点の反例（縮めた途中）・`seed`・`path` と「打ち切った」旨で赤になる（`gameStateArb` の性質は同期で動き、vitest の `testTimeout` では止まらない。変異で 10 分を超えても終わらなかった）。失敗が見つかる前は何もしないので、試行の回数・時間は変わらない。最後まで縮めたいときは `FC_SHRINK_LIMIT_MS=0` と報告の `seed`・`path` で流し直す。
 - `test:property:full` は最初に使ったシードを 1 行で出す（GitHub Actions では `$GITHUB_STEP_SUMMARY` にも書く）。
 - 反例が出たら、その行のコマンドで再現する: `FC_SEED=<seed> FC_RUNS_SCALE=5 npm run test:property:full -- tests/unit/num.test.ts`。fast-check の報告に出る `path` を使えば、その反例だけを速く再現できる（一時的に `fc.assert` の第 2 引数へ `{ ...fcRuns(...), path: '<path>' }` を渡す。lint がエラーにするので、コミットの前に戻す）。
 - 所要時間（倍率 5）: 手元の Windows で 1〜2 分（シードによる。1 時間ぶんの刻み幅の比較〔`tests/property/timestep.test.ts`〕が最も重い）。
