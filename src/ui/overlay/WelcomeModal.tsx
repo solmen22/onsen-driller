@@ -17,9 +17,11 @@ export interface WelcomeProps {
   onClaim: (choice: WelcomeChoice) => void;
   /** チケットで ×2 を使えるか（BL-058 の口。ない間は押せない） */
   ticketHook?: boolean;
+  /** ×2 を受け取れるか（core の offlineClaimView の canDouble。留守が 60 秒未満なら false で、動画を出さずチケットも押せない） */
+  canDouble?: boolean;
 }
 
-export function WelcomeModal({ amount, onClaim, ticketHook = false }: WelcomeProps) {
+export function WelcomeModal({ amount, onClaim, ticketHook = false, canDouble = true }: WelcomeProps) {
   const { platform, requestReward } = useUi();
   const tickets = useGame((s) => s.meta.tickets);
   const [requesting, setRequesting] = useState(false);
@@ -52,7 +54,7 @@ export function WelcomeModal({ amount, onClaim, ticketHook = false }: WelcomePro
     );
   };
 
-  const canTicket = ticketHook && tickets > 0;
+  const canTicket = canDouble && ticketHook && tickets > 0;
   return (
     // 閉じても ×1 で受け取る。動画の要求中でも「受け取る」は押せるので、閉じるのも止めない
     <Dialog testId="modal-welcome" titleId="modal-welcome-title" title={t('modal.welcome.title')} onDismiss={() => finish('claim')}>
@@ -63,7 +65,7 @@ export function WelcomeModal({ amount, onClaim, ticketHook = false }: WelcomePro
         <button type="button" class="sheet-btn" data-testid="welcome-claim" onClick={() => finish('claim')}>
           {t('modal.welcome.claim')}
         </button>
-        {videoOk && (
+        {videoOk && canDouble && (
           <button type="button" class="sheet-btn" data-testid="welcome-video" disabled={requesting} onClick={onVideo}>
             <span class="video-icon" aria-hidden="true" />
             {t('modal.welcome.video')}

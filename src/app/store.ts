@@ -125,6 +125,14 @@ export class GameStore {
   }
 
   /**
+   * 今の壁時計（ms）。R2 の休みを切り詰める pushEvents と同じ時計を、HUD の btn-boost・ご褒美の口（useBoost の wallMs）も読む
+   * （PR #42 のレビューの Should。休みの規則と時計を 1 か所にする）。時計がつながっていなければ Date.now（jsdom の部品のテストなど）
+   */
+  wallTime(): number {
+    return this.wallNow ? this.wallNow() : Date.now();
+  }
+
+  /**
    * イベントを記録する（描画の列・フックの events）。お客さんの初来訪があれば、その時刻を図鑑に入れる（BL-017）。
    * ステップ・アクションのたびに、R2 の休みの残りを 15 分以下に切り詰める（時計が戻ったとき。BL-120・BL-124）
    */

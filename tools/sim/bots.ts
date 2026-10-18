@@ -265,22 +265,47 @@ export function botAct(s: GameState, bot: BotDef, mem: BotMemory, out?: GameEven
       continue;
     }
     arrangeSlots(s, bot, out);
-    const base = totalRate(s, bot);
-    let best: { item: BotItem; score: number; affordable: boolean } | null = null;
-    let bestAffordable: { item: BotItem; score: number } | null = null;
-    for (const item of candidates(s)) {
-      const q = buyQuote(s, item, 1);
-      if (q.state === 'locked' || q.state === 'maxed') continue;
-      const gain = measure(s, () => levelUp(s, item), () => totalRate(s, bot)).sub(base);
-      const score = gain.div(q.cost).toNumber();
-      const affordable = q.state === 'affordable';
-      if (!best || score > best.score) best = { item, score, affordable };
-      if (affordable && (!bestAffordable || score > bestAffordable.score)) bestAffordable = { item, score };
-    }
-    if (!best || !bestAffordable) break;
-    if (!best.affordable && bestAffordable.score < best.score * 0.5) break;
-    if (!act(s, { type: 'buy', item: bestAffordable.item, qty: 1 }, out).ok) break;
+    const pick = pickByEfficiency(scoreCandidates(s, bot));
+    if (pick === null) break;
+    if (!act(s, { type: 'buy', item: pick, qty: 1 }, out).ok) break;
   }
+}
+
+/** 投資効率で買うボットの候補 1 つ（score＝増える収入 ÷ コスト。affordable は今のコインで買えるか） */
+export interface ScoredCandidate<T> {
+  item: T;
+  score: number;
+  affordable: boolean;
+}
+
+/** 候補（未解放・上限は除く）ごとの投資効率を測る（状態は変えない）。並びは candidates の順 */
+export function scoreCandidates(s: GameState, bot: BotDef): ScoredCandidate<BotItem>[] {
+  const base = totalRate(s, bot);
+  const out: ScoredCandidate<BotItem>[] = [];
+  for (const item of candidates(s)) {
+    const q = buyQuote(s, item, 1);
+    if (q.state === 'locked' || q.state === 'maxed') continue;
+    const gain = measure(s, () => levelUp(s, item), () => totalRate(s, bot)).sub(base);
+    out.push({ item, score: gain.div(q.cost).toNumber(), affordable: q.state === 'affordable' });
+  }
+  return out;
+}
+
+/**
+ * 買うものを決める（gdd §8-2。TS-031-02）: 効率が最良のものが買えればそれ。買えなければ、買えるもののうち効率が最良のもので、
+ * その効率が最良の 50% 以上なら買う（ちょうど 50% は買う）。50% 未満か、買えるものがなければ null（コインを残して待つ）。
+ * 同じ効率なら先の候補
+ */
+export function pickByEfficiency<T>(cands: readonly ScoredCandidate<T>[]): T | null {
+  let best: ScoredCandidate<T> | null = null;
+  let bestAffordable: ScoredCandidate<T> | null = null;
+  for (const c of cands) {
+    if (!best || c.score > best.score) best = c;
+    if (c.affordable && (!bestAffordable || c.score > bestAffordable.score)) bestAffordable = c;
+  }
+  if (!best || !bestAffordable) return null;
+  if (!best.affordable && bestAffordable.score < best.score * 0.5) return null;
+  return bestAffordable.item;
 }
 
 /**
