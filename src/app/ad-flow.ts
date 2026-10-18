@@ -10,9 +10,13 @@
 // - 広告の間の停止: 理由（hidden・ad〔onPlaying〕・break）からループ・掘削の入力・音を決める（syncLoop。PR #16 のレビュー S-3）。
 //   広告の最中にタブを見せてもループは動かず、隠れている間に広告が終わっても見えるまで動かない（TS-059-13）
 // - 広告の終わり（onPlaying(false)）で BL-104 の音の再開の関数を呼ぶ（TS-059-15）
+// - 遅れた報酬（Q-45。決定 0010 の 5）: アダプタの開始の時間切れで failed を返した後に、遅れて始まり最後まで見られた広告は、
+//   アダプタの onLateReward（要求ごとの id つき）を受けて報酬を 1 回だけ付ける。同じ id は 2 回目から無視し（壊れたアダプタでも二重にしない）、
+//   その要求の placement に付ける（今の要求〔pending〕とは別。今の要求の Promise・報酬には触れない）。core が断ったら
+//   （R2 が休み中・R3 の鉱脈が消えたなど）何も付けず、知らせもしない。付けたら onLateReward の購読者（UI のトースト・シート）に知らせる
 // - 1 つの止まる理由の書き手は 1 か所: ライフサイクルの 'ad'・'break' と、入力の 'ad' を書くのはこのファイルだけ
 import type { GameEvent } from '../core/index.ts';
-import type { Platform, RewardPlacement, RewardResult } from '../platform/types.ts';
+import type { LateReward, Platform, RewardPlacement, RewardResult } from '../platform/types.ts';
 import type { PauseReason } from './lifecycle.ts';
 
 export interface AdFlowDeps {
@@ -29,8 +33,8 @@ export interface AdFlowDeps {
   resumeAudio: () => void;
   /** 広告の前の保存（autosave.saveNow('ad')。結果は見ない） */
   saveBeforeAd: () => void;
-  /** 'rewarded' のときだけ呼ぶ（app/rewards.ts の grantAd） */
-  grant: (p: RewardPlacement) => void;
+  /** 'rewarded' のとき（と遅れた報酬のとき）だけ呼ぶ（app/rewards.ts の grantAd）。core が受けたら ok: true */
+  grant: (p: RewardPlacement) => { ok: boolean };
   onError?: (e: unknown) => void;
 }
 
@@ -41,6 +45,8 @@ export interface AdFlow {
   onEvents(evs: readonly GameEvent[]): void;
   /** visibilitychange で呼ぶ（ループを理由から決め直す） */
   syncHidden(): void;
+  /** 遅れた報酬（Q-45）を付けたときに呼ぶ（UI のトースト・シート）。戻り値で購読をやめる */
+  onLateReward(cb: (p: RewardPlacement) => void): () => void;
   /** テスト用: 今ミッドゲームの機会を渡している途中か */
   readonly breaking: boolean;
 }
@@ -50,6 +56,9 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
   let adPlaying = false;
   let breaking = false;
   let pending: Promise<RewardResult> | null = null;
+  /** 遅れた報酬を付けた（か断られた）要求の id。同じ id を 2 回扱わない（Q-45） */
+  const lateSeen = new Set<number>();
+  const lateSubs = new Set<(p: RewardPlacement) => void>();
 
   const syncLoop = (): void => {
     if (d.isHidden() || adPlaying || breaking) d.loop.pause();
@@ -65,6 +74,25 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
     d.setMuted(playing || d.isMuted());
     syncLoop();
     if (!playing) d.resumeAudio();
+  });
+
+  d.ads.onLateReward((r: LateReward) => {
+    if (lateSeen.has(r.id)) return;
+    lateSeen.add(r.id);
+    let ok = false;
+    try {
+      ok = d.grant(r.placement).ok;
+    } catch (e) {
+      onError(e);
+    }
+    if (!ok) return;
+    for (const cb of [...lateSubs]) {
+      try {
+        cb(r.placement);
+      } catch (e) {
+        onError(e);
+      }
+    }
   });
 
   const run = async (p: RewardPlacement): Promise<RewardResult> => {
@@ -129,6 +157,12 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
       for (const e of evs) if (e.type === 'BreakOpportunity') runBreak(e.placement);
     },
     syncHidden: syncLoop,
+    onLateReward(cb) {
+      lateSubs.add(cb);
+      return () => {
+        lateSubs.delete(cb);
+      };
+    },
     get breaking() {
       return breaking;
     },

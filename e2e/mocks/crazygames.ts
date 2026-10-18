@@ -35,6 +35,11 @@ export interface CrazyMockConfig {
   adBehavior: CgAdBehavior;
   /** adStarted から adFinished（や adErrorAfterStart の adError）までの時間。0 は次のマイクロタスク */
   adDurationMs: number;
+  /**
+   * requestAd から最初のコールバック（adStarted か、始まる前の adError）までの時間。0 は次のマイクロタスク。
+   * アダプタの開始の時間切れ（AD_START_TIMEOUT_MS、30 秒）より長くすると「遅れて始まる広告」を作れる（Q-45 の遅れた報酬）
+   */
+  adStartDelayMs: number;
   /** adError の前に adStarted を出す（再生が始まってから失敗する型） */
   adErrorAfterStart: boolean;
   /** SDK.ad.hasAdblock() の結果 */
@@ -85,6 +90,7 @@ export function createCrazyMock(initial: Partial<CrazyMockConfig> = {}): CrazyMo
     initDelayMs: 0,
     adBehavior: 'finish',
     adDurationMs: 0,
+    adStartDelayMs: 0,
     adErrorAfterStart: false,
     hasAdblock: false,
     muteAudio: false,
@@ -184,7 +190,7 @@ export function createCrazyMock(initial: Partial<CrazyMockConfig> = {}): CrazyMo
         const b = config.adBehavior;
         const ms = config.adDurationMs;
         const afterStart = config.adErrorAfterStart;
-        queueMicrotask(() => {
+        after(config.adStartDelayMs, () => {
           if (b === 'silent') return;
           if (b === 'startedOnly') {
             cb.adStarted?.();

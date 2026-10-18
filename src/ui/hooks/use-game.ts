@@ -32,6 +32,11 @@ export interface UiContext {
    * 'rewarded' のときの報酬の付与は BL-059 の側で行う
    */
   requestReward?: (p: RewardPlacement) => Promise<RewardResult>;
+  /**
+   * 遅れた報酬（Q-45）を付けたときの知らせを購読する（BL-059 の adFlow.onLateReward）。戻り値で購読をやめる。
+   * トースト（動画の報酬）と、同じ placement のシートを閉じるのに使う
+   */
+  onLateReward?: (cb: (p: RewardPlacement) => void) => () => void;
 }
 
 export const Ctx = createContext<UiContext | null>(null);

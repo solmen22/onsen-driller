@@ -37,8 +37,13 @@ function wired(opts: { video?: boolean; ticketHook?: boolean } = {}) {
   const platform = uiPlatform('crazygames');
   let available = opts.video ?? true;
   platform.ads.rewardedAvailable = () => available;
+  const lateSubs = new Set<(p: RewardPlacement) => void>();
   const ctx: Partial<UiContext> = {
     platform,
+    onLateReward: (cb) => {
+      lateSubs.add(cb);
+      return () => void lateSubs.delete(cb);
+    },
     requestReward: (p) => {
       calls.requests.push(p);
       return new Promise<RewardResult>((r) => {
@@ -61,6 +66,13 @@ function wired(opts: { video?: boolean; ticketHook?: boolean } = {}) {
         await Promise.resolve();
       });
     },
+    /** 遅れた報酬（Q-45）を付けた知らせ（BL-059 の adFlow.onLateReward と同じ形） */
+    late: (p: RewardPlacement) => {
+      void act(() => {
+        for (const cb of [...lateSubs]) cb(p);
+      });
+    },
+    lateSubscribers: () => lateSubs.size,
   };
 }
 
@@ -191,6 +203,39 @@ describe('ご褒美のシート（R2・R3）', () => {
     m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });
     m.click('btn-boost');
     m.click('sheet-video');
+    await w.finish('rewarded');
+    expect(m.q('sheet-reward')).toBeNull();
+  });
+
+  it('Q-45 失敗（開始の時間切れ）の後に、遅れて見終えた報酬が付いたら、同じ placement のシートを閉じ、トーストで何をもらえたかを出す', async () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW, lang: 'ja' });
+    m.click('btn-boost');
+    m.click('sheet-video');
+    await w.finish('failed');
+    expect(m.q('ad-unavailable')).not.toBeNull();
+    w.late('R3'); // 別の placement では閉じない
+    expect(m.q('sheet-reward')).not.toBeNull();
+    w.late('R2');
+    expect(m.q('sheet-reward')).toBeNull(); // 「今は広告を表示できません」を出したまま報酬が付いた状態にしない
+    const toasts = [...m.root.querySelectorAll<HTMLElement>('[data-testid="toast"]')];
+    expect(toasts.map((x) => [x.dataset['kind'], x.dataset['key'], x.textContent])).toEqual([
+      ['ad', 'R3', t('toast.adLate.R3')],
+      ['ad', 'R2', t('toast.adLate.R2')],
+    ]);
+    expect(t('toast.adLate.R2')).toBe('動画の報酬：掘削ブーストが始まりました');
+    expect(w.lateSubscribers()).toBe(1); // シートが閉じたら購読をやめる（残るのはトースト）
+  });
+
+  it('Q-45 別の要求の最中（スピナー）に遅れた報酬が来ても、シートは閉じない（その要求の結果で閉じる）。トーストは出す', async () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });
+    m.click('btn-boost');
+    m.click('sheet-video');
+    w.late('R2');
+    expect(m.q('sheet-reward')).not.toBeNull();
+    expect(m.get('sheet-video').dataset.state).toBe('loading');
+    expect(m.get('toast').dataset['kind']).toBe('ad');
     await w.finish('rewarded');
     expect(m.q('sheet-reward')).toBeNull();
   });

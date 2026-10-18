@@ -7,7 +7,12 @@ import type { RewardPlacement } from '../platform/types.ts';
 import type { RewardHooks } from '../ui/hooks/use-game.ts';
 import type { GameStore } from './store.ts';
 
-export function createRewardHooks(store: GameStore): RewardHooks {
+/** app の側の口: grantAd は core の結果を返す（遅れた報酬〔Q-45〕で、付いたときだけ知らせるため） */
+export interface AppRewardHooks extends RewardHooks {
+  grantAd(p: RewardPlacement): ActionResult;
+}
+
+export function createRewardHooks(store: GameStore): AppRewardHooks {
   const useBoost = (source: 'ad' | 'ticket'): ActionResult => store.dispatch({ type: 'useBoost', source, wallMs: store.wallTime() });
   const claimOffline = (mode: 'normal' | 'double', source: 'ad' | 'ticket'): ActionResult =>
     store.dispatch(mode === 'normal' ? { type: 'claimOffline', mode } : { type: 'claimOffline', mode, source });

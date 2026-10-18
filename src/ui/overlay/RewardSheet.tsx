@@ -7,7 +7,10 @@
 // - 要求中（結果が返るまで）は、どのボタンも押せず、Esc・×・背景でも閉じない（Q-41 (b)）
 // - 失敗（failed・unavailable）では「今は広告を表示できません」（ad-unavailable）をシートの中に出したままにする（トーストにしない）。
 //   その後に rewardedAvailable() を読み直し、false なら動画のボタンを隠す
-import { useRef, useState } from 'preact/hooks';
+// - 失敗（開始の時間切れ）の後に遅れて始まった広告を最後まで見て報酬が付いたら（Q-45。onLateReward）、同じ placement のシートは
+//   成功のときと同じく閉じる（「今は広告を表示できません」を出したまま報酬が付いた状態にしない）。別の要求の最中なら閉じない
+//   （その要求の結果で閉じる）
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { boostMult, veinView } from '../../core/index.ts';
 import { PARAMS } from '../../content/params.ts';
 import { t } from '../../i18n/index.ts';
@@ -19,7 +22,7 @@ import { Dialog } from './Dialog.tsx';
 const BOOST_MIN = PARAMS.boost.durationMs / 60_000;
 
 export function RewardSheet({ placement, onClose }: { placement: Extract<RewardPlacement, 'R2' | 'R3'>; onClose: () => void }) {
-  const { platform, rewards, requestReward } = useUi();
+  const { platform, rewards, requestReward, onLateReward } = useUi();
   const tickets = useGame((s) => s.meta.tickets);
   // R3 の「自分で叩く」の残りの回数（core の veinView。叩いた分だけ減る）
   const hitsLeft = useGame((s) => veinView(s).hitsLeft);
@@ -28,6 +31,19 @@ export function RewardSheet({ placement, onClose }: { placement: Extract<RewardP
   const [videoOk, setVideoOk] = useState(() => requestReward !== undefined && platform.ads.rewardedAvailable());
   /** 1 回押したら閉じるまで次を受け付けない（すばやく 2 回押しても 1 回。TS-046-04） */
   const used = useRef(false);
+
+  // 遅れた報酬（Q-45）で閉じる。購読は開いている間 1 つ（onClose は描画ごとに変わるので ref で最新を読む）
+  const live = useRef({ requesting, onClose });
+  live.current = { requesting, onClose };
+  useEffect(
+    () =>
+      onLateReward?.((p) => {
+        if (p !== placement || live.current.requesting) return;
+        used.current = true;
+        live.current.onClose();
+      }),
+    [onLateReward, placement],
+  );
 
   const once = (fn: () => void): void => {
     if (used.current || requesting) return;

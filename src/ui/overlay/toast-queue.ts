@@ -2,7 +2,7 @@
 // - 同時に最大 3 つ。それぞれ出てから 2 秒で消える。4 つ目以降は待ち行列に入り、空きができたら来た順に出る（どれも 2 秒は見える）
 // - 同じ種類・同じ中身（kind と key が同じ）が待ち行列にあれば重ねて足さない
 // ブラウザがなくても確かめられるように、タイマーを引数で受け取る
-export type ToastKind = 'guest' | 'save' | 'achievement';
+export type ToastKind = 'guest' | 'save' | 'achievement' | 'ad';
 
 export interface Toast {
   id: number;

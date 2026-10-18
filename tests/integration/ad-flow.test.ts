@@ -6,12 +6,13 @@ import { createLifecycle } from '../../src/app/lifecycle.ts';
 import { GameStore } from '../../src/app/store.ts';
 import { PARAMS } from '../../src/content/params.ts';
 import { blockHp, interludeLeftMs, type GameState } from '../../src/core/index.ts';
-import type { BreakPlacement, Platform, RewardPlacement, RewardResult } from '../../src/platform/types.ts';
+import type { BreakPlacement, LateReward, Platform, RewardPlacement, RewardResult } from '../../src/platform/types.ts';
 import { stateWith } from '../support/states.ts';
 
 /** 手で動かす偽の広告（結果・onPlaying を好きな順で出せる。壊れたアダプタも模せる） */
 function fakeAds() {
   const playing: ((p: boolean) => void)[] = [];
+  const late: ((r: LateReward) => void)[] = [];
   const calls: string[] = [];
   let avail = true;
   let resolveReward: ((r: RewardResult) => void) | null = null;
@@ -33,12 +34,15 @@ function fakeAds() {
       });
     },
     onPlaying: (cb) => void playing.push(cb),
+    onLateReward: (cb) => void late.push(cb),
   };
   return {
     ads,
     calls,
     setAvail: (v: boolean) => (avail = v),
     emit: (p: boolean) => playing.forEach((cb) => cb(p)),
+    /** 遅れた報酬（Q-45）を出す（壊れたアダプタを模して同じ id を 2 回出すこともできる） */
+    late: (id: number, placement: RewardPlacement) => late.forEach((cb) => cb({ id, placement })),
     result: (r: RewardResult) => resolveReward?.(r),
     reject: (e: unknown) => rejectReward?.(e),
     endBreak: () => resolveBreak?.(),
@@ -60,7 +64,17 @@ function rig(over: Partial<AdFlowDeps> = {}) {
   life.loadingStop();
   life.firstInput();
   signals.length = 0;
-  const st = { hidden: false, loopRunning: true, inputBlocked: false, muted: false, saves: 0, grants: [] as RewardPlacement[], resumes: 0 };
+  const st = {
+    hidden: false,
+    loopRunning: true,
+    inputBlocked: false,
+    muted: false,
+    saves: 0,
+    grants: [] as RewardPlacement[],
+    resumes: 0,
+    /** core が報酬を受けるか（false は休み中・鉱脈が消えたなど） */
+    grantOk: true,
+  };
   const errors: unknown[] = [];
   const flow = createAdFlow({
     ads: a.ads,
@@ -92,6 +106,7 @@ function rig(over: Partial<AdFlowDeps> = {}) {
     grant: (p) => {
       st.grants.push(p);
       log.push(`grant:${p}`);
+      return { ok: st.grantOk };
     },
     onError: (e) => errors.push(e),
     ...over,
@@ -175,7 +190,7 @@ describe('リワード（requestReward）', () => {
     expect(r.st.inputBlocked).toBe(false);
   });
 
-  it('TS-059-06: 時間切れの failed の後に遅れて再生されても報酬はなく、再生の間だけ止まり、終われば戻る', async () => {
+  it('TS-059-06: 時間切れの failed の後に遅れて再生されたら、再生の間だけ止まり、終われば戻る（見終えなければ報酬なし）', async () => {
     const r = rig();
     const pr = r.flow.requestReward('R2');
     await flush();
@@ -183,7 +198,7 @@ describe('リワード（requestReward）', () => {
     await expect(pr).resolves.toBe('failed');
     r.a.emit(true);
     expect([r.st.loopRunning, r.st.inputBlocked, r.st.muted]).toEqual([false, true, true]);
-    r.a.emit(false);
+    r.a.emit(false); // アダプタが遅れた報酬を出さない（始まった後の失敗・再生の時間切れ）
     expect([r.st.loopRunning, r.st.inputBlocked, r.st.muted]).toEqual([true, false, false]);
     expect(r.st.grants).toEqual([]);
   });
@@ -342,5 +357,89 @@ describe('本物のストア・core とつないだ M2（TS-059-10・11）', () 
     expect(w.a.calls).toEqual([]);
     expect(w.flow.breaking).toBe(false);
     expect(w.signals).toEqual(['gameplayStop', 'gameplayStart']); // 幕間の合図は通常どおり
+  });
+});
+
+describe('遅れた報酬（Q-45。決定 0010 の 5: 開始の時間切れの後に遅れて始まり、最後まで見られた広告には報酬を 1 回だけ）', () => {
+  it('TS-059-06: 時間切れの failed の後に、遅れて最後まで見られたら報酬を 1 回付けて知らせる。同じ id が 2 回来ても 1 回', async () => {
+    const r = rig();
+    const told: RewardPlacement[] = [];
+    r.flow.onLateReward((p) => told.push(p));
+    const pr = r.flow.requestReward('R2');
+    await flush();
+    r.a.result('failed');
+    await expect(pr).resolves.toBe('failed');
+    expect(r.st.grants).toEqual([]); // 時間切れの時点では付けない
+    r.a.emit(true);
+    r.a.emit(false);
+    r.a.late(1, 'R2');
+    expect(r.st.grants).toEqual(['R2']);
+    expect(told).toEqual(['R2']);
+    r.a.late(1, 'R2'); // 壊れたアダプタの二重の知らせ
+    expect(r.st.grants).toEqual(['R2']);
+    expect(told).toEqual(['R2']);
+    expect(r.log).toEqual(['save', 'input:true', 'input:false', 'grant:R2']); // 保存は要求の前の 1 回だけ
+  });
+
+  it('別の要求と混ざらない: 次の要求の最中に前の要求の遅れた報酬が来ても、前の placement に付け、今の要求の Promise・報酬はそのまま', async () => {
+    const r = rig();
+    const told: RewardPlacement[] = [];
+    r.flow.onLateReward((p) => told.push(p));
+    const first = r.flow.requestReward('R2');
+    await flush();
+    r.a.result('failed');
+    await first;
+    const second = r.flow.requestReward('R3');
+    await flush();
+    expect(r.a.calls).toEqual(['showRewarded:R2', 'showRewarded:R3']);
+    let settled = false;
+    void second.then(() => (settled = true));
+    r.a.late(1, 'R2');
+    await flush();
+    expect(settled).toBe(false); // 今の要求は終わらない
+    expect(r.st.grants).toEqual(['R2']);
+    expect(r.flow.requestReward('R3')).toBe(second); // 要求中の口もそのまま（連打で 2 回目を出さない）
+    r.a.result('rewarded');
+    await expect(second).resolves.toBe('rewarded');
+    expect(r.st.grants).toEqual(['R2', 'R3']); // 今の要求の報酬はその結果の 1 回だけ
+    expect(told).toEqual(['R2']); // 知らせは遅れた報酬だけ（ふつうの報酬はシートが閉じて分かる）
+    r.a.late(2, 'R3'); // 別の id は別の要求
+    expect(r.st.grants).toEqual(['R2', 'R3', 'R3']);
+  });
+
+  it('core が断ったら（R2 の休み中・R3 の鉱脈が消えた）何も付けず知らせない。grant・購読者の例外は外に出ない。購読はやめられる', () => {
+    const r = rig();
+    const told: RewardPlacement[] = [];
+    const off = r.flow.onLateReward((p) => told.push(p));
+    r.st.grantOk = false;
+    r.a.late(1, 'R3');
+    expect(told).toEqual([]);
+    r.st.grantOk = true;
+    r.a.late(1, 'R3'); // 断られた id をもう一度受けても付けない（1 つの要求に 1 回）
+    expect(r.st.grants).toEqual(['R3']);
+    expect(told).toEqual([]);
+    const bad = rig({
+      grant: () => {
+        throw new Error('core');
+      },
+    });
+    bad.flow.onLateReward(() => {
+      throw new Error('ui');
+    });
+    expect(() => bad.a.late(1, 'R2')).not.toThrow();
+    expect(bad.errors).toHaveLength(1); // grant の例外だけ（付かなかったので知らせない）
+    const two = rig();
+    const got: RewardPlacement[] = [];
+    two.flow.onLateReward(() => {
+      throw new Error('ui');
+    });
+    two.flow.onLateReward((p) => got.push(p));
+    expect(() => two.a.late(1, 'R2')).not.toThrow();
+    expect(got).toEqual(['R2']); // 前の購読者の例外で後の購読者が止まらない
+    expect(two.errors).toHaveLength(1);
+    off();
+    r.a.late(2, 'R2');
+    expect(r.st.grants).toEqual(['R3', 'R2']);
+    expect(told).toEqual([]); // 購読をやめた後は知らせない
   });
 });

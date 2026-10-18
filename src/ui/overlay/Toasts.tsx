@@ -2,6 +2,8 @@
 // - お客さん: 初来訪だけ（GuestArrived{ first: true }）。温泉チケット +1 も同じトーストに出す（付与は BL-058。口がない間は出さない）
 // - 保存の失敗: 保存の状態が ok → failing に変わったときだけ 1 回（起動時からの failing・unavailable・readonly では出さない。
 //   出したままの save-warning があるため）
+// - 動画の報酬（Q-45）: 開始の時間切れ（「今は広告を表示できません」）の後に遅れて始まった広告を最後まで見て、報酬が付いたとき
+//   （BL-059 の onLateReward。シートが閉じていても何をもらえたか分かるように）
 // - 押せない（pointer-events: none。下の購入ボタン・ステージの操作を妨げない）。role="status"（aria-live="polite"）
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { t, type TextKey } from '../../i18n/index.ts';
@@ -16,13 +18,15 @@ function text(x: Toast): string {
     }
     case 'save':
       return t('toast.save');
+    case 'ad':
+      return t(`toast.adLate.${String(x.data.placement)}` as TextKey);
     default:
       return '';
   }
 }
 
 export function Toasts() {
-  const { store, rewards } = useUi();
+  const { store, rewards, onLateReward } = useUi();
   const [visible, setVisible] = useState<readonly Toast[]>([]);
   const queue = useRef<ToastQueue | null>(null);
   const ticketOnFirst = rewards !== undefined;
@@ -41,13 +45,15 @@ export function Toasts() {
       if (prev === 'ok' && now === 'failing') q.push('save', 'failing');
       prev = now;
     });
+    const offLate = onLateReward?.((p) => q.push('ad', p, { placement: p }));
     return () => {
       offEvent();
       offSave();
+      offLate?.();
       q.dispose();
       queue.current = null;
     };
-  }, [store, ticketOnFirst]);
+  }, [store, ticketOnFirst, onLateReward]);
 
   return (
     <div class="toasts" role="status" aria-live="polite" data-testid="toasts">

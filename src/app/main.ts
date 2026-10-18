@@ -165,7 +165,11 @@ async function boot(): Promise<void> {
   // ご褒美の口（R1 のチケット・R2 のチケット）と動画の要求（requestReward。'rewarded' のときだけ rewards.grantAd を呼ぶ。BL-059）。
   // 壁時計は store.wallTime()（startLoop がつないだ app の時計）
   const requestReward = (p: RewardPlacement): Promise<RewardResult> => ads.requestReward(p);
-  render(h(Ctx.Provider, { value: { store, platform, version: APP_VERSION, onLangChange, rewards, requestReward } }, h(App, {})), uiRoot);
+  const onLateReward = (cb: (p: RewardPlacement) => void): (() => void) => ads.onLateReward(cb); // 遅れた報酬（Q-45）の知らせ
+  render(
+    h(Ctx.Provider, { value: { store, platform, version: APP_VERSION, onLangChange, rewards, requestReward, onLateReward } }, h(App, {})),
+    uiRoot,
+  );
 
   const contextEvents: string[] = [];
   // 描画（Phaser）の起動。チャンクの読み込みや起動の失敗は記録に残し（errors()・S3 の「エラー情報をコピー」）、
