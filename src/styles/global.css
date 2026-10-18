@@ -210,12 +210,14 @@ body {
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
+  flex-wrap: wrap; /* 狭いときだけ案内が 1 行ぶんを取り、ボタンの上の行に回る（.hint の flex-basis。BL-136） */
   gap: 6px;
   padding: 6px;
   pointer-events: none;
 }
 
 .act {
+  flex: none; /* ボタンは縮めない（案内が出ている間に自動掘りのボタンが縮み、1 打で案内が消えると広がって跳ねた。S-2） */
   pointer-events: auto;
   min-width: 44px;
   min-height: 44px;
@@ -237,6 +239,15 @@ body {
 .act-state {
   font-size: 12px;
   color: var(--muted);
+  white-space: nowrap; /* 状態の行は 1 行（PR #55 のレビュー S-2） */
+}
+
+/*
+ * btn-boost の幅は固定（PR #55 のレビュー S-2）: いちばん長い active の表記（ja「×2（掘削機×4） 5:00」・en「×2 (digger ×4) 5:00」）が
+ * 1 行で入る幅。ready・cooldown・active で幅が変わると、右寄せの並びで隣の「自動掘り」のボタンが横に跳ぶ（効果の終わりは操作と関係なく来る）
+ */
+.act-boost {
+  width: 9.5rem;
 }
 
 .act-auto[data-state='on'] {
@@ -252,8 +263,17 @@ body {
   opacity: 0.6;
 }
 
+/*
+ * 最初の 1 打の前の案内。広いときはボタンの左で残りの幅を使い、幅が足りないときは案内の側が縮む（ボタンを 2 行に折り返させない。S-2）。
+ * 狭いとき（.stage-actions の中の幅が 22.5rem〔360px〕未満。320・360 幅の画面〔中の幅 308・348px〕）は、flex-basis が行の幅を超えて案内だけが 1 行を取り、
+ * ボタンの上の行に出る（320×568 で幅 68px・6 行の細い柱になっていた。PR #55 の再レビューの Nit 1。BL-136）。
+ * しきい値は 360 幅の画面（中の幅 348px）を上の行に回し、375 幅（中の幅 363px）は同じ行に残す値（360 幅では句の途中で 3 行に折れていた。PR #69 のレビュー N-1）。
+ * calc((しきい値 − 100%) × 999): 中の幅がしきい値より広ければ負（= 0）、狭ければ行の幅より大きい（メディアクエリなしで中の幅で決まる）。
+ * ボタンは右寄せ・下寄せのままなので、案内が消えてもボタンの位置は変わらない
+ */
 .hint {
-  flex: 1 1 auto;
+  flex: 1 1 calc((22.5rem - 100%) * 999);
+  min-width: 0;
   align-self: center;
   margin: 0;
   font-size: 13px;

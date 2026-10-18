@@ -13,6 +13,7 @@ import { SPRING_BY_ID, type SpringId } from '../content/springs.ts';
 import { STRATA } from '../content/strata.ts';
 import { TERRAIN_IDS, INITIAL_TERRAIN, type TerrainId } from '../content/terrains.ts';
 import { TOOLS } from '../content/tools.ts';
+import { isUpgradeId, type UpgradeId } from '../content/upgrades.ts';
 import {
   computeGuests,
   createInput,
@@ -131,7 +132,7 @@ const RunSchema = v.object({
     return out;
   }),
   bath: section({ level: field(int(0, LEVEL_MAX)), slots: field((x) => (Array.isArray(x) ? (x as unknown[]) : [])) }),
-  upgrades: field(idList<string>(isShapedId)),
+  upgrades: field(idList<UpgradeId>(isUpgradeId)), // 知らない改良の ID は捨てる（TS-026-11。BL-018）
   guests: field(idList<GuestId>(isGuest)),
   boost: section({ remainingMs: field(nonNeg()), readyAtWallMs: field(nonNeg()) }),
   vein: section({

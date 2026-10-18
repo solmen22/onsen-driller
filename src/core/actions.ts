@@ -7,8 +7,8 @@ import { applyManualRateChange, autoDigUnlocked, manualRate, setHold } from './i
 import { add, sub, toStr } from './num.ts';
 import { claimOffline, gainTickets, openVeinByAd, useBoost } from './rewards.ts';
 import { sfc32Next } from './rng.ts';
-import { buyQuote, isItemId, isQty, isSpringId, type ItemId, type LevelItem, type Qty } from './selectors.ts';
-import { createRun, type GameState } from './state.ts';
+import { buyQuote, isItemId, isQty, isSpringId, isUpgradeItem, type ItemId, type LevelItem, type Qty } from './selectors.ts';
+import { createRun, type GameState, type UpgradeId } from './state.ts';
 import { refreshGuests, tapHits } from './step.ts';
 
 export type Action =
@@ -106,6 +106,12 @@ export function dispatch(s: GameState, input: unknown): ActionResult {
       const q = buyQuote(s, a.item, a.qty);
       if (q.state !== 'affordable') return fail(q.state === 'locked' ? 'locked' : q.state === 'maxed' ? 'maxed' : 'insufficient');
       r.coins = sub(r.coins, q.cost);
+      if (isUpgradeItem(a.item)) {
+        // 改良は一度きり。run.upgrades の最後に足し、並べ替えない（BL-018。PR #13 のレビューの連絡 3 ②）
+        r.upgrades.push(a.item.slice(8) as UpgradeId);
+        events.push({ type: 'Purchased', item: a.item, qty: 1 });
+        return { ok: true, events };
+      }
       if (a.item === 'tool') {
         // 道具は qty によらず 1 段だけ（gdd §5-3）
         r.drill.tool += 1;

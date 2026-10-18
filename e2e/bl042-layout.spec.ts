@@ -84,7 +84,7 @@ test.describe('BL-042 レイアウトと HUD', () => {
         await use(browserName !== 'firefox');
       },
     });
-    test('TS-042-08 390×844 で、操作できる要素すべての幅・高さが 44px 以上（押せない btn-boost も含む。起動直後とタブ 1〜5）', async ({ page }) => {
+    test('TS-042-08 390×844 で、操作できる要素すべての幅・高さが 44px 以上（btn-boost は状態によらず含む。起動直後とタブ 1〜5）', async ({ page }) => {
       await bootGame(page);
       const tooSmall: string[] = [];
       let measured = 0;
@@ -103,7 +103,7 @@ test.describe('BL-042 レイアウトと HUD', () => {
       );
       test.info().annotations.push({ type: '測った要素', description: `${measured} 件（${[...seenIds].join('・')}）` });
       expect(screens).toHaveLength(6);
-      expect(seenIds.has('btn-boost'), '押せない btn-boost も測った').toBe(true);
+      expect(seenIds.has('btn-boost'), 'btn-boost も測った').toBe(true);
       expect(seenIds.has('toggle-auto-dig')).toBe(true);
       expect(tooSmall).toEqual([]);
     });

@@ -21,9 +21,22 @@ import {
   type LevelItem,
   type Num,
 } from '../../src/core/index.ts';
-import { arrangeSlots, avgOre, botAct, BOTS, canBuyAnything, manualHitsPerSec, newBotMemory, totalRate } from '../../tools/sim/bots.ts';
+import {
+  arrangeSlots,
+  avgOre,
+  botAct,
+  BOTS,
+  canBuyAnything,
+  manualHitsPerSec,
+  newBotMemory,
+  pickByEfficiency,
+  scoreCandidates,
+  totalRate,
+} from '../../tools/sim/bots.ts';
 import { runBot } from '../../tools/sim/sim.ts';
 import { stateWith } from '../support/states.ts';
+import { TOOLS } from '../../src/content/tools.ts';
+import { UPGRADE_BY_ID, UPGRADES } from '../../src/content/upgrades.ts';
 
 describe('TS-032-12 BL-031 ボットの定義（gdd §8-2）', () => {
   it('TS-031-04 標準＝自動掘り（最初の強化の前は毎秒 2 タップ）・5 秒ごと、アクティブ＝長押し・2 秒ごと、放置＝毎秒 0.3 タップ・60 秒ごと', () => {
@@ -92,6 +105,8 @@ describe('BL-031 買い方と枠（投資効率・収入が最大の組み合わ
 
   it('TS-031-03 二酸化炭素泉のポンプ Lv9: Lv10 でニホンザル（威力 ×2）が来る分も見積もりに入れて、ポンプを選ぶ', () => {
     const s = stateWith({ bath: 5, pumps: { simple: 30, co2: 9 }, drill: 30, tool: 3, digger: 20, maxDepth: 100, autoOn: true });
+    // 改良（BL-018）は候補から外す（このテストはポンプとお客さんの見積もりを見る）: 全部買った状態にする
+    s.run.upgrades = UPGRADES.map((u) => u.id);
     const q = buyQuote(s, 'pump:co2', 1);
     s.run.coins = q.cost; // ちょうどポンプ 1 つ分
     const lvBefore = s.run.springs.co2?.pump;
@@ -123,6 +138,86 @@ describe('BL-031 買い方と枠（投資効率・収入が最大の組み合わ
     expect(canBuyAnything(stateWith({ coins: 5 }))).toBe(true);
     const items: LevelItem[] = ['drill', 'autoDigger', 'bath'];
     expect(items.some((i) => buyQuote(stateWith({ coins: 5 }), i, 1).state === 'affordable')).toBe(true);
+  });
+
+  it('改良だけが買えるときも canBuyAnything は true（改良も候補。詰みの判定〔#61〕の前提。PR #62 のレビュー N-4）', () => {
+    // 道具は最後の段、レベルの品目はどれも次のコストが振動ビットより高い。振動ビット以外の改良は買ってある
+    const s = stateWith({ depth: 300, tool: TOOLS.length - 1, drill: 300, digger: 200, bath: 200, pumps: { simple: 300, co2: 300, salt: 300, sulfur: 300, iron: 300 } });
+    s.run.upgrades = UPGRADES.map((u) => u.id).filter((id) => id !== 'vibroBit');
+    s.run.coins = num(UPGRADE_BY_ID.vibroBit.cost);
+    const levels: LevelItem[] = ['drill', 'autoDigger', 'bath'];
+    expect(levels.every((i) => buyQuote(s, i, 1).state !== 'affordable')).toBe(true);
+    expect(nextTool(s)).toBeNull();
+    expect(buyQuote(s, 'upgrade:vibroBit', 1).state).toBe('affordable');
+    expect(canBuyAnything(s)).toBe(true);
+    s.run.upgrades.push('vibroBit');
+    expect(canBuyAnything(s)).toBe(false);
+  });
+});
+
+describe('TS-031-02 投資効率の買い方（最良が買えなければ、最良の 50% 以上で買えるもの）', () => {
+  const c = (item: string, score: number, affordable: boolean) => ({ item, score, affordable });
+
+  it('A（最良）だけ足りない: B（A の 60%）を買い、C（A の 40%）は買わない', () => {
+    expect(pickByEfficiency([c('A', 10, false), c('B', 6, true), c('C', 4, true)])).toBe('B');
+    // 並びによらない
+    expect(pickByEfficiency([c('C', 4, true), c('B', 6, true), c('A', 10, false)])).toBe('B');
+  });
+
+  it('A も B も足りない: C（A の 40%）は買わずに待つ（null）', () => {
+    expect(pickByEfficiency([c('A', 10, false), c('B', 6, false), c('C', 4, true)])).toBeNull();
+  });
+
+  it('最良が買えるなら最良を買う。境界: ちょうど 50% は買う、50% をわずかに下回れば待つ。候補なし・買えるものなしは待つ', () => {
+    expect(pickByEfficiency([c('B', 6, true), c('A', 10, true)])).toBe('A');
+    expect(pickByEfficiency([c('A', 10, false), c('H', 5, true)])).toBe('H');
+    expect(pickByEfficiency([c('A', 10, false), c('H', 4.999_999, true)])).toBeNull();
+    expect(pickByEfficiency([])).toBeNull();
+    expect(pickByEfficiency([c('A', 10, false)])).toBeNull();
+  });
+
+  it('同じ効率なら先の候補を買う', () => {
+    expect(pickByEfficiency([c('X', 3, true), c('Y', 3, true)])).toBe('X');
+  });
+
+  it('botAct は、実際の状態で測った効率から pickByEfficiency が選んだものを買う（最良が足りない状態。買う場合と待つ場合の両方）', () => {
+    // 最良が足りず、ほかに買える候補がある状態を小さな格子から探す（数値の調整で個々の状態が変わっても、両方の場合が残るように）。
+    // 最深 35m は、深さで解放する改良（BL-018。最初は 40m）の前: 効率の高い改良が最良のまま買えない状態ばかりにならないように
+    const seen = { buy: 0, wait: 0 };
+    for (const maxDepth of [90, 35])
+      for (const drill of [10, 20, 30, 40, 60])
+        for (const digger of [5, 10, 20, 30])
+          for (const bath of [2, 5, 10]) {
+            const base = stateWith({ bath, pumps: { simple: 15, co2: 5 }, drill, tool: 3, digger, maxDepth, autoOn: true });
+            arrangeSlots(base, BOTS.standard);
+            for (const c0 of scoreCandidates(base, BOTS.standard)) {
+              const s = cloneState(base);
+              s.run.coins = buyQuote(base, c0.item, 1).cost; // その候補がちょうど買えるコイン
+              const t = nextTool(s);
+              if (t && s.run.coins.gte(t.cost)) continue; // 道具の進化が買えると先に買うので除く
+              const scored = scoreCandidates(s, BOTS.standard);
+              const best = scored.reduce((a, b) => (b.score > a.score ? b : a));
+              if (best.affordable || !scored.some((x) => x.affordable)) continue;
+              const want = pickByEfficiency(scored);
+              const before = stateHash(s);
+              const events: GameEvent[] = [];
+              botAct(s, BOTS.standard, newBotMemory(), events);
+              const first = events.find((e) => e.type === 'Purchased');
+              const where = `maxDepth ${maxDepth} drill ${drill} digger ${digger} bath ${bath} coins=${c0.item}`;
+              if (want === null) {
+                expect(first, where).toBeUndefined();
+                expect(stateHash(s), where).toBe(before);
+                seen.wait++;
+              } else {
+                expect(first, where).toMatchObject({ type: 'Purchased', item: want });
+                const w = scored.find((x) => x.item === want)!;
+                expect(w.score, where).toBeGreaterThanOrEqual(best.score * 0.5);
+                seen.buy++;
+              }
+            }
+          }
+    expect(seen.buy).toBeGreaterThan(0);
+    expect(seen.wait).toBeGreaterThan(0);
   });
 });
 
