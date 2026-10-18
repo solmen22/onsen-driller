@@ -3,7 +3,8 @@
 // `npm run test` ではシード 1 だけ。シード 1〜8 は `npm run test:balance`（一式に入れた。#22 と詰みを全シードで見る）
 import { describe, expect, it } from 'vitest';
 import type { GameState } from '../../src/core/index.ts';
-import { BOTS } from '../../tools/sim/bots.ts';
+import { TOOLS } from '../../src/content/tools.ts';
+import { BOTS, canBuyAnything } from '../../tools/sim/bots.ts';
 import { runBot } from '../../tools/sim/sim.ts';
 
 const STUCK_LIMIT_MS = 10 * 60_000;
@@ -53,5 +54,37 @@ describe('BL-032 安い順・ランダムの 20 時間（1 秒刻み）', () => 
     expect(r.state.stats.hits).toBeGreaterThan(0);
     expect(r.totalCoins).toBe('0');
     expect(r.maxStuckMs).toBe(15 * 60_000);
+  });
+
+  it('詰みの数え方（Q-40 (e) ② の後半。PR #61 のレビューの Should 1）: 買えるものはないが、コインが入り続けるなら数え直す（詰みではない）', () => {
+    // 道具は最後の段、ドリル Lv300・自動掘削機 Lv200・湯船 Lv200・源泉 5 種のポンプ Lv300（4 つを枠に）: どれも次のコストが 15 分の収入より大きい。
+    // ボットは最初（0 秒）にしか判断しない（買わない・転生しない）。タップなし。入湯料と掘削で累計コインは毎秒増える
+    const rich = (s: GameState): void => {
+      s.run.drill.tool = TOOLS.length - 1;
+      s.run.drill.level = 300;
+      s.run.autoDig.level = 200;
+      s.run.bath.level = 200;
+      for (const id of ['simple', 'co2', 'salt', 'sulfur', 'iron'] as const) s.run.springs[id] = { pump: 300 };
+      s.run.bath.slots = ['simple', 'co2', 'salt', 'sulfur'];
+    };
+    const bot = { ...BOTS.idle, buyEverySec: 1e7, manual: { kind: 'taps' as const, perSec: 0 } };
+    const notStuck: number[] = [];
+    const r = runBot(bot, {
+      hours: 0.25,
+      stepMs: 1000,
+      seed: 1,
+      setup: (s) => {
+        rich(s);
+        notStuck.push(Number(canBuyAnything(s)));
+      },
+    });
+    // 前提: 終わりの時点でも何も買えない（途中も買えないことは、数え直しを外すと 15 分の詰みになることで確かめた）。累計コインは増えた
+    expect(notStuck).toEqual([0]);
+    expect(canBuyAnything(r.state)).toBe(false);
+    expect([r.state.run.drill.level, r.state.run.autoDig.level, r.state.run.bath.level, r.prestiges]).toEqual([300, 200, 200, 0]);
+    expect(Number(r.totalCoins)).toBeGreaterThan(0);
+    // 数え直すので、区間は毎ステップ始めからやり直す（1 ステップ分）。数え直さなければ 15 分になる
+    expect(r.maxStuckMs).toBeLessThan(STUCK_LIMIT_MS);
+    expect(r.maxStuckMs).toBeLessThanOrEqual(1_000);
   });
 });

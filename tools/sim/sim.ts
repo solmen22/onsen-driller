@@ -33,7 +33,7 @@ export interface SimOptions {
   seed: number;
   /** 計測用の時計（ms）。省略時は計測しない */
   now?: () => number;
-  /** 始めの状態を変える（テスト用。新しいゲームの状態を作った直後に 1 回だけ呼ぶ） */
+  /** 始めの状態を変える（テスト専用。新しいゲームの状態を作った直後に 1 回だけ呼ぶ。`test:balance`・`npm run sim` のレポートを作る実行では使わない〔目標表の値が黙って変わるため〕） */
   setup?: (s: GameState) => void;
 }
 
