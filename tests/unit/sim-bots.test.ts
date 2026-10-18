@@ -34,8 +34,9 @@ import {
   totalRate,
 } from '../../tools/sim/bots.ts';
 import { runBot } from '../../tools/sim/sim.ts';
-import { stateWith } from '../support/states.ts';import { UPGRADES } from '../../src/content/upgrades.ts';
-
+import { stateWith } from '../support/states.ts';
+import { TOOLS } from '../../src/content/tools.ts';
+import { UPGRADE_BY_ID, UPGRADES } from '../../src/content/upgrades.ts';
 
 describe('BL-031 ボットの定義（gdd §8-2）', () => {
   it('標準＝自動掘り（最初の強化の前は毎秒 2 タップ）・5 秒ごと、アクティブ＝長押し・2 秒ごと、放置＝毎秒 0.3 タップ・60 秒ごと', () => {
@@ -137,6 +138,20 @@ describe('BL-031 買い方と枠（投資効率・収入が最大の組み合わ
     expect(canBuyAnything(stateWith({ coins: 5 }))).toBe(true);
     const items: LevelItem[] = ['drill', 'autoDigger', 'bath'];
     expect(items.some((i) => buyQuote(stateWith({ coins: 5 }), i, 1).state === 'affordable')).toBe(true);
+  });
+
+  it('改良だけが買えるときも canBuyAnything は true（改良も候補。詰みの判定〔#61〕の前提。PR #62 のレビュー N-4）', () => {
+    // 道具は最後の段、レベルの品目はどれも次のコストが振動ビットより高い。振動ビット以外の改良は買ってある
+    const s = stateWith({ depth: 300, tool: TOOLS.length - 1, drill: 300, digger: 200, bath: 200, pumps: { simple: 300, co2: 300, salt: 300, sulfur: 300, iron: 300 } });
+    s.run.upgrades = UPGRADES.map((u) => u.id).filter((id) => id !== 'vibroBit');
+    s.run.coins = num(UPGRADE_BY_ID.vibroBit.cost);
+    const levels: LevelItem[] = ['drill', 'autoDigger', 'bath'];
+    expect(levels.every((i) => buyQuote(s, i, 1).state !== 'affordable')).toBe(true);
+    expect(nextTool(s)).toBeNull();
+    expect(buyQuote(s, 'upgrade:vibroBit', 1).state).toBe('affordable');
+    expect(canBuyAnything(s)).toBe(true);
+    s.run.upgrades.push('vibroBit');
+    expect(canBuyAnything(s)).toBe(false);
   });
 });
 
