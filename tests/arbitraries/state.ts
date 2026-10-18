@@ -6,6 +6,7 @@ import Decimal from 'break_infinity.js';
 import { ORE_IDS } from '../../src/content/ores.ts';
 import type { SpringId } from '../../src/content/springs.ts';
 import { PARAMS } from '../../src/content/params.ts';
+import { UPGRADES } from '../../src/content/upgrades.ts';
 import { computeGuests, createInitialState, num, NUM_MAX, slotsForBathLevel, type GameState, type Num } from '../../src/core/index.ts';
 
 export const SPRING_IDS: SpringId[] = ['simple', 'co2', 'salt', 'sulfur', 'iron'];
@@ -61,7 +62,8 @@ export const gameStateArb: fc.Arbitrary<GameState> = fc
     totalCoins: decimalArb,
     tutorial: fc.record({ step: count(8), dismissed: fc.boolean() }),
     endingSeen: fc.boolean(),
-    upgrades: fc.uniqueArray(fc.stringMatching(/^[a-z][a-zA-Z0-9]{0,11}$/), { maxLength: 5 }),
+    // 知っている改良の ID だけ（知らない ID は読み込みで捨てるので往復が一致しない。BL-018・TS-026-11）。順番は保つ
+    upgrades: fc.uniqueArray(fc.constantFrom(...UPGRADES.map((u) => u.id)), { maxLength: 5 }),
     rng: fc.tuple(fc.nat(0xffffffff), fc.nat(0xffffffff), fc.nat(0xffffffff), fc.integer({ min: 1, max: 0xffffffff })),
   })
   .map((g) => {

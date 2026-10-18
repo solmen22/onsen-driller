@@ -679,17 +679,24 @@ describe('レビュー S-5: ID の配列の重複除去は O(n) で、長さに�
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(t.ms, `${t.method} で判定`).toBeLessThan(1000);
-    expect(r.state.run.upgrades).toHaveLength(MAX_ID_LIST);
-    expect(r.state.run.upgrades.slice(0, 3)).toEqual(['u0', 'u1', 'u2']);
+    // 改良は知っている ID だけを残す（BL-018。TS-026-11）ので、u0… はすべて捨てられる。上限の確かめは perks・achievements で行う
+    expect(r.state.run.upgrades).toEqual([]);
     expect(r.state.meta.perks).toHaveLength(MAX_ID_LIST);
     expect(r.state.collection.achievements).toHaveLength(MAX_ID_LIST);
     expect(r.corrected).toEqual(expect.arrayContaining(['run.upgrades', 'meta.perks', 'collection.achievements']));
   });
   it('重複は 1 つにし、順番を保つ（上限より少なければ今までどおり）', () => {
-    const g = toSaveGame(createInitialState(1)) as unknown as { run: Record<string, unknown> };
-    g.run.upgrades = ['b', 'a', 'b', 'bad id!', 'c', 'a'];
+    const g = toSaveGame(createInitialState(1)) as unknown as { meta: Record<string, unknown> };
+    g.meta.perks = ['b', 'a', 'b', 'bad id!', 'c', 'a'];
     const r = parseGame(g);
-    expect(r.ok && r.state.run.upgrades).toEqual(['b', 'a', 'c']);
+    expect(r.ok && r.state.meta.perks).toEqual(['b', 'a', 'c']);
+  });
+  it('TS-026-11・TS-018-14: 改良は知らない ID（後半の grip・prototype の名前）を捨て、知っている ID は重複を 1 つにして順番を保つ。解放の条件を満たしていない購入済みの ID も残す（Q-39 (a)）', () => {
+    const g = toSaveGame(createInitialState(1)) as unknown as { run: Record<string, unknown> };
+    g.run.upgrades = ['noren', 'polisher', 'noren', 'grip', '__proto__', 'constructor', 'sieve'];
+    const r = parseGame(g);
+    expect(r.ok && r.state.run.upgrades).toEqual(['noren', 'polisher', 'sieve']);
+    expect(r.ok && r.corrected).toContain('run.upgrades');
   });
   it('知らないキーが 10 万個ある表（collection.ores・run.springs）も 1 秒以内', () => {
     const g = toSaveGame(createInitialState(1)) as unknown as { run: Record<string, unknown>; collection: Record<string, unknown> };

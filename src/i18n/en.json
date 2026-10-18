@@ -156,5 +156,17 @@
   "inn.notConnected": "Not connected",
   "inn.inSlot": "In slot {n}",
   "inn.guests": "Guests",
-  "buy.pumpOf": "{spring} pump"
+  "buy.pumpOf": "{spring} pump",
+  "upgrade.vibroBit": "Vibrating bit",
+  "upgrade.sieve": "Ore sieve",
+  "upgrade.noren": "Noren curtain",
+  "upgrade.ledger": "Guest ledger",
+  "upgrade.drillOil": "Drill oil",
+  "upgrade.yumomiSimple": "Stirring paddle (Simple spring)",
+  "upgrade.milk": "After-bath milk",
+  "upgrade.yumomiCo2": "Stirring paddle (Carbonated spring)",
+  "upgrade.yumomiSalt": "Stirring paddle (Salt spring)",
+  "upgrade.twinBit": "Twin bit",
+  "upgrade.polisher": "Polishing table",
+  "upgrade.yumomiSulfur": "Stirring paddle (Sulfur spring)"
 }

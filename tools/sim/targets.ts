@@ -53,7 +53,7 @@ export const TARGETS: readonly TargetDef[] = [
     label: '最初の 20 分の新しい要素の間隔の最大',
     goal: '3 分以内',
     kind: 'pending',
-    pending: '改良（BL-018。後半は S3 の BL-020）が入るまで',
+    pending: '改良の後半 12 項目（S4 の BL-020）が入るまで。前半 12 項目〔BL-018〕の後の値は 5:33〔改良の解放から購入までの待ち。BL-034 の検討材料 H-1〕',
     bot: 'standard',
     unit: 'ms',
     value: (r) => r.newElementGapMs,
@@ -86,8 +86,8 @@ export const TARGETS: readonly TargetDef[] = [
     max: 90 * MIN,
   },
   { no: 13, label: '500m・伝説の源泉（エンディング。累計）', goal: '3〜5 時間', kind: 'pending', pending: '伝説の源泉とエンディング（S3 の BL-023）が入るまで', bot: 'standard', unit: 'ms', event: true, value: time('ending'), min: 180 * MIN, max: 300 * MIN },
-  { no: 14, label: '空白時間（何も買えない最長。0〜10 分）', goal: '60 秒以内', kind: 'pending', pending: '改良（BL-018）が入るまで', bot: 'standard', unit: 'ms', value: (r) => r.buyGapMs[0], max: 60 * SEC },
-  { no: 15, label: '空白時間（10〜30 分）', goal: '120 秒以内', kind: 'pending', pending: '改良（BL-018）が入るまで', bot: 'standard', unit: 'ms', value: (r) => r.buyGapMs[1], max: 120 * SEC },
+  { no: 14, label: '空白時間（何も買えない最長。0〜10 分）', goal: '60 秒以内', kind: 'judge', bot: 'standard', unit: 'ms', value: (r) => r.buyGapMs[0], max: 60 * SEC },
+  { no: 15, label: '空白時間（10〜30 分）', goal: '120 秒以内', kind: 'judge', bot: 'standard', unit: 'ms', value: (r) => r.buyGapMs[1], max: 120 * SEC },
   { no: 16, label: '空白時間（転生の推奨の後）', goal: '300 秒まで', kind: 'pending', pending: '転生の本実装（S3 の BL-021）が入るまで' },
   { no: 17, label: '放置ボットの 60 分の到達深さ', goal: '250m 以上', kind: 'judge', bot: 'idle', unit: 'm', value: (r) => r.depthAt60, min: 250 },
   { no: 18, label: '5〜60 分の収入のうち入湯料の割合', goal: '50% 超', kind: 'judge', bot: 'standard', unit: 'ratio', value: (r) => (Number.isFinite(r.bathShare) ? r.bathShare : null), gt: 0.5 },
@@ -114,22 +114,16 @@ export interface Accepted {
 }
 
 export const ACCEPTED: readonly Accepted[] = [
-  {
-    no: 8,
-    reason:
-      '既存の数値（S1〜S2 の初期値）の結果。1 周目の 150m 以降が gdd の暫定値より速く、中央値 13:54（下限 14:00 に 6 秒足りない。シード 1〜8 で 13:23〜14:04）。#10 と同じ原因。数値の調整は BL-034（数値だけの PR）で、BL-032（転生の規則のボット）の後に流し直して切り分ける',
-    approvedBy: '技術リード（2026-09-29。暫定）。CEO 決定 2026-09-29: gdd §8-6 の期限つきの暫定の受け入れで S2 を通す（S2 の完了条件は「範囲内、または期限 BL-034 の暫定の受け入れ」）',
-    until: 'BL-034',
-    // 受け入れたときの値 13:23〜14:04 の下に約 1.5 分の余裕。上限は目標の上限（14:00〜20:00 は合格になる）
-    bounds: { min: 12 * MIN, max: 20 * MIN },
-  },
+  // #8（250m・硫黄泉）は BL-018 の数値（改良のコスト ×10・g_h 1.072。CEO 決定 0010）で範囲内に戻ったので消した
+  // （中央値 14:24。シード 1〜8 で 14:01〜14:52。下限 14:00 との差は小さい。g_h は BL-034 までの暫定）
   {
     no: 10,
     reason:
-      '#8 と同じ原因（1 周目の 150m 以降が速い）。中央値 17:14（範囲 25:00〜40:00。シード 1〜8 で 16:47〜17:22）。転生の推奨の表示の時期は、転生の本実装（S3 の BL-021・022）と BL-034 の数値で合わせる',
-    approvedBy: '技術リード（2026-09-29。暫定）。CEO 決定 2026-09-29: #8 と同じ扱い（期限 BL-034 の暫定の受け入れ）',
+      '1 周目の 150m 以降が gdd の暫定値より速い（S1〜S2 の初期値から）。BL-018（改良）の後は、改良のコスト ×10 と地層の硬さの伸び g_h 1.066→1.072（BL-034 までの暫定）を組にして、中央値 17:04（範囲 25:00〜40:00。シード 1〜8 で 16:41〜17:30）。受け入れたとき（S2）の 17:14 とほぼ同じ。転生の推奨の表示の時期は、転生の本実装（S3 の BL-021・022）と BL-034 の数値（g_h の最終の値を含む）で合わせる',
+    approvedBy:
+      '技術リード（2026-09-29。暫定）。CEO 決定 2026-09-29: #8 と同じ扱い（期限 BL-034 の暫定の受け入れ）。BL-018 の後も幅のままで受け入れ: CEO 決定 0010（2026-10-18。案 c、g_h は BL-034 までの暫定）',
     until: 'BL-034',
-    // 受け入れたときの値 16:47〜17:22 の下に約 2 分の余裕。上限は目標の上限（25:00〜40:00 は合格になる）
+    // 受け入れたときの値 16:47〜17:22（BL-018 の後は 16:41〜17:30）の下に約 1.5〜2 分の余裕。上限は目標の上限（25:00〜40:00 は合格になる）
     bounds: { min: 15 * MIN, max: 40 * MIN },
   },
 ];
