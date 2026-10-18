@@ -10,7 +10,7 @@ const withSprings = (...ids: GameState['collection']['springsSeen']): GameState 
   return s;
 };
 
-describe('isHappyMoment（gdd §13: 最初の源泉・各お客さんの初来訪・転生の完了だけ）', () => {
+describe('TS-057-05 isHappyMoment（gdd §13: 最初の源泉・各お客さんの初来訪・転生の完了だけ）', () => {
   it('最初の源泉（図鑑のただ 1 つ）で送り、2 つ目以降・転生の後の再発見では送らない', () => {
     expect(isHappyMoment({ type: 'SpringFound', spring: 'simple', depth: 20 }, withSprings('simple'))).toBe(true);
     expect(isHappyMoment({ type: 'SpringFound', spring: 'co2', depth: 60 }, withSprings('simple', 'co2'))).toBe(false);

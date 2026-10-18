@@ -226,7 +226,7 @@ describe('check:size', () => {
     }
   });
 
-  test('TS-008-09 SDK 2 種・__game・_headers を 6 ターゲットに 1 つずつ入れる（許可 6 件は通り、18 件は失敗）', () => {
+  test('TS-008-09・TS-056-01 SDK 2 種・__game・_headers を 6 ターゲットに 1 つずつ入れる（許可 6 件は通り、18 件は失敗）', () => {
     const targets = ['web', 'crazygames', 'itch', 'poki', 'e2e', 'e2e-crazygames'];
     const allowed = new Set(['crazygames:cg', 'e2e-crazygames:cg', 'poki:poki', 'e2e:hooks', 'e2e-crazygames:hooks', 'web:headers']);
     const inject = {
@@ -389,7 +389,7 @@ describe('check:size', () => {
     assertFail(size(d, 'itch'), /\[net\.url\] assets\/index-abcd1234\.css: 許可リストにない外部の URL https:\/\/example\.com\/bg\.png/);
   });
 
-  test('BL-096 許可リストの URL はそのターゲットでだけ通る（XML 名前空間・Phaser の文字列は全部、SDK は SDK を持つターゲットだけ）', () => {
+  test('TS-056-01 BL-096 許可リストの URL はそのターゲットでだけ通る（XML 名前空間・Phaser の文字列は全部、SDK は SDK を持つターゲットだけ）', () => {
     const common = EXTERNAL_URL_ALLOW.filter((a) => a.targets === 'all').map((a) => a.url);
     for (const t of SIX) {
       const d = newDist();
@@ -1138,13 +1138,13 @@ describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別の�
   const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
   const e = jobOf(nightly, 'e2e-nightly');
 
-  test('E2E のジョブは balance・property を呼ばず、ほかのジョブを待たない（BL-090 がそろう前から動く）', () => {
+  test('TS-084-01 E2E のジョブは balance・property を呼ばず、ほかのジョブを待たない（BL-090 がそろう前から動く）', () => {
     const c = codeOf(e);
     assert.doesNotMatch(c, /test:balance|test:property/);
     assert.doesNotMatch(c, /^ {4}needs:/m);
   });
 
-  test('npm ci → build:all → build:e2e → Playwright（chromium・webkit・firefox）→ mode ごとに test:e2e:nightly／test:e2e:full（PR #6 のレビュー S-3）', () => {
+  test('TS-084-01 npm ci → build:all → build:e2e → Playwright（chromium・webkit・firefox）→ mode ごとに test:e2e:nightly／test:e2e:full（PR #6 のレビュー S-3）', () => {
     const ss = stepsOf(e);
     const at = (re, what) => {
       const i = ss.findIndex((s) => re.test(s));
@@ -1168,7 +1168,7 @@ describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別の�
     assert.doesNotMatch(c, /PW_DIST/, 'PW_DIST を渡さない（serve.mjs で mode の outDir より優先される）');
   });
 
-  test('package.json の test:e2e:nightly は WebKit・Firefox・モバイル 2 種で、PR ごとの chromium・prod-builds を重ねず、失敗の件数に上限がある（PR #9 のレビュー S-1・N-6）', () => {
+  test('TS-084-06 package.json の test:e2e:nightly は WebKit・Firefox・モバイル 2 種で、PR ごとの chromium・prod-builds を重ねず、失敗の件数に上限がある（PR #9 のレビュー S-1・N-6）', () => {
     const script = pkg.scripts['test:e2e:nightly'];
     const projects = [...script.matchAll(/--project=([\w-]+)/g)].map((m) => m[1]);
     for (const p of ['webkit', 'firefox', 'mobile-safari', 'mobile-chrome']) assert.ok(projects.includes(p), `test:e2e:nightly に ${p} がない`);
@@ -1187,20 +1187,20 @@ describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別の�
   });
 
   // 週 2 回（月・木）の schedule に 3 日の保存は合わず、次の回の前に消えていた（BL-128。QA の S2 判定書 §2-2 の 5）
-  test('失敗したときの記録: playwright-report/ だけを 7 日、HTML レポートができなかったときだけ test-results/。緑の回も results.json だけを 7 日（BL-099・BL-128）', () => {
+  test('TS-084-02 失敗したときの記録: playwright-report/ だけを 7 日、HTML レポートができなかったときだけ test-results/。緑の回も results.json だけを 7 日（BL-099・BL-128）', () => {
     assertFailureReportPolicy(e, 'nightly.yml の e2e-nightly', ['npm run test:e2e:nightly', 'npm run test:e2e:full'], {
       days: 7,
       notes: 'nightly-e2e-results-json',
     });
   });
 
-  test('schedule は週 2 回（月・木の 03:17 JST＝UTC の日・水 18:17。CEO 決定の 03:00 を毎時 0 分からずらした。PR #9 のレビュー N-3）', () => {
+  test('TS-084-05 schedule は週 2 回（月・木の 03:17 JST＝UTC の日・水 18:17。CEO 決定の 03:00 を毎時 0 分からずらした。PR #9 のレビュー N-3）', () => {
     const crons = [...nightly.matchAll(/cron: '([^']+)'/g)].map((m) => m[1]);
     assert.ok(crons.length >= 1, 'cron の行がない');
     for (const c of crons) assert.equal(c, '17 18 * * 0,3');
   });
 
-  test('schedule は on: の下にあり、workflow_dispatch と並ぶ（字下げを誤るとワークフロー全体が無効になる。PR #9 のレビュー N-4）', () => {
+  test('TS-084-05 schedule は on: の下にあり、workflow_dispatch と並ぶ（字下げを誤るとワークフロー全体が無効になる。PR #9 のレビュー N-4）', () => {
     const on = /^on:\n((?: {2}.*\n|\s*\n)+)/m.exec(codeOf(nightly))?.[1] ?? '';
     assert.match(on, /^ {2}schedule:\n {4}- cron: '17 18 \* \* 0,3'/m, 'on: の直下に schedule: と - cron: がない');
     assert.match(on, /^ {2}workflow_dispatch:$/m, 'on: の直下に workflow_dispatch: がない（手動実行ができなくなる）');
@@ -1232,7 +1232,7 @@ describe('失敗したときの E2E の記録（BL-099。決定 0006-4・QA 判�
     assert.equal((c.match(/^\s+(?:path: )?test-results\/?$/gm) ?? []).length, 1, 'ci.yml で test-results/ を保存する場所が 1 つでない');
   });
 
-  test('nightly.yml は書き込みの権限と secrets を持たない（ワークフロー直下の contents: read だけ。PR #9 のレビュー S-3）', () => {
+  test('TS-084-03 nightly.yml は書き込みの権限と secrets を持たない（ワークフロー直下の contents: read だけ。PR #9 のレビュー S-3）', () => {
     const nightly = readFileSync(join(root, '.github', 'workflows', 'nightly.yml'), 'utf8').replaceAll('\r\n', '\n');
     const c = codeOf(nightly);
     assert.match(c, /^permissions:\n {2}contents: read\n(?! )/m, 'ワークフロー直下の permissions が contents: read だけでない');
@@ -1260,7 +1260,7 @@ describe('失敗したときの E2E の記録（BL-099。決定 0006-4・QA 判�
       assert.doesNotMatch(codeOf(readFileSync(join(root, '.github', 'workflows', f), 'utf8')), /PLAYWRIGHT_HTML_|PLAYWRIGHT_JSON_|PW_TEST_HTML_REPORT/, `${f} が環境変数で HTML レポートの出力先を変えている（hashFiles と合わなくなる）`);
   });
 
-  test('playwright.config.ts: maxFailures は CI で 10・手元で 0（上限なし）、PW_MAX_FAILURES で変えられる（実行・修復エンジニアの決定。CEO 承認。PR 1 回の全体の失敗の時間とレポートを抑える）', () => {
+  test('TS-084-06 playwright.config.ts: maxFailures は CI で 10・手元で 0（上限なし）、PW_MAX_FAILURES で変えられる（実行・修復エンジニアの決定。CEO 承認。PR 1 回の全体の失敗の時間とレポートを抑える）', () => {
     const code = pw.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
     assert.match(code, /^\s+maxFailures: Number\(process\.env\.PW_MAX_FAILURES \?\? \(CI \? 10 : 0\)\),$/m);
     assert.equal((code.match(/\bmaxFailures:/g) ?? []).length, 1, 'maxFailures の設定が 2 か所以上ある');

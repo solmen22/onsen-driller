@@ -5,7 +5,7 @@
 // - Chromium には AudioContext があるので、読み込みの前の「AudioContext がない環境は黙る」には当たらず、チャンクを取りに行く
 // - もう 1 件は、止まった AudioContext を次の入力で戻す main.ts の結線（window の capture の pointerdown・pointerup・touchend・
 //   keydown → resumeAudio）の見張り。sfx.ts の中身は unit（tests/unit/sfx.test.ts）で確かめ、ここは結線だけを見る
-// - TS-ID は仮（TS-104-01・02。テスト設計者が traceability.md に起こすまで。PR #29 のレビューの Nit）
+// - TS-ID（TS-104-01・02）はシナリオ org/30_quality/test-designer/scenarios/BL-104_audio-resume.md のもの（PR #29 のレビューの Nit）
 // - 毎晩（run 37241180586）の赤の直し（BL-104 の e2e の初回の毎晩。実行記録 org/30_quality/test-engineer/runs/2026-10-05_nightly-37241180586.md）:
 //   TS-104-01 は WebKit の動的 import の失敗の文にチャンクの名前が入らない（"Importing a module script failed."）ので、WebKit だけその文も認める。
 //   TS-104-02 は、音の出力の装置が開けない環境（CI の Linux の Firefox）では、ゲームと関係のない AudioContext も running にならないので、

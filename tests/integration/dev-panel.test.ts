@@ -78,7 +78,7 @@ describe('デバッグパネル', () => {
     expect(byId('dev-state').textContent).toMatch(/depth 20m/);
   });
 
-  it('偽の広告の結果を切り替えられる（dev アダプタのときだけ出す）', async () => {
+  it('TS-056-03 偽の広告の結果を切り替えられる（dev アダプタのときだけ出す）', async () => {
     const store = new GameStore(createInitialState(1));
     const platform = createDevPlatform({ adMs: 0, target: 'web' });
     panel = mountDevPanel({ store, platform });

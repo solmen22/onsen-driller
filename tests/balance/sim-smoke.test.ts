@@ -14,8 +14,8 @@ import { runBot } from '../../tools/sim/sim.ts';
  */
 const STANDARD_1H_SEED1_HASH = '23632dc8';
 
-describe('sim (短縮版)', () => {
-  it('標準ボット 1 時間: 同じシードで同じハッシュ、固定値と一致、数値が健全', () => {
+describe('TS-031-10 sim (短縮版)', () => {
+  it('TS-031-06 標準ボット 1 時間: 同じシードで同じハッシュ、固定値と一致、数値が健全', () => {
     const a = runBot(BOTS.standard, { hours: 1, stepMs: 1000, seed: 1 });
     const b = runBot(BOTS.standard, { hours: 1, stepMs: 1000, seed: 1 });
     expect(a.hash).toBe(b.hash);
@@ -42,7 +42,7 @@ describe('sim (短縮版)', () => {
     expect(m.recommend).toBeLessThanOrEqual(m.prestige ?? Infinity);
   });
 
-  it('標準ボット 20 時間を 1 秒刻みで 2 回流すと、結果（ハッシュ・最深・転生の回数）が同じ（BL-031 の受け入れ基準 3）', () => {
+  it('TS-031-05 標準ボット 20 時間を 1 秒刻みで 2 回流すと、結果（ハッシュ・最深・転生の回数）が同じ（BL-031 の受け入れ基準 3）', () => {
     const a = runBot(BOTS.standard, { hours: 20, stepMs: 1000, seed: 1 });
     const b = runBot(BOTS.standard, { hours: 20, stepMs: 1000, seed: 1 });
     expect([a.hash, a.bestDepth, a.prestiges]).toEqual([b.hash, b.bestDepth, b.prestiges]);

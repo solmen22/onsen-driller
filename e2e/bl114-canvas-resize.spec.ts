@@ -41,7 +41,7 @@ const dispatchOrientationChange = (page: Page): Promise<void> =>
   });
 
 test.describe('BL-114 回転の後のキャンバスの大きさ', () => {
-  test('BL-114 縦横を変え、data-layout が変わった後に orientation の change が届いても、900ms 後にキャンバスがステージに合う（3 往復）', async ({ page }) => {
+  test('TS-035-12 BL-114 縦横を変え、data-layout が変わった後に orientation の change が届いても、900ms 後にキャンバスがステージに合う（3 往復）', async ({ page }) => {
     await page.setViewportSize(PORTRAIT);
     const g = await bootGame(page);
     await g.pause();
