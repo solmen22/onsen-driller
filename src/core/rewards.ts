@@ -1,5 +1,6 @@
 // ご褒美の core（R1〜R3・温泉チケット。BL-058。gdd §5-9・arch §6-1〜6-3）。時刻は読まない（壁時計は引数で受け取る。arch §8-2）
-// - 温泉チケット: 得るのは決まった出来事（TicketSource の 4 つ）だけで、1 回の量は固定。上限を超えた分は「毎秒の収入 × 60 秒」のコイン。
+// - 温泉チケット: 得るのは決まった出来事（TicketSource の 5 つ）だけで、1 回の量は固定。上限を超えた分は「毎秒の収入 × 60 秒」のコイン
+//   （返却〔adRefund〕だけはコインにしない）。
 //   コイン → チケットの道はない（QA §3-2(b)・Q-36 (a) の条件 1〜4）。減るのは useBoost('ticket')・claimOffline('double','ticket') の成功だけ
 // - R2 掘削ブースト: 効果はロジックの時間で減る（オンライン中だけ）。休みは壁時計（使った時刻 + 15 分）。広告でもチケットでも同じ
 // - R3 ラッキー鉱脈: 出現は周回の擬似乱数（rng.run）で 5〜8 分ごと（ロジックの時間）、60 秒で消える。タップの打撃 15 回か広告で開く
@@ -98,6 +99,7 @@ export function useBoost(s: GameState, source: 'ad' | 'ticket', wallMs: number, 
   if (block) return block;
   if (source === 'ticket' && s.meta.tickets < 1) return 'insufficient';
   if (source === 'ticket') s.meta.tickets -= 1;
+  markTicketPaid(s, 'R2', source === 'ticket'); // 今の回をチケットで払ったか（返却の印。広告の回では外す）
   const b = s.run.boost;
   b.remainingMs = B.durationMs;
   b.readyAtWallMs = wallMs + B.cooldownMs;
@@ -282,6 +284,35 @@ export function claimOffline(
   const coins = mode === 'double' ? mul(p.coins, 2) : p.coins;
   addCoins(s, coins);
   s.run.pendingOffline = null;
+  markTicketPaid(s, 'R1', mode === 'double' && source === 'ticket'); // この復帰をチケットで ×2 にしたか（返却の印）
   out.push(mode === 'double' ? { type: 'OfflineClaimed', mode, source, coins: toStr(coins) } : { type: 'OfflineClaimed', mode, coins: toStr(coins) });
+  return null;
+}
+
+// ---- 払ったチケットの返却（決定 0010 の 11。QA の判断 qa-lead/2026-10-18_compensation-and-public.md §1-3 の条件 1〜6） ----
+
+function markTicketPaid(s: GameState, p: 'R1' | 'R2', paid: boolean): void {
+  const m = s.run.ticketPaid;
+  if (paid) s.run.ticketPaid = { ...m, [p]: true };
+  else if (m?.[p]) {
+    delete m[p];
+    if (!m.R1 && !m.R2) delete s.run.ticketPaid;
+  }
+}
+
+/**
+ * 払ったチケットを 1 枚返す（R1・R2。source は adRefund）。app（BL-059 の広告の流れ）が、遅れて見終えた広告の報酬（Q-45）を
+ * core に断られた（R2 は効果中か休み中、R1 は受け取り済み）ときだけ呼ぶ。
+ * - 返すのは、今の回（R2）・今の復帰（R1）をチケットで払い、まだ返していないときだけ（条件 2。広告で始めた回・休みだけの回では notFound）
+ * - 1 回につき最大 1 枚（条件 3。返したら印を外す。2 つ目の遅れた報酬では notFound）
+ * - 上限（10 枚）で入らないときは 0 枚で、コインにもしない（条件 4。TicketGained{n:0, overflow:1, coins:"0"}。印は外す）
+ * - 印は保存しない（条件 5。state.ts の ticketPaid）。休みが明けた後の遅れた報酬は useBoost('ad') が通るので、ここには来ない（条件 6）
+ */
+export function refundAdTicket(s: GameState, p: 'R1' | 'R2', out: GameEvent[]): RewardFail | null {
+  if (!s.run.ticketPaid?.[p]) return 'notFound';
+  markTicketPaid(s, p, false);
+  const added = s.meta.tickets < T.max ? T.adRefund : 0;
+  s.meta.tickets += added;
+  out.push({ type: 'TicketGained', source: 'adRefund', n: added, overflow: T.adRefund - added, coins: toStr(ZERO) });
   return null;
 }

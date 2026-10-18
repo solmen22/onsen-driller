@@ -137,10 +137,11 @@ describe('リワード（requestReward）', () => {
       saveBeforeAd: () => void order.push('save'),
       reserve: (p) => void order.push(`reserve:${p}`),
     });
-    r.a.ads.showRewarded = ((orig) => (p: RewardPlacement) => {
+    const orig = r.a.ads.showRewarded.bind(r.a.ads);
+    r.a.ads.showRewarded = (p: RewardPlacement) => {
       order.push(`show:${p}`);
       return orig(p);
-    })(r.a.ads.showRewarded);
+    };
     const prs = [r.flow.requestReward('R3'), r.flow.requestReward('R3')];
     await flush();
     expect(order).toEqual(['save', 'reserve:R3', 'show:R3']);

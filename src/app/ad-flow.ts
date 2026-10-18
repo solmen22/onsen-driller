@@ -14,6 +14,9 @@
 //   アダプタの onLateReward（要求ごとの id つき）を受けて報酬を 1 回だけ付ける。同じ id は 2 回目から無視し（壊れたアダプタでも二重にしない）、
 //   その要求の placement に付ける（今の要求〔pending〕とは別。今の要求の Promise・報酬には触れない）。core が断ったら
 //   （R2 が休み中・R3 の鉱脈が消えたなど）何も付けず、知らせもしない。付けたら onLateReward の購読者（UI のトースト・シート）に知らせる
+// - 払ったチケットの返却（決定 0010 の 11）: 遅れた報酬を core が断ったら（R2 が効果中か休み中・R1 が受け取り済み）、refund(p) を呼ぶ。
+//   返すかどうか（チケットで払った回か・まだ返していないか）は core が決める。返した（refund）・上限で 0 枚（full）なら、
+//   その種類を添えて購読者に知らせる（トースト）。返さないなら何も知らせない
 // - 要求の前に予約する（reserve。R3 は鉱脈。要求の間に鉱脈が消えても、見終えたら報酬を付ける。PR #55 のレビュー S-5）
 // - 1 つの止まる理由の書き手は 1 か所: ライフサイクルの 'ad'・'break' と、入力の 'ad' を書くのはこのファイルだけ
 import type { GameEvent } from '../core/index.ts';
@@ -38,8 +41,13 @@ export interface AdFlowDeps {
   reserve?: (p: RewardPlacement) => void;
   /** 'rewarded' のとき（と遅れた報酬のとき）だけ呼ぶ（app/rewards.ts の grantAd）。core が受けたら ok: true */
   grant: (p: RewardPlacement) => { ok: boolean };
+  /** 遅れた報酬を core が断ったときの、払ったチケットの返却（app/rewards.ts の refundAd。決定 0010 の 11） */
+  refund?: (p: RewardPlacement) => 'refund' | 'full' | null;
   onError?: (e: unknown) => void;
 }
+
+/** 遅れた報酬（Q-45）の知らせの種類: reward は報酬が付いた、refund は払ったチケットを返した、full は上限で返せなかった（決定 0010 の 11） */
+export type LateKind = 'reward' | 'refund' | 'full';
 
 export interface AdFlow {
   /** UI の Ctx に渡す要求の口（シートの「動画」・おかえりの ×2） */
@@ -49,7 +57,12 @@ export interface AdFlow {
   /** visibilitychange で呼ぶ（ループを理由から決め直す） */
   syncHidden(): void;
   /** 遅れた報酬（Q-45）を付けたときに呼ぶ（UI のトースト・シート）。戻り値で購読をやめる */
-  onLateReward(cb: (p: RewardPlacement) => void): () => void;
+  onLateReward(cb: (p: RewardPlacement, kind: LateKind) => void): () => void;
+  /**
+   * 広告の再生の始まり・終わり（アダプタの onPlaying。二重の通知は除いた後）を購読する。戻り値で購読をやめる。
+   * UI の待ちの案内（「広告を読み込んでいます…」）を、広告が始まったら消すのに使う（決定 0010 の 7）
+   */
+  onAdPlaying(cb: (playing: boolean) => void): () => void;
   /** テスト用: 今ミッドゲームの機会を渡している途中か */
   readonly breaking: boolean;
 }
@@ -61,7 +74,8 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
   let pending: Promise<RewardResult> | null = null;
   /** 遅れた報酬を付けた（か断られた）要求の id。同じ id を 2 回扱わない（Q-45） */
   const lateSeen = new Set<number>();
-  const lateSubs = new Set<(p: RewardPlacement) => void>();
+  const lateSubs = new Set<(p: RewardPlacement, kind: LateKind) => void>();
+  const playingSubs = new Set<(playing: boolean) => void>();
 
   const syncLoop = (): void => {
     if (d.isHidden() || adPlaying || breaking) d.loop.pause();
@@ -77,6 +91,13 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
     d.setMuted(playing || d.isMuted());
     syncLoop();
     if (!playing) d.resumeAudio();
+    for (const cb of [...playingSubs]) {
+      try {
+        cb(playing);
+      } catch (e) {
+        onError(e);
+      }
+    }
   });
 
   d.ads.onLateReward((r: LateReward) => {
@@ -88,10 +109,18 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
     } catch (e) {
       onError(e);
     }
-    if (!ok) return;
+    let kind: LateKind | null = ok ? 'reward' : null;
+    if (!ok) {
+      try {
+        kind = d.refund?.(r.placement) ?? null;
+      } catch (e) {
+        onError(e);
+      }
+    }
+    if (kind === null) return;
     for (const cb of [...lateSubs]) {
       try {
-        cb(r.placement);
+        cb(r.placement, kind);
       } catch (e) {
         onError(e);
       }
@@ -169,6 +198,12 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
       lateSubs.add(cb);
       return () => {
         lateSubs.delete(cb);
+      };
+    },
+    onAdPlaying(cb) {
+      playingSubs.add(cb);
+      return () => {
+        playingSubs.delete(cb);
       };
     },
     get breaking() {

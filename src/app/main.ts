@@ -15,7 +15,7 @@ import { playBreak, playHit, resumeAudio, setMuted, unlockAudio } from '../audio
 import { startAutosave } from './autosave.ts';
 import { createAppClock } from './clock.ts';
 import { createRewardHooks } from './rewards.ts';
-import { createAdFlow } from './ad-flow.ts';
+import { createAdFlow, type LateKind } from './ad-flow.ts';
 import type { View } from '../view/game.ts';
 import type { DevParams } from './dev-params.ts';
 import { captureErrors, createErrorLog } from './errors.ts';
@@ -148,6 +148,7 @@ async function boot(): Promise<void> {
     saveBeforeAd: () => void autosave.saveNow('ad'),
     reserve: (p) => rewards.reserveAd(p),
     grant: (p) => rewards.grantAd(p),
+    refund: (p) => rewards.refundAd(p),
     onError: (e) => errorLog.push(e),
   });
   store.onEvents((evs) => ads.onEvents(evs));
@@ -166,9 +167,11 @@ async function boot(): Promise<void> {
   // ご褒美の口（R1 のチケット・R2 のチケット）と動画の要求（requestReward。'rewarded' のときだけ rewards.grantAd を呼ぶ。BL-059）。
   // 壁時計は store.wallTime()（startLoop がつないだ app の時計）
   const requestReward = (p: RewardPlacement): Promise<RewardResult> => ads.requestReward(p);
-  const onLateReward = (cb: (p: RewardPlacement) => void): (() => void) => ads.onLateReward(cb); // 遅れた報酬（Q-45）の知らせ
+  const onLateReward = (cb: (p: RewardPlacement, kind: LateKind) => void): (() => void) => ads.onLateReward(cb); // 遅れた報酬（Q-45）の知らせ
+  const onAdPlaying = (cb: (playing: boolean) => void): (() => void) => ads.onAdPlaying(cb); // 待ちの案内を消す（決定 0010 の 7）
+  const ctx = { store, platform, version: APP_VERSION, onLangChange, rewards, requestReward, onLateReward, onAdPlaying };
   render(
-    h(Ctx.Provider, { value: { store, platform, version: APP_VERSION, onLangChange, rewards, requestReward, onLateReward } }, h(App, {})),
+    h(Ctx.Provider, { value: ctx }, h(App, {})),
     uiRoot,
   );
 

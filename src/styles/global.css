@@ -550,6 +550,11 @@ body {
   color: #fff0a8;
 }
 
+/* 待ちの案内（「広告を読み込んでいます…」。BL-059・決定 0010 の 7）は警告の色にしない（失敗ではないので説明と同じ色） */
+.sheet-note[data-kind='loading'] {
+  color: var(--muted);
+}
+
 /* 選択肢のボタンはどれも同じ部品（同じ大きさ・字体・色）。どれかだけを強調しない（gdd §13-2） */
 .sheet-btn {
   min-height: 44px;

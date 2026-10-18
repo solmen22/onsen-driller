@@ -2,6 +2,7 @@
 import { createContext } from 'preact';
 import { useContext, useEffect, useRef, useState } from 'preact/hooks';
 import type { GameState } from '../../core/index.ts';
+import type { LateKind } from '../../app/ad-flow.ts';
 import type { GameStore } from '../../app/store.ts';
 import type { Lang } from '../../i18n/index.ts';
 import type { Platform, RewardPlacement, RewardResult } from '../../platform/types.ts';
@@ -34,9 +35,15 @@ export interface UiContext {
   requestReward?: (p: RewardPlacement) => Promise<RewardResult>;
   /**
    * Q-45 の報酬（時間切れの後に最後まで見た広告）を付けたときの知らせを購読する（BL-059 の adFlow.onLateReward）。戻り値で購読をやめる。
-   * トースト（動画の報酬）と、同じ placement のシートを閉じるのに使う
+   * トースト（動画の報酬）と、同じ placement のシートを閉じるのに使う。kind は reward（報酬が付いた）・refund（払ったチケットを
+   * 1 枚返した）・full（上限で返せなかった）。シートの扱いはどの種類でも同じ（決定 0010 の 11。TS-059-22）
    */
-  onLateReward?: (cb: (p: RewardPlacement) => void) => () => void;
+  onLateReward?: (cb: (p: RewardPlacement, kind: LateKind) => void) => () => void;
+  /**
+   * 広告の再生の始まり・終わりを購読する（BL-059 の adFlow.onAdPlaying）。戻り値で購読をやめる。
+   * シート・おかえりの待ちの案内（「広告を読み込んでいます…」）を、広告が始まったら消すのに使う（決定 0010 の 7）
+   */
+  onAdPlaying?: (cb: (playing: boolean) => void) => () => void;
 }
 
 export const Ctx = createContext<UiContext | null>(null);

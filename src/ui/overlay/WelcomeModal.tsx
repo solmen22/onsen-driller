@@ -1,11 +1,13 @@
 // おかえり（M1。BL-046。gdd §9・§11-2、QA §3-5、Q-37 (e)。TS-046-06・07）
 // - 「受け取る」「動画を見て ×2」（動画アイコン）「チケットで ×2（×枚数）」。「受け取る」は常に 1 タップで押せる（確認をはさまない。
 //   動画が使えない・チケット 0 枚・動画の要求中でも押せる。放置報酬を広告で人質にしない）
+// - 動画の要求の待ちの案内（ad-loading）と失敗の案内（ad-unavailable）はシートと同じ（AdStatus。決定 0010 の 7）
 // - Esc・×・背景で閉じても「受け取る」（×1）と同じ（閉じ方で放置の報酬を失わせない）。受け取りは 1 回だけ
 // - 出す条件（60 秒分以上）と金額の計算は S3 の BL-030。ここは部品だけ（金額は表記済みの文字で受け取る）
 import { useRef, useState } from 'preact/hooks';
 import { t } from '../../i18n/index.ts';
 import { useGame, useUi } from '../hooks/use-game.ts';
+import { AdStatus } from './AdStatus.tsx';
 import { Dialog } from './Dialog.tsx';
 
 export type WelcomeChoice = 'claim' | 'video' | 'ticket';
@@ -82,11 +84,7 @@ export function WelcomeModal({ amount, onClaim, ticketHook = false, canDouble = 
             {t('modal.welcome.video')}
           </button>
         )}
-        {failed && (
-          <p class="sheet-note" data-testid="ad-unavailable" role="status">
-            {t('ad.unavailable')}
-          </p>
-        )}
+        <AdStatus requesting={requesting} failed={failed} />
         <button
           type="button"
           class="sheet-btn"

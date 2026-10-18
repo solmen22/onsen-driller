@@ -5,6 +5,7 @@
 // - 動画は要求の口（BL-059 の requestReward）があり、rewardedAvailable() が true のときだけ出す（押しても効果のないボタンを残さない）
 // - チケット 0 枚（または BL-058 の口がない）では「チケットで受け取る」を表示したまま押せない（×0。並びを変えない）
 // - 要求中（結果が返るまで）は、どのボタンも押せず、Esc・×・背景でも閉じない（Q-41 (b)）
+// - 要求してから広告が始まるまでは「広告を読み込んでいます…」（ad-loading。role="status"。決定 0010 の 7。AdStatus）を出す
 // - 失敗（failed・unavailable）では「今は広告を表示できません」（ad-unavailable）をシートの中に出したままにする（トーストにしない）。
 //   その後に rewardedAvailable() を読み直し、false なら動画のボタンを隠す
 // - 失敗（開始の時間切れ）の後に始まった広告を最後まで見て報酬が付いたら（Q-45。onLateReward）、同じ placement のシートは
@@ -18,6 +19,7 @@ import { PARAMS } from '../../content/params.ts';
 import { t } from '../../i18n/index.ts';
 import type { RewardPlacement } from '../../platform/types.ts';
 import { useGame, useUi } from '../hooks/use-game.ts';
+import { AdStatus } from './AdStatus.tsx';
 import { Dialog } from './Dialog.tsx';
 
 /** gdd §5-9 の表示用の数（規則は core〔BL-058〕と content/params.ts。ここで数を書き直さない） */
@@ -41,7 +43,7 @@ export function RewardSheet({ placement, onClose }: { placement: Extract<RewardP
   useEffect(
     () =>
       onLateReward?.((p) => {
-        if (p !== placement || live.current.requesting) return;
+        if (p !== placement || live.current.requesting) return; // 返却（refund・full）でも同じ（TS-059-22）
         used.current = true;
         live.current.onClose();
       }),
@@ -107,11 +109,7 @@ export function RewardSheet({ placement, onClose }: { placement: Extract<RewardP
             {placement === 'R2' ? t('sheet.video') : t('sheet.videoOpen')}
           </button>
         )}
-        {failed && (
-          <p class="sheet-note" data-testid="ad-unavailable" role="status">
-            {t('ad.unavailable')}
-          </p>
-        )}
+        <AdStatus requesting={requesting} failed={failed} />
         {placement === 'R2' ? (
           <button
             type="button"

@@ -3,7 +3,8 @@
 // - 保存の失敗: 保存の状態が ok → failing に変わったときだけ 1 回（起動時からの failing・unavailable・readonly では出さない。
 //   出したままの save-warning があるため）
 // - 動画の報酬（Q-45）: 開始の時間切れ（「今は広告を表示できません」）の後に始まった広告を最後まで見て、報酬が付いたとき
-//   （BL-059 の onLateReward。シートが閉じていても何をもらえたか分かるように）
+//   （BL-059 の onLateReward。シートが閉じていても何をもらえたか分かるように）。報酬が付かずに払ったチケットを返したときは
+//   「チケットを 1 枚返しました」、上限で返せなかったときは理由（決定 0010 の 11。ja・en）
 // - 押せない（pointer-events: none。下の購入ボタン・ステージの操作を妨げない）。role="status"（aria-live="polite"）
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { t, type TextKey } from '../../i18n/index.ts';
@@ -19,6 +20,8 @@ function text(x: Toast): string {
     case 'save':
       return t('toast.save');
     case 'ad':
+      if (x.data.kind === 'refund') return t('toast.adRefund');
+      if (x.data.kind === 'full') return t('toast.adRefundFull');
       return t(`toast.adLate.${String(x.data.placement)}` as TextKey);
     default:
       return '';
@@ -45,7 +48,7 @@ export function Toasts() {
       if (prev === 'ok' && now === 'failing') q.push('save', 'failing');
       prev = now;
     });
-    const offLate = onLateReward?.((p) => q.push('ad', p, { placement: p }));
+    const offLate = onLateReward?.((p, kind) => q.push('ad', kind === 'reward' ? p : `${p}:${kind}`, { placement: p, kind }));
     return () => {
       offEvent();
       offSave();

@@ -5,7 +5,7 @@ import type { GameEvent } from './events.ts';
 import { slotsForBathLevel, yunohanaGain } from './formulas.ts';
 import { applyManualRateChange, autoDigUnlocked, manualRate, setHold } from './input.ts';
 import { add, sub, toStr } from './num.ts';
-import { claimOffline, gainTickets, openVeinByAd, reserveVein, useBoost } from './rewards.ts';
+import { claimOffline, gainTickets, openVeinByAd, refundAdTicket, reserveVein, useBoost } from './rewards.ts';
 import { sfc32Next } from './rng.ts';
 import { buyQuote, isItemId, isQty, isSpringId, type ItemId, type LevelItem, type Qty } from './selectors.ts';
 import { createRun, type GameState } from './state.ts';
@@ -24,6 +24,8 @@ export type Action =
   | { type: 'openVein'; source: 'ad' }
   /** R3 の動画を要求した時点で、出ている鉱脈を予約する（要求の間に消えても、見終えたら報酬を付ける。PR #55 のレビュー S-5。BL-059） */
   | { type: 'reserveVein' }
+  /** 払ったチケットの返却（決定 0010 の 11。遅れて見終えた広告の報酬を core が断ったときだけ app が送る） */
+  | { type: 'refundAdTicket'; placement: 'R1' | 'R2' }
   /** R1 おかえりの収入を受け取る（BL-058）。normal は source なし、double は 'ad' か 'ticket' */
   | { type: 'claimOffline'; mode: 'normal' }
   | { type: 'claimOffline'; mode: 'double'; source: 'ad' | 'ticket' };
@@ -161,6 +163,9 @@ export function dispatch(s: GameState, input: unknown): ActionResult {
       return done(openVeinByAd(s, events), events);
     case 'reserveVein':
       return done(reserveVein(s), events);
+    case 'refundAdTicket':
+      if (a.placement !== 'R1' && a.placement !== 'R2') return fail('invalid');
+      return done(refundAdTicket(s, a.placement, events), events);
     case 'claimOffline': {
       if (a.mode === 'normal') {
         if (a.source !== undefined) return fail('invalid');

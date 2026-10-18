@@ -15,6 +15,11 @@ export interface AppRewardHooks extends RewardHooks {
    * 見終えたら grantAd('R3') が報酬を付ける。PR #55 のレビュー S-5）。R1・R2 は何もしない（R2 の休み・R1 の受け取りは要求の間に変わらない）
    */
   reserveAd(p: RewardPlacement): void;
+  /**
+   * 払ったチケットの返却（決定 0010 の 11）。遅れて見終えた広告の報酬（Q-45）を grantAd が断られた（ok: false）ときだけ、広告の流れが呼ぶ。
+   * 返すかどうかは core の refundAdTicket が決める（条件は core）。返したら 'refund'、上限で 0 枚なら 'full'、返さないなら null。R3 は null
+   */
+  refundAd(p: RewardPlacement): 'refund' | 'full' | null;
 }
 
 export function createRewardHooks(store: GameStore): AppRewardHooks {
@@ -36,6 +41,13 @@ export function createRewardHooks(store: GameStore): AppRewardHooks {
     },
     reserveAd: (p: RewardPlacement) => {
       if (p === 'R3') store.dispatch({ type: 'reserveVein' });
+    },
+    refundAd: (p: RewardPlacement) => {
+      if (p === 'R3') return null;
+      const r = store.dispatch({ type: 'refundAdTicket', placement: p });
+      if (!r.ok) return null;
+      const g = r.events.find((e) => e.type === 'TicketGained');
+      return g && g.n > 0 ? 'refund' : 'full';
     },
   };
 }
