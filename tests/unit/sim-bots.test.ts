@@ -1,8 +1,27 @@
 // BL-031・BL-032: シミュレーターのボット（gdd §8-2。標準・アクティブ・放置・安い順・ランダム）の単体テスト
 import { describe, expect, it } from 'vitest';
+import { PARAMS } from '../../src/content/params.ts';
 import { SPRINGS, type SpringId } from '../../src/content/springs.ts';
-import { buyQuote, cloneState, computeGuests, dispatch, nextTool, num, stateHash, type GameEvent, type LevelItem, type Num } from '../../src/core/index.ts';
-import { arrangeSlots, botAct, BOTS, canBuyAnything, manualHitsPerSec, newBotMemory, totalRate } from '../../tools/sim/bots.ts';
+import {
+  autoDiggerHitsPerSec,
+  bathIncomePerSec,
+  blockHp,
+  blockValue,
+  buyQuote,
+  cloneState,
+  computeGuests,
+  dispatch,
+  drillPower,
+  modifiers,
+  nextTool,
+  num,
+  stateHash,
+  type GameEvent,
+  type GameState,
+  type LevelItem,
+  type Num,
+} from '../../src/core/index.ts';
+import { arrangeSlots, avgOre, botAct, BOTS, canBuyAnything, manualHitsPerSec, newBotMemory, totalRate } from '../../tools/sim/bots.ts';
 import { runBot } from '../../tools/sim/sim.ts';
 import { stateWith } from '../support/states.ts';
 
@@ -156,5 +175,40 @@ describe('BL-032 安い順・ランダムのボット（gdd §8-2）', () => {
     };
     expect(run(3)).toBe(run(3));
     expect(new Set([1, 2, 3, 4, 5].map(run)).size).toBeGreaterThan(1);
+  });
+});
+
+describe('ボットの収入の見積もりに鉱石の価値の倍率を入れる（硫黄泉・BL-018 の選鉱ざる・研磨台）', () => {
+  /** 掘削の収入の期待値を core の式から直接組み立てる: 打数 × 威力 ÷ 硬さ × {(1−p) × 普通の価値 + p × 鉱石の価値} */
+  const expectedDig = (s: GameState): number => {
+    const m = modifiers(s);
+    const d = s.run.depth;
+    const p = PARAMS.block.oreChance;
+    const hits = manualHitsPerSec(s, BOTS.standard) + autoDiggerHitsPerSec(s, m);
+    const perBlock = blockValue(s, d, false, m).mul(1 - p).add(blockValue(s, d, true, m).mul(p));
+    return drillPower(s, m).mul(hits).div(blockHp(s, d, m)).mul(perBlock).toNumber();
+  };
+  const digOf = (s: GameState): number => totalRate(s, BOTS.standard).sub(bathIncomePerSec(s, modifiers(s))).toNumber();
+
+  it('avgOre: 1 + 出現率 × (8 × 鉱石の価値の倍率 − 1)。倍率 1 は従来の定数（1.42）、硫黄泉の ×2 で 1.9', () => {
+    expect(PARAMS.block.oreChance).toBe(0.06);
+    expect(PARAMS.block.oreMult).toBe(8);
+    expect(avgOre(1)).toBeCloseTo(1.42, 12);
+    expect(avgOre(2)).toBeCloseTo(1.9, 12);
+  });
+
+  it('硫黄泉をつないだ状態: totalRate の掘削の分は鉱石の価値 ×2 を入れた期待値と一致し、硫黄泉を外した状態の 1.9/1.42 倍', () => {
+    const s = stateWith({ bath: 10, pumps: { simple: 8, sulfur: 5 }, drill: 40, tool: 3, digger: 20, depth: 260, maxDepth: 260, autoOn: true });
+    expect(s.run.bath.slots).toContain('sulfur');
+    expect(modifiers(s).oreValue).toBe(2);
+    const withSulfur = digOf(s);
+    expect(withSulfur / expectedDig(s)).toBeCloseTo(1, 9);
+
+    const t = cloneState(s);
+    t.run.bath.slots = t.run.bath.slots.map((x) => (x === 'sulfur' ? null : x));
+    t.run.guests = computeGuests(t);
+    expect(modifiers(t).oreValue).toBe(1);
+    expect(digOf(t) / expectedDig(t)).toBeCloseTo(1, 9);
+    expect(withSulfur / digOf(t)).toBeCloseTo(avgOre(2) / avgOre(1), 9);
   });
 });
