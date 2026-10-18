@@ -1,7 +1,7 @@
 // ライフサイクル（arch §7 の状態図。BL-056）: ポータルへの loading・gameplay の合図を 1 か所で決める
 // - 読み込みの開始・終了で loadingStart・loadingStop（それぞれ 1 回だけ）
 // - 最初の入力で gameplayStart（Poki の要件。読み込みの途中で押されたら loadingStop の後に送る）
-// - 止まる理由（非表示・広告・幕間・転生の演出）が 1 つでもある間は gameplayStop。すべてなくなったら gameplayStart
+// - 止まる理由（非表示・広告・幕間・転生の演出・ミッドゲームの機会）が 1 つでもある間は gameplayStop。すべてなくなったら gameplayStart
 //   （最初の入力の後だけ。理由は重なってよい: 非表示の間に広告が終わっても、見えるようになるまで再開しない）
 // - アダプタの gameplayStart・gameplayStop も冪等だが、ここでも今の状態を持ち、同じ合図を二重に送らない
 // - 非表示（タブの切り替え・ゲームの外への移動）を止める理由に数えるかはポータルごとに違う（signalsHidden。arch §7 の表）。
@@ -12,8 +12,13 @@
 // ブラウザがなくても確かめられるように、Platform の 4 つの関数だけを受け取る（tests/unit/lifecycle.test.ts）
 import type { Platform, Target } from '../platform/types.ts';
 
-/** gameplay を止める理由（prestige は S3 の転生の演出〔BL-021〕で結線する） */
-export type PauseReason = 'hidden' | 'ad' | 'interlude' | 'prestige';
+/**
+ * gameplay を止める理由（prestige は S3 の転生の演出〔BL-021〕で結線する）。
+ * break はミッドゲームの機会（M1・M2）を渡している間（BL-059。PR #16 のレビュー Nit 2）。ad（onPlaying）と分けるのは、
+ * onPlaying(false) が breakOpportunity の Promise より先に来ても gameplayStart を出さないため（取り合わない）。
+ * **1 つの理由の書き手は 1 か所**: hidden・interlude は main.ts、ad・break は app/ad-flow.ts
+ */
+export type PauseReason = 'hidden' | 'ad' | 'interlude' | 'prestige' | 'break';
 
 export type LifecyclePlatform = Pick<Platform, 'loadingStart' | 'loadingStop' | 'gameplayStart' | 'gameplayStop'>;
 

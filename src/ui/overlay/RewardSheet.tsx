@@ -69,7 +69,15 @@ export function RewardSheet({ placement, onClose }: { placement: Extract<RewardP
       <div class="sheet-body" data-placement={placement} aria-busy={requesting}>
         <p class="sheet-desc">{desc}</p>
         {videoOk && (
-          <button type="button" class="sheet-btn" data-testid="sheet-video" disabled={requesting} onClick={onVideo}>
+          <button
+            type="button"
+            class="sheet-btn"
+            data-testid="sheet-video"
+            data-kind="video"
+            data-state={requesting ? 'loading' : undefined}
+            disabled={requesting}
+            onClick={onVideo}
+          >
             <span class="video-icon" aria-hidden="true" />
             {placement === 'R2' ? t('sheet.video') : t('sheet.videoOpen')}
           </button>

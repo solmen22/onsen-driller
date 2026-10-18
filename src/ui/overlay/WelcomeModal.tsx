@@ -66,7 +66,15 @@ export function WelcomeModal({ amount, onClaim, ticketHook = false, canDouble = 
           {t('modal.welcome.claim')}
         </button>
         {videoOk && canDouble && (
-          <button type="button" class="sheet-btn" data-testid="welcome-video" disabled={requesting} onClick={onVideo}>
+          <button
+            type="button"
+            class="sheet-btn"
+            data-testid="welcome-video"
+            data-kind="video"
+            data-state={requesting ? 'loading' : undefined}
+            disabled={requesting}
+            onClick={onVideo}
+          >
             <span class="video-icon" aria-hidden="true" />
             {t('modal.welcome.video')}
           </button>

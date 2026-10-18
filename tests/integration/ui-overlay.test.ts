@@ -166,8 +166,11 @@ describe('ご褒美のシート（R2・R3）', () => {
     const w = wired();
     m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW });
     m.click('btn-boost');
+    expect(m.get('sheet-video').dataset.kind).toBe('video');
+    expect(m.get('sheet-video').dataset.state).toBeUndefined();
     m.click('sheet-video');
     expect(w.calls.requests).toEqual(['R2']);
+    expect(m.get('sheet-video').dataset.state).toBe('loading'); // TS-059-01（印は Q-38 (h)。BL-059）
     expect(m.get('sheet-close').hasAttribute('disabled')).toBe(true);
     expect(m.get('sheet-ticket').hasAttribute('disabled')).toBe(true);
     m.key({ key: 'Escape' }, 'keydown', m.get('sheet-reward'));
@@ -295,6 +298,7 @@ describe('おかえり（M1。TS-046-06・07）', () => {
     got = mountWelcome(w.ctx, 0);
     m?.click('welcome-video');
     expect(w.calls.requests).toEqual(['R1']);
+    expect(m?.get('welcome-video').dataset.state).toBe('loading'); // BL-059（印は Q-38 (h)）
     expect(m?.get('welcome-claim').hasAttribute('disabled')).toBe(false);
     m?.click('welcome-claim');
     expect(got).toEqual(['claim']);
