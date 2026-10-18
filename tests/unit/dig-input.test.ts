@@ -195,15 +195,16 @@ describe('TS-012-09 HP(d)・V(d)', () => {
   const s = createInitialState(1);
   const ref: [number, number, number][] = [
     [0, 4, 0.5],
-    [10, 7.5794, 0.83009],
-    [30, 27.213, 2.2879],
-    [100, 2386.6, 79.532],
-    [500, 3.0246e14, 0],
+    [10, 8.0169, 0.83009],
+    [30, 32.204, 2.2879],
+    [100, 4183.5, 79.532],
+    [500, 5.0056e15, 0],
   ];
-  it('式 4×1.066^d・0.5×1.052^d と相対誤差 1e-9 以内、シナリオの参考値と 5 桁で一致', () => {
+  // g_h は 1.066（gdd の初期値）→ 1.072（BL-034 までの暫定。CEO 決定 0010）。参考値は 1.072 で計算し直した
+  it('式 4×1.072^d・0.5×1.052^d と相対誤差 1e-9 以内、シナリオの参考値と 5 桁で一致', () => {
     for (const [d, hp, v] of ref) {
       const h = blockHp(s, d).toNumber();
-      expect(Math.abs(h - 4 * 1.066 ** d) / (4 * 1.066 ** d)).toBeLessThan(1e-9);
+      expect(Math.abs(h - 4 * 1.072 ** d) / (4 * 1.072 ** d)).toBeLessThan(1e-9);
       expect(Math.abs(h - hp) / hp).toBeLessThan(1e-4);
       const val = blockValue(s, d, false).toNumber();
       expect(Math.abs(val - 0.5 * 1.052 ** d) / (0.5 * 1.052 ** d)).toBeLessThan(1e-9);

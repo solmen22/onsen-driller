@@ -33,10 +33,10 @@ describe('TS-018-01・02 内容定義', () => {
       'polisher',
       'yumomiSulfur',
     ]);
-    expect(UPGRADE_BY_ID.vibroBit).toMatchObject({ effect: { kind: 'drillPower', mult: 2 }, unlock: { kind: 'depth', depth: 40 }, cost: 500 });
-    expect(UPGRADE_BY_ID.noren).toMatchObject({ effect: { kind: 'incomeAll', mult: 1.5 }, unlock: { kind: 'pump', spring: 'simple', level: 5 }, cost: 1200 });
-    expect(UPGRADE_BY_ID.yumomiSulfur).toMatchObject({ effect: { kind: 'springIncome', spring: 'sulfur', mult: 3 }, unlock: { kind: 'pump', spring: 'sulfur', level: 25 }, cost: 7.6e9 });
-    expect(UPGRADE_BY_ID.polisher).toMatchObject({ effect: { kind: 'oreValue', mult: 3 }, unlock: { kind: 'depth', depth: 220 }, cost: 2.9e8 });
+    expect(UPGRADE_BY_ID.vibroBit).toMatchObject({ effect: { kind: 'drillPower', mult: 2 }, unlock: { kind: 'depth', depth: 40 }, cost: 5_000 });
+    expect(UPGRADE_BY_ID.noren).toMatchObject({ effect: { kind: 'incomeAll', mult: 1.5 }, unlock: { kind: 'pump', spring: 'simple', level: 5 }, cost: 12_000 });
+    expect(UPGRADE_BY_ID.yumomiSulfur).toMatchObject({ effect: { kind: 'springIncome', spring: 'sulfur', mult: 3 }, unlock: { kind: 'pump', spring: 'sulfur', level: 25 }, cost: 7.6e10 });
+    expect(UPGRADE_BY_ID.polisher).toMatchObject({ effect: { kind: 'oreValue', mult: 3 }, unlock: { kind: 'depth', depth: 220 }, cost: 2.9e9 });
   });
   it('TS-018-02: 正しい定義は問題なし。起動時の contentProblems にも出ない', () => {
     expect(upgradeProblems()).toEqual([]);
@@ -65,11 +65,14 @@ describe('TS-018-01・02 内容定義', () => {
   });
 });
 
+// 仕組みのテストはコストを内容定義から読む（数値の調整〔content/ だけの PR〕で赤にならない。TS-018-16）
+const VIBRO = UPGRADE_BY_ID.vibroBit.cost;
+
 describe('TS-018-03〜07 解放・見積もり・購入', () => {
   it('TS-018-03: 深さの条件は周回の最深で判定する（今 20m でも最深 40m なら解放）', () => {
     expect(buyQuote(stateWith({ depth: 39 }), 'upgrade:vibroBit', 1)).toMatchObject({ state: 'locked', unlockDepth: 40 });
     expect(buyQuote(stateWith({ depth: 40 }), 'upgrade:vibroBit', 1).state).toBe('insufficient');
-    expect(buyQuote(stateWith({ depth: 20, maxDepth: 40, coins: 500 }), 'upgrade:vibroBit', 1).state).toBe('affordable');
+    expect(buyQuote(stateWith({ depth: 20, maxDepth: 40, coins: VIBRO }), 'upgrade:vibroBit', 1).state).toBe('affordable');
   });
   it('TS-018-04: ポンプの条件はその源泉のポンプの Lv（unlockDepth は出さない）', () => {
     const q0 = buyQuote(stateWith({ depth: 40 }), 'upgrade:noren', 1);
@@ -80,13 +83,13 @@ describe('TS-018-03〜07 解放・見積もり・購入', () => {
     expect(buyQuote(stateWith({ depth: 90, pumps: { simple: 1, co2: 25 } }), 'upgrade:yumomiSimple', 1).state).toBe('locked');
   });
   it('TS-018-05: 買うとコインが見積もりの cost だけ減り、run.upgrades の最後に足され、以後は maxed', () => {
-    const s = stateWith({ depth: 60, coins: 800 });
+    const s = stateWith({ depth: 60, coins: VIBRO + 300 });
     s.run.upgrades = ['sieve'];
     const q = buyQuote(s, 'upgrade:vibroBit', 1);
     const r = dispatch(s, { type: 'buy', item: 'upgrade:vibroBit', qty: 1 });
     expect(r.ok).toBe(true);
     expect(r.events).toContainEqual({ type: 'Purchased', item: 'upgrade:vibroBit', qty: 1 });
-    expect(s.run.coins.toNumber()).toBeCloseTo(800 - q.cost.toNumber(), 9);
+    expect(s.run.coins.toNumber()).toBeCloseTo(VIBRO + 300 - q.cost.toNumber(), 9);
     expect(s.run.upgrades).toEqual(['sieve', 'vibroBit']);
     expect(buyQuote(s, 'upgrade:vibroBit', 1).state).toBe('maxed');
   });
@@ -95,7 +98,7 @@ describe('TS-018-03〜07 解放・見積もり・購入', () => {
     const bought = stateWith({ depth: 60, coins: 1e6 });
     bought.run.upgrades = ['vibroBit'];
     cases.push([bought, 'upgrade:vibroBit', 'maxed']);
-    cases.push([stateWith({ depth: 60, coins: 499 }), 'upgrade:vibroBit', 'insufficient']);
+    cases.push([stateWith({ depth: 60, coins: VIBRO - 1 }), 'upgrade:vibroBit', 'insufficient']);
     cases.push([stateWith({ depth: 39, coins: 1e6 }), 'upgrade:vibroBit', 'locked']);
     for (const item of ['upgrade:foo', 'upgrade:', 'upgrade:__proto__', 'upgrade:constructor', 3, null]) cases.push([stateWith({ depth: 60, coins: 1e6 }), item, 'invalid']);
     for (const [s, item, reason] of cases) {
@@ -111,7 +114,7 @@ describe('TS-018-03〜07 解放・見積もり・購入', () => {
       expect(buyQuote(s, 'upgrade:vibroBit', qty)).toMatchObject({ n: 1, state: 'affordable' });
       dispatch(s, { type: 'buy', item: 'upgrade:vibroBit', qty });
       expect(s.run.upgrades).toEqual(['vibroBit']);
-      expect(s.run.coins.toNumber()).toBeCloseTo(1e6 - 500, 6);
+      expect(s.run.coins.toNumber()).toBeCloseTo(1e6 - VIBRO, 6);
     }
   });
 });
@@ -149,7 +152,7 @@ describe('TS-018-08・12・13・15 効果・転生・保存・T3 に渡す値', 
     expect(r.corrected).toEqual([]);
   });
   it('TS-018-15: upgradeViews は解放済みか購入済みだけを内容定義の順で返し、状態とコストは buyQuote と同じ。次の解放の深さも出す', () => {
-    const s = stateWith({ depth: 55, coins: 600 });
+    const s = stateWith({ depth: 55, coins: VIBRO + 100 });
     s.run.upgrades = ['sieve'];
     const v = upgradeViews(s);
     expect(v.map((x) => [x.id, x.state, x.bought])).toEqual([
