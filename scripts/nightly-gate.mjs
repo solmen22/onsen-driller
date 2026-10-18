@@ -5,9 +5,14 @@
 //      CRON_OTHER_DAYS の回は、リポジトリが**公開のときだけ**流す。非公開（または可視性が分からない）なら流さない。
 //      → 公開中は毎日、非公開の間は月・木だけ。可視性はこの回の実行時に API（GET /repos/{repo} の private）で読む。読めなければ
 //        github.event.repository.private（EVENT_PRIVATE）、それもなければ非公開として扱う（分数を使わない側に倒す）。手作業は要らない。
-//   2. 変更: 前回に**成功した** nightly（e2e-nightly ジョブが success で、E2E の step〔E2E_STEP_RE〕が success の run）の
-//      head_sha が、この回の SHA（main の先頭）と同じなら流さない。gate だけの回（E2E が skip）・赤の回は「前回」に数えない。
-//      run の一覧が読めないときや、見つからないとき（直近 RUNS_PER_PAGE 件の中にない）は流す（証拠を欠かない側に倒す）。
+//        ただし schedule のイベントにはペイロードがない（公式の文書で「Not applicable」）ので、schedule の回の EVENT_PRIVATE は空の
+//        見込み。そのときは API が読めなければ非公開として扱う（2 段目のイベントの値が効くのは手動実行のときだけ。PR #66 のレビュー N-1）。
+//   2. 変更: この回の SHA（main の先頭）で、毎晩の E2E が**成功済み**なら流さない。`head_sha=<この SHA>` で絞った成功した run を
+//      全ページ（最大 MAX_PAGES）読み、古い順に jobs を見る。成功は「e2e-nightly ジョブが success で、E2E の step〔E2E_STEP_RE〕が
+//      success」の run だけ（gate だけの回〔E2E が skip〕・赤の回は数えない）。SHA で絞るので、gate だけの回が何件積み上がっても・
+//      別のブランチの手動実行が後から入っても、判定が変わらない（PR #66 のレビュー S-1）。古い順に見るのは、同じ SHA の成功は
+//      ふつう最初の数件にあり、後は gate だけの回が続くため（jobs の呼び出しを少なくする）。
+//      読めないとき・見つからないときは流す（証拠を欠かない側に倒す）。
 //
 // 出力: GITHUB_OUTPUT に run=true|false。理由は標準出力と GITHUB_STEP_SUMMARY。決められないときも終了コードは 0（gate の赤で
 // 毎晩全体を赤にしない）。読めなかったことは ::warning:: で残す。
@@ -27,7 +32,9 @@ export const WORKFLOW_FILE = 'nightly.yml';
 export const E2E_JOB = 'e2e-nightly';
 /** 成功の証拠として数える step の名前（nightly.yml の「E2E（…）」と「e2e-full（…）」。test:checks が nightly.yml と突き合わせる） */
 export const E2E_STEP_RE = /^(?:E2E|e2e-full)（/;
-export const RUNS_PER_PAGE = 30;
+export const RUNS_PER_PAGE = 100;
+/** 同じ SHA の成功した run を読むページの上限（100 件 × 10＝1,000 件。毎日 1 回なら約 2.7 年分。超えたら見つからないとして流す） */
+export const MAX_PAGES = 10;
 
 /**
  * 流すかを決める（純粋な関数）。
@@ -44,7 +51,7 @@ export function decide({ event, schedule, isPrivate, headSha, lastGreen }) {
       needLastGreen: false,
     };
   if (lastGreen === undefined) return { run: true, reason: '', needLastGreen: true };
-  if (lastGreen === null) return { run: true, reason: '前回の成功した nightly が見つからない（または読めない）ので流す', needLastGreen: false };
+  if (lastGreen === null) return { run: true, reason: 'この SHA で成功した nightly が見つからない（または読めない）ので流す', needLastGreen: false };
   if (lastGreen.sha === headSha)
     return { run: false, reason: `前回の成功した nightly（run ${lastGreen.runId}）と同じ SHA ${headSha.slice(0, 7)} なので省略する`, needLastGreen: false };
   return {
@@ -91,17 +98,28 @@ async function readPrivate(repo) {
   }
 }
 
-async function findLastGreen(repo) {
+/** この SHA で E2E まで成功した nightly の run（なければ null） */
+async function findLastGreen(repo, headSha) {
+  if (!/^[0-9a-f]{40}$/.test(headSha)) {
+    console.log(`::warning::この回の SHA が読めない（'${headSha}'）。流す`);
+    return null;
+  }
   try {
-    const { workflow_runs: runs = [] } = await api(`/repos/${repo}/actions/workflows/${WORKFLOW_FILE}/runs?status=success&per_page=${RUNS_PER_PAGE}`);
-    for (const r of runs) {
-      if (r.conclusion !== 'success') continue;
+    const runs = [];
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const q = `status=success&head_sha=${headSha}&per_page=${RUNS_PER_PAGE}&page=${page}`;
+      const { workflow_runs: got = [] } = await api(`/repos/${repo}/actions/workflows/${WORKFLOW_FILE}/runs?${q}`);
+      runs.push(...got);
+      if (got.length < RUNS_PER_PAGE) break;
+    }
+    // API が絞り込みを無視しても取り違えないよう、SHA と結論をここでも確かめる。古い順（API は新しい順に返す）に見る
+    for (const r of runs.filter((x) => x.head_sha === headSha && x.conclusion === 'success').reverse()) {
       const { jobs = [] } = await api(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=latest`);
       if (isGreenE2E(jobs)) return { sha: r.head_sha, runId: r.id };
     }
     return null;
   } catch (e) {
-    console.log(`::warning::前回の成功した nightly を読めない（${e.message}）。流す`);
+    console.log(`::warning::この SHA の成功した nightly を読めない（${e.message}）。流す`);
     return null;
   }
 }
@@ -122,7 +140,7 @@ export async function main() {
     lines.push(`- 可視性: ${isPrivate === null ? '不明' : isPrivate ? '非公開' : '公開'}（${p.from}）`);
   }
   let d = decide({ event, schedule, isPrivate, headSha, lastGreen: undefined });
-  if (d.needLastGreen) d = decide({ event, schedule, isPrivate, headSha, lastGreen: await findLastGreen(repo) });
+  if (d.needLastGreen) d = decide({ event, schedule, isPrivate, headSha, lastGreen: await findLastGreen(repo, headSha) });
   lines.push(`- 判定: ${d.run ? '流す' : '流さない'} — ${d.reason}`);
   console.log(lines.join('\n'));
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `run=${d.run}\n`);

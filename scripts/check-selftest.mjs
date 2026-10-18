@@ -1398,7 +1398,14 @@ describe('nightly-gate.mjs（公開中は毎日・非公開の間は月・木。
         p === '/repos/o/r' ? 'repo' : p === '/repos/o/r/actions/workflows/nightly.yml/runs' ? 'runs' : /^\/repos\/o\/r\/actions\/runs\/\d+\/jobs$/.test(p) ? 'jobs' : '';
       if (!kind || fail.includes(kind)) return send(kind ? 500 : 404, { message: 'x' });
       if (kind === 'repo') return send(200, repo);
-      if (kind === 'runs') return send(200, { workflow_runs: runs });
+      if (kind === 'runs') {
+        // 本物の API と同じく status・head_sha で絞り、per_page・page で切る（新しい順は渡した runs の順）
+        const q = url.searchParams;
+        const list = runs.filter((r) => (!q.get('head_sha') || r.head_sha === q.get('head_sha')) && (q.get('status') !== 'success' || r.conclusion === 'success'));
+        const per = Number(q.get('per_page') ?? 30);
+        const page = Number(q.get('page') ?? 1);
+        return send(200, { total_count: list.length, workflow_runs: list.slice((page - 1) * per, page * per) });
+      }
       return send(200, { jobs: jobs[p.split('/')[6]] ?? [] });
     });
     await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -1437,6 +1444,30 @@ describe('nightly-gate.mjs（公開中は毎日・非公開の間は月・木。
     assert.ok(runsReq, 'run の一覧を読んでいない');
     assert.match(runsReq.query, /[?&]status=success(&|$)/, '成功した run だけを読んでいない');
     assert.ok(r.requests.every((q) => q.auth === 'Bearer tok'), 'トークンを付けずに読んだ（非公開のときに読めない）');
+  });
+
+  // PR #66 のレビュー S-1: 「新しい順に 30 件」だと、gate だけの回が積み上がる（非公開で約 4 週間 main が変わらない）か、別のブランチの
+  // 手動実行が後から入ると、同じ SHA を流し直していた。この SHA で絞り（head_sha）、全ページを読み、古い順に jobs を見る
+  test('偽の API（レビュー S-1）: head_sha で絞って全ページを読み、gate だけの回が 250 件・別の SHA の成功が後にあっても、この SHA の成功を見つけて流さない', async () => {
+    const gateOnly = Array.from({ length: 250 }, (_, i) => run(1000 - i, H));
+    const runs = [run(2000, OLD), ...gateOnly, run(5, H)]; // 新しい順: 別のブランチの手動実行（OLD で成功）→ gate だけの回 → この SHA の E2E の成功
+    const jobs = { 2000: JOBS.green, 5: JOBS.green, ...Object.fromEntries(gateOnly.map((r) => [r.id, JOBS.gateOnly])) };
+    const r = await runGate({ schedule: OD, runs, jobs });
+    assert.equal(r.run, 'run=false', r.log);
+    const listReqs = r.requests.filter((q) => q.path.endsWith('/runs'));
+    for (const q of listReqs) assert.match(q.query, new RegExp(`[?&]head_sha=${H}(&|$)`), `run の一覧を SHA で絞っていない: ${q.query}`);
+    assert.equal(listReqs.length, 3, `全ページ（100 件ずつで 3 ページ）を読んでいない: ${listReqs.length}`);
+    const jobReqs = r.requests.filter((q) => q.path.endsWith('/jobs'));
+    assert.equal(jobReqs.length, 1, `古い順に見ていない（jobs の呼び出しが ${jobReqs.length} 回）`);
+    // この SHA の成功がなく、別の SHA の成功だけがある → 流す
+    const r2 = await runGate({ schedule: OD, runs: [run(2000, OLD), ...gateOnly], jobs });
+    assert.equal(r2.run, 'run=true', r2.log);
+  });
+
+  test('偽の API: この回の SHA が読めない（空・40 桁の 16 進でない）→ API を読まずに流す', async () => {
+    const r = await runGate({ head: '', runs: [run(1, H)], jobs: { 1: JOBS.green } });
+    assert.equal(r.run, 'run=true', r.log);
+    assert.ok(!r.requests.some((q) => q.path.endsWith('/runs')), 'SHA が読めないのに run の一覧を読んだ');
   });
 
   test('偽の API: 公開・月・木以外・前回の成功（e2e-full を含む）と同じ SHA → 流さない', async () => {
