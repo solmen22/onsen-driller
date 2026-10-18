@@ -21,6 +21,14 @@ const csvCell = (v: string | number | null): string => {
 };
 const csvRow = (cells: (string | number | null)[]): string => cells.map(csvCell).join(',');
 
+/** 判定の欄（BL-122: 受け入れの幅の外での失敗と、範囲内に戻った受け入れを書き分ける） */
+function verdictNote(t: TargetResult): string {
+  const b = t.accepted?.bounds;
+  if (t.stale) return `${VERDICT_MARK.pass}（範囲内に戻った。ACCEPTED から消す）`;
+  if (t.verdict === 'fail' && b) return `${VERDICT_MARK.fail}（受け入れの幅 ${fmtValue(t.def.unit, b.min)}〜${fmtValue(t.def.unit, b.max)} の外か、値がない）`;
+  return VERDICT_MARK[t.verdict];
+}
+
 function targetsMarkdown(targets: readonly TargetResult[]): string {
   const lines = ['| # | 出来事 | 目標 | 判定に使った値（中央値） | シードごとの値 | 判定 |', '|---|---|---|---|---|---|'];
   for (const t of targets) {
@@ -30,7 +38,7 @@ function targetsMarkdown(targets: readonly TargetResult[]): string {
         : t.values.length > 0
           ? t.values.map((x) => `s${x.seed} ${fmtValue(t.def.unit, x.value)}`).join('・')
           : '—';
-    const note = t.def.kind === 'pending' ? `保留（${t.def.pending ?? ''}）` : t.def.kind === 'external' ? `外部（${t.def.external ?? ''}）` : VERDICT_MARK[t.verdict];
+    const note = t.def.kind === 'pending' ? `保留（${t.def.pending ?? ''}）` : t.def.kind === 'external' ? `外部（${t.def.external ?? ''}）` : verdictNote(t);
     lines.push(`| ${t.def.no} | ${t.def.label} | ${t.def.goal} | ${fmtValue(t.def.unit, t.judged)} | ${per} | ${note} |`);
   }
   return lines.join('\n');
@@ -122,7 +130,7 @@ export function buildReport(runs: readonly SimResult[], targets: readonly Target
   const md: string[] = [];
   md.push(`# バランスのレポート${extras.title ? ` — ${extras.title}` : ''}`);
   md.push('');
-  md.push(`- 判定: **${fails.length === 0 ? '合格' : `不合格（${fails.map((t) => `#${t.def.no}`).join('・')}）`}**。受け入れ ${accepted.length} 件、保留 ${targets.filter((t) => t.verdict === 'pending').length} 件`);
+  md.push(`- 判定: **${fails.length === 0 ? '合格' : `不合格（${fails.map((t) => `#${t.def.no}`).join('・')}）`}**。受け入れ ${accepted.length} 件${targets.some((t) => t.stale) ? `（範囲内に戻った受け入れ ${targets.filter((t) => t.stale).length} 件。ACCEPTED から消す）` : ''}、保留 ${targets.filter((t) => t.verdict === 'pending').length} 件`);
   md.push(`- 方法: シード ${extras.seeds.join('・')} で流し、シードごとの値の中央値で判定（docs/balance.md）。最初のシードは長く流す（全体の健全性・転生・#12・#13）`);
   if (extras.stepBench) {
     const ok = extras.stepBench.lateUs < 50;
@@ -136,7 +144,18 @@ export function buildReport(runs: readonly SimResult[], targets: readonly Target
     md.push('');
     md.push('## 範囲外を受け入れた項目（gdd §8-6）');
     md.push('');
-    for (const t of accepted) md.push(`- #${t.def.no}: ${t.accepted?.reason ?? ''}（承認: ${t.accepted?.approvedBy ?? ''}。期限: ${t.accepted?.until ?? ''}）`);
+    for (const t of accepted) {
+      const b = t.accepted?.bounds;
+      const width = b ? `。受け入れる幅: ${fmtValue(t.def.unit, b.min)}〜${fmtValue(t.def.unit, b.max)}` : '';
+      md.push(`- #${t.def.no}: ${t.accepted?.reason ?? ''}（承認: ${t.accepted?.approvedBy ?? ''}。期限: ${t.accepted?.until ?? ''}${width}）`);
+    }
+  }
+  const stale = targets.filter((t) => t.stale);
+  if (stale.length > 0) {
+    md.push('');
+    md.push('## 範囲内に戻った受け入れ（ACCEPTED から消す）');
+    md.push('');
+    for (const t of stale) md.push(`- #${t.def.no}: 判定に使った値 ${fmtValue(t.def.unit, t.judged)} は目標 ${t.def.goal} の範囲内。tools/sim/targets.ts の ACCEPTED から消す（失敗にはしない）`);
   }
   md.push('');
   md.push('## 実行');

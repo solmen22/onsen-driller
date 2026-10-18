@@ -1,5 +1,5 @@
 # CI（BL-008・BL-080。infra.md §4-3・付録 A-1 を npm に読み替えたもの）
-# - verify: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets
+# - verify: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets → check:text
 #     → （dist/web をデプロイのジョブに渡す）→ check-e2e-dist → Playwright → test:e2e
 #   同じジョブの連続した step なので、前が失敗したら後ろは動かない（TS-008-23）。E2E は前の e2e ジョブをこのジョブに入れたもの
 #   （Actions の分数の削減 A1。org/10_development/devops/2026-09-29_actions-minutes.md。npm ci などの重複・dist-e2e の受け渡し・
@@ -85,6 +85,8 @@ jobs:
         run: npm run check:size
       - name: check:assets
         run: npm run check:assets
+      - name: check:text（文言の検査。BL-077。語のリストは scripts/text-words.json、許可リストは scripts/text-allowlist.json）
+        run: npm run check:text
       - name: dist/web をデプロイのジョブに渡す
         uses: actions/upload-artifact@v7
         with:

@@ -691,7 +691,7 @@ describe('ci.yml', () => {
   const names = (text) => [...(/^jobs:\n([\s\S]*)$/m.exec(text)?.[1] ?? '').matchAll(/^ {2}([a-z][\w-]*):\n/gm)].map((m) => m[1]);
 
   // verify は E2E まで 1 つのジョブ（Actions の分数の削減 A1。org/10_development/devops/2026-09-29_actions-minutes.md）
-  test('TS-008-23 verify の順番: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets → check-e2e-dist → Playwright → test:e2e', () => {
+  test('TS-008-23 verify の順番: gitleaks → lint → typecheck → test → test:checks → build:all → build:e2e → check:size → check:assets → check:text（BL-077） → check-e2e-dist → Playwright → test:e2e', () => {
     const v = job('verify');
     const order = [
       /"\$RUNNER_TEMP\/gitleaks" git /,
@@ -704,6 +704,7 @@ describe('ci.yml', () => {
       /run: npm run build:e2e$/m,
       /run: npm run check:size$/m,
       /run: npm run check:assets$/m,
+      /run: npm run check:text$/m,
       /run: node scripts\/check-e2e-dist\.mjs$/m,
       /run: npx playwright install --with-deps chromium$/m,
       /run: npm run test:e2e$/m,
@@ -1069,11 +1070,12 @@ const codeOf = (body) => body.split('\n').filter((l) => !/^\s*#/.test(l)).join('
 const HTML_REPORT = "hashFiles('playwright-report/index.html')";
 
 /**
- * 失敗したときの記録の方針: playwright-report/ だけを 3 日。test-results/ は HTML レポートができなかったとき
- * （index.html がないとき）だけ。成功した回には何も残さない。failure()・always() を使うのはこの 2 つの step だけ。
+ * 失敗したときの記録の方針: playwright-report/ だけを days 日（ci.yml は 3 日、nightly.yml は 7 日。BL-128）。test-results/ は
+ * HTML レポートができなかったとき（index.html がないとき）だけ。failure()・always() を使うのはこの 2 つの step だけ。
+ * 成功した回に残すのは notes に名前を書いたもの（nightly.yml の playwright-report/results.json だけ。BL-128）だけ。
  * テストの step には、ジョブより短い timeout-minutes（ジョブのタイムアウトで止まると failure() の step も動かず、何も残らない）
  */
-function assertFailureReportPolicy(body, label, testRuns, allowUploads = []) {
+function assertFailureReportPolicy(body, label, testRuns, { allowUploads = [], days = 3, notes = null } = {}) {
   const ss = stepsOf(body);
   // step の最初の行が `- if:` の形でも `- name:` の下の `if:` でも捕まえる（PR #9 のレビュー S-2 (1)）
   const ifOf = (s) => /^ {6}(?:- | {2})if: (.*)$/m.exec(s)?.[1] ?? '';
@@ -1085,7 +1087,17 @@ function assertFailureReportPolicy(body, label, testRuns, allowUploads = []) {
     assert.equal(ifOf(s), '', `${label}: ${artifactOf(s)} の保存に if: がある`);
     assert.match(s, /^ {10}retention-days: 1$/m, `${label}: ${artifactOf(s)} の保存は 1 日`);
   }
-  const uploads = ss.filter((s) => /uses: actions\/upload-artifact@/.test(s) && !others.includes(s));
+  // 緑の回の注記の記録（BL-128）: results.json だけ・failure()／always() なし（緑の回だけ。赤の回は HTML レポートの中にある）・days 日・
+  // 見つからなければ失敗（reporter の設定が変わって注記が黙って残らなくなるのを防ぐ）
+  const noteSteps = notes ? ss.filter((s) => /uses: actions\/upload-artifact@/.test(s) && artifactOf(s) === notes) : [];
+  assert.equal(noteSteps.length, notes ? 1 : 0, `${label}: 注記の記録（${notes}）の step が 1 つでない（${noteSteps.length}）`);
+  for (const s of noteSteps) {
+    assert.match(s, /^ {10}path: playwright-report\/results\.json$/m, `${label}: ${notes} は playwright-report/results.json だけ（トレース・スクリーンショットを毎回残さない）`);
+    assert.doesNotMatch(ifOf(s), /(?:always|failure|cancelled)\(\)/, `${label}: ${notes} に failure()・always() がある（赤の回は HTML レポートに results.json が入る）`);
+    assert.match(s, new RegExp(`^ {10}retention-days: ${days}$`, 'm'), `${label}: ${notes} の保存は ${days} 日（BL-128）`);
+    assert.match(s, /^ {10}if-no-files-found: error$/m, `${label}: ${notes} が見つからないときに失敗しない`);
+  }
+  const uploads = ss.filter((s) => /uses: actions\/upload-artifact@/.test(s) && !others.includes(s) && !noteSteps.includes(s));
   // このジョブの保存は記録の 2 つだけ（3 つ目を足すなら、この検査を明示的に変える。S-2 (2)）
   assert.equal(uploads.length, 2, `${label}: upload-artifact の step が 2 つでない（${uploads.length}）。失敗したときの記録の 2 つ以外に保存を足していないか`);
   const report = uploads.filter((s) => /^ {10}path: playwright-report\/$/m.test(s));
@@ -1095,7 +1107,7 @@ function assertFailureReportPolicy(body, label, testRuns, allowUploads = []) {
   assert.equal(ifOf(report[0]), `failure() && ${HTML_REPORT} != ''`, `${label}: HTML レポートは失敗したときで index.html があるときだけ`);
   assert.equal(ifOf(results[0]), `failure() && ${HTML_REPORT} == ''`, `${label}: test-results/ は HTML レポートができなかったときだけ`);
   for (const s of [report[0], results[0]]) {
-    assert.match(s, /^ {10}retention-days: 3$/m, `${label}: 失敗したときの記録の保存は 3 日（500MB の枠。BL-099）`);
+    assert.match(s, new RegExp(`^ {10}retention-days: ${days}$`, 'm'), `${label}: 失敗したときの記録の保存は ${days} 日（500MB の枠。BL-099・BL-128）`);
     assert.doesNotMatch(s, /^ {10}path: \|/m, `${label}: 1 つの成果物に playwright-report/ と test-results/ を一緒に入れない`);
   }
   for (const s of ss) {
@@ -1109,7 +1121,7 @@ function assertFailureReportPolicy(body, label, testRuns, allowUploads = []) {
   assert.doesNotMatch(body, /^ {4}continue-on-error:\s*(?!false\s*(?:#.*)?$)\S/m, `${label}: ジョブ単位の continue-on-error`);
   const job = /^ {4}timeout-minutes: (\d+)(?:\s+#.*)?$/m.exec(body);
   assert.ok(job, `${label}: ジョブに timeout-minutes がない`);
-  const lastRecord = Math.min(ss.indexOf(report[0]), ss.indexOf(results[0]));
+  const lastRecord = Math.min(ss.indexOf(report[0]), ss.indexOf(results[0]), ...noteSteps.map((s) => ss.indexOf(s)));
   for (const run of testRuns) {
     const i = ss.findIndex((s) => new RegExp(`^ {8}run: ${escRe(run)}$`, 'm').test(s));
     assert.ok(i >= 0, `${label}: run: ${run} の step がない`);
@@ -1174,8 +1186,12 @@ describe('nightly.yml（BL-084。毎晩の E2E は balance・property と別の�
     assert.equal((codeOf(nightly).match(/PW_MAX_FAILURES/g) ?? []).length, 1, 'PW_MAX_FAILURES を 2 か所以上で決めている');
   });
 
-  test('失敗したときの記録: playwright-report/ だけを 3 日、HTML レポートができなかったときだけ test-results/（BL-099 と同じ方針）', () => {
-    assertFailureReportPolicy(e, 'nightly.yml の e2e-nightly', ['npm run test:e2e:nightly', 'npm run test:e2e:full']);
+  // 週 2 回（月・木）の schedule に 3 日の保存は合わず、次の回の前に消えていた（BL-128。QA の S2 判定書 §2-2 の 5）
+  test('失敗したときの記録: playwright-report/ だけを 7 日、HTML レポートができなかったときだけ test-results/。緑の回も results.json だけを 7 日（BL-099・BL-128）', () => {
+    assertFailureReportPolicy(e, 'nightly.yml の e2e-nightly', ['npm run test:e2e:nightly', 'npm run test:e2e:full'], {
+      days: 7,
+      notes: 'nightly-e2e-results-json',
+    });
   });
 
   test('schedule は週 2 回（月・木の 03:17 JST＝UTC の日・水 18:17。CEO 決定の 03:00 を毎時 0 分からずらした。PR #9 のレビュー N-3）', () => {
@@ -1197,7 +1213,7 @@ describe('失敗したときの E2E の記録（BL-099。決定 0006-4・QA 判�
   const pw = readFileSync(join(root, 'playwright.config.ts'), 'utf8');
 
   test('ci.yml の verify（E2E を含む。A1）: playwright-report/ だけを 3 日、HTML レポートができなかったときだけ test-results/。failure() はこの 2 つだけ', () => {
-    assertFailureReportPolicy(jobOf(ci, 'verify'), 'ci.yml の verify', ['npm run test:e2e'], ['dist-web']);
+    assertFailureReportPolicy(jobOf(ci, 'verify'), 'ci.yml の verify', ['npm run test:e2e'], { allowUploads: ['dist-web'] });
   });
 
   test('ci.yml の成果物の名前: HTML レポートは e2e-report、test-results/ は e2e-test-results（手順書・実行記録の名前と合わせる）', () => {

@@ -2,18 +2,23 @@
 // PR: TS-E1-01〜06・08〜13・17（S1。03・04 と TS-071-17 は S2 の BL-056 で有効にした）。毎晩: TS-E1-07・15（BL-089）。
 // シナリオの「実装のまとめ方」は 1 つの流れを勧めているが、ここでは ID ごとにテストを分けた（起動は 1 回 約 0.5 秒で、
 // 分けても PR は 1 分未満。いまのビルドに無いフック・機能による保留を ID ごとに付けられ、失敗の場所も分かる）。
-// 保留: TS-E1-14（S3）、TS-E1-16（S2）。
+// S2: TS-E1-16（e2e-crazygames。同じ起動で TS-007-08。BL-074）。保留: TS-E1-14（S3）。
 // いまのビルドに無いフック・機能を使うテストは needs() で保留になる（e2e/support/gaps.ts）。
 // 技術リードの回答（traceability.md §5-2）に合わせた前提
 // - Q-02: 0〜4m は鉱石にしない → 最初の強化はどのシードでも 14.5 秒。TS-E1-07 も #2 の範囲（5〜15 秒）で判定する（記録のみをやめた）。
 // - Q-03: 自動掘りは道具が 1 段目（ツルハシ）から。Q-04(c)(d): 押した瞬間に 1 打、300ms で長押し（毎秒 4 打）、Space の短押しは 1 打。
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { test, expect } from './support/fixtures.ts';
-import { BOOT_TIMEOUT_MS, bootGame, centerOf, T0, tapUnderground, triggerAutosave } from './support/boot.ts';
+import { BOOT_TIMEOUT_MS, bootGame, centerOf, setHidden, T0, tapUnderground, triggerAutosave } from './support/boot.ts';
+import { bootCrazyGames, CG_BASE_URL, cgMockState } from './support/crazygames.ts';
 import { later, needs } from './support/gaps.ts';
 import { coinsOf, hitsOf, type Hooks } from './support/hooks.ts';
 import { recordedKeydowns } from './support/privacy.ts';
 import { fullscreenButtons, startScreenElements } from './support/dom.ts';
 import { SEED_A, SEED_B } from '../tests/helpers/seeds.ts';
+
+const PKG_VERSION = (JSON.parse(readFileSync(resolve(import.meta.dirname, '..', 'package.json'), 'utf8')) as { version: string }).version;
 
 const PICKAXE_COST = 3; // gdd §5-3・content/tools.ts（ツルハシ 3 コイン）
 /** 画面で叩いてツルハシの代金をためる回数（必要な打撃は 29〔Q-02〕。叩いた数が落ちたら購入の前の expect で気づく。レビュー N-1） */
@@ -356,8 +361,43 @@ test.describe('E1 初回起動 → 最初の強化', () => {
     }
   });
 
-  test('TS-E1-16 e2e-crazygames でライフサイクルがモックに記録される', () => {
-    later('S2:crazygames');
+  test.describe('e2e-crazygames', () => {
+    test.use({ baseURL: CG_BASE_URL });
+
+    test('TS-E1-16 e2e-crazygames でライフサイクルがモックに記録され、タブを隠して戻しても gameplay の合図を送らない（同じ起動で TS-007-08）', async ({
+      page,
+      harness,
+    }) => {
+      needs('hook:rect');
+      const g = await bootCrazyGames(page, harness);
+      // TS-007-08: __game.target が crazygames、version が package.json と一致
+      expect(await g.target()).toBe('crazygames');
+      expect(await g.version()).toBe(PKG_VERSION);
+      // TS-E1-03: 入力の前は loadingStart → loadingStop で、gameplayStart はない（loadingStart も SDK に届く）
+      const boot = (await cgMockState(page)).log;
+      expect(boot.indexOf('loadingStart'), 'loadingStart が SDK に届く').toBeGreaterThanOrEqual(0);
+      expect(boot.indexOf('loadingStop')).toBeGreaterThan(boot.indexOf('loadingStart'));
+      expect(boot).not.toContain('gameplayStart');
+      // TS-E1-04: 最初のクリックで gameplayStart が 1 回（冪等）
+      const c = centerOf((await g.rect('drill'))!);
+      await page.mouse.click(c.x, c.y);
+      await page.clock.runFor(200);
+      await page.mouse.click(c.x, c.y);
+      const gameplay = async (): Promise<{ sdk: string[]; calls: string[] }> => {
+        const keep = (n: string): boolean => n === 'gameplayStart' || n === 'gameplayStop';
+        return { sdk: (await cgMockState(page)).log.filter(keep), calls: (await g.calls()).map((x) => x.name).filter(keep) };
+      };
+      expect((await gameplay()).sdk, '最初の入力の後に gameplayStart が 1 回').toEqual(['gameplayStart']);
+      expect((await cgMockState(page)).log.indexOf('gameplayStart')).toBeGreaterThan((await cgMockState(page)).log.indexOf('loadingStop'));
+      // タブを隠して戻しても、SDK にも platform.calls() にも gameplayStop・gameplayStart が増えない（crazygames の例外）
+      const before = await gameplay();
+      await setHidden(page, true);
+      await page.clock.runFor(200);
+      await setHidden(page, false);
+      await page.clock.runFor(200);
+      expect(await gameplay(), 'タブの切り替えで gameplay の合図を送らない').toEqual(before);
+      expect(await harness.uncaughtErrors()).toEqual([]);
+    });
   });
 
   test('TS-E1-17 E1 の一連の操作の後、共通の検査（通信・Cookie・キー名）がすべて合格', async ({ page, harness }) => {

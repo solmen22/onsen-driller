@@ -1,4 +1,4 @@
-// バランス用のボット（gdd §8-2。BL-031: 標準・アクティブ・放置の 3 本。広告なし・構成別・安い順・ランダムは BL-032）。
+// バランス用のボット（gdd §8-2。BL-031: 標準・アクティブ・放置の 3 本。BL-032: 安い順・ランダム。広告なし・構成別は BL-058・S3 の転生の後）。
 // ボットは core のアクション（dispatch）だけで遊ぶ。判断に使う見積もりは状態を一時的に変えて測り、必ず元に戻す
 import {
   autoDiggerHitsPerSec,
@@ -9,15 +9,20 @@ import {
   buyQuote,
   computeGuests,
   dispatch,
+  hash32,
   drillPower,
   modifiers,
+  num,
   nextTool,
+  seedSfc32,
+  sfc32Int,
   yunohanaGain,
   type GameEvent,
   type GameState,
   type LevelItem,
   type UpgradeId,
   type Num,
+  type Sfc32State,
 } from '../../src/core/index.ts';
 import { PARAMS } from '../../src/content/params.ts';
 import { SPRINGS, type SpringId } from '../../src/content/springs.ts';
@@ -26,7 +31,7 @@ import { UPGRADES } from '../../src/content/upgrades.ts';
 /** ボットが買う品目（道具は別に扱う）。改良は一度きり（BL-018。TS-018-17） */
 type BotItem = LevelItem | `upgrade:${UpgradeId}`;
 
-export type BotId = 'standard' | 'active' | 'idle';
+export type BotId = 'standard' | 'active' | 'idle' | 'cheapest' | 'random';
 
 /**
  * 手動の打撃の入れ方（gdd §8-2 の「タップ」の列）
@@ -41,16 +46,28 @@ export interface BotDef {
   manual: ManualInput;
   /** 買い物の間隔（プレイ時間の秒） */
   buyEverySec: number;
-  /** ご褒美（BL-058）の受け取り方。ads＝広告で毎回、none＝受け取らない。BL-058 が入るまでは使わない */
-  rewards: 'ads' | 'none';
+  /**
+   * 買い方（gdd §8-2 の「買い方」の列）
+   * - efficiency: 投資効率が最大のもの（最良が買えなければ、効率が最良の 50% 以上で買えるもの）
+   * - cheapest: いちばん安いもの（買えるまで待つ）
+   * - random: 買えるもの（道具・候補）から無作為（ボットの乱数。シード固定。詰み・例外の検出用）
+   */
+  buy: 'efficiency' | 'cheapest' | 'random';
+  /** ご褒美（BL-058）の受け取り方。ads＝広告で毎回、none＝受け取らない、random＝無作為。BL-058 が入るまでは使わない */
+  rewards: 'ads' | 'none' | 'random';
 }
 
-/** gdd §8-2 の 3 本（BL-031） */
+/** gdd §8-2 のボット（BL-031 の 3 本と、BL-032 の安い順・ランダム） */
 export const BOTS: Readonly<Record<BotId, BotDef>> = {
-  standard: { id: 'standard', manual: { kind: 'autoDig', tapsBefore: 2 }, buyEverySec: 5, rewards: 'ads' },
-  active: { id: 'active', manual: { kind: 'hold' }, buyEverySec: 2, rewards: 'ads' },
-  idle: { id: 'idle', manual: { kind: 'taps', perSec: 0.3 }, buyEverySec: 60, rewards: 'none' },
+  standard: { id: 'standard', manual: { kind: 'autoDig', tapsBefore: 2 }, buyEverySec: 5, buy: 'efficiency', rewards: 'ads' },
+  active: { id: 'active', manual: { kind: 'hold' }, buyEverySec: 2, buy: 'efficiency', rewards: 'ads' },
+  idle: { id: 'idle', manual: { kind: 'taps', perSec: 0.3 }, buyEverySec: 60, buy: 'efficiency', rewards: 'none' },
+  cheapest: { id: 'cheapest', manual: { kind: 'autoDig', tapsBefore: 2 }, buyEverySec: 5, buy: 'cheapest', rewards: 'none' },
+  random: { id: 'random', manual: { kind: 'taps', perSec: 1 }, buyEverySec: 10, buy: 'random', rewards: 'random' },
 };
+
+/** ランダムのボットの乱数のシードに混ぜる値（ゲームの乱数と別の列にする） */
+const BOT_RNG_SALT = 0x626f7473;
 
 export interface BotMemory {
   lastGain: number;
@@ -58,9 +75,17 @@ export interface BotMemory {
   lastDepthChangeMs: number;
   /** タップの端数（taps と autoDig の最初の強化の前） */
   tapAcc: number;
+  /** ボットの乱数（random の買い方だけが使う。ゲームの状態の乱数とは別。シードから決まる） */
+  rng: Sfc32State;
 }
 
-export const newBotMemory = (): BotMemory => ({ lastGain: 0, lastMaxDepth: 0, lastDepthChangeMs: 0, tapAcc: 0 });
+export const newBotMemory = (seed = 0): BotMemory => ({
+  lastGain: 0,
+  lastMaxDepth: 0,
+  lastDepthChangeMs: 0,
+  tapAcc: 0,
+  rng: seedSfc32(hash32(seed >>> 0, BOT_RNG_SALT)),
+});
 
 /** このボットの手動の打数/秒（見積もり用。上限 8/秒は core が掛ける） */
 export function manualHitsPerSec(s: GameState, bot: BotDef): number {
@@ -70,14 +95,18 @@ export function manualHitsPerSec(s: GameState, bot: BotDef): number {
   return autoDigUnlocked(s) ? PARAMS.input.autoDigPerSec : Math.min(PARAMS.input.manualMaxPerSec, m.tapsBefore);
 }
 
-const AVG_ORE = 1 + PARAMS.block.oreChance * (PARAMS.block.oreMult - 1);
+/**
+ * 1 ブロックの価値の期待値の倍率（鉱石でないブロックの価値に対して）: 1 + 出現率 × (鉱石の倍率 × 鉱石の価値の倍率 − 1)。
+ * 鉱石の価値の倍率（m.oreValue: 硫黄泉、BL-018 の選鉱ざる・研磨台）を入れないと、その効果が見積もりで 0 になる
+ */
+export const avgOre = (oreValue: number): number => 1 + PARAMS.block.oreChance * (PARAMS.block.oreMult * oreValue - 1);
 
 /** 掘削と入湯料を合わせた 1 秒あたりの収入の見積もり（このボットの打ち方で。鉱石は出現率の期待値） */
 export function totalRate(s: GameState, bot: BotDef): Num {
   const m = modifiers(s);
   const d = s.run.depth;
   const hits = manualHitsPerSec(s, bot) + autoDiggerHitsPerSec(s, m);
-  const dig = drillPower(s, m).mul(hits).div(blockHp(s, d, m)).mul(blockValue(s, d, false, m)).mul(AVG_ORE);
+  const dig = drillPower(s, m).mul(hits).div(blockHp(s, d, m)).mul(blockValue(s, d, false, m)).mul(avgOre(m.oreValue));
   return dig.add(bathIncomePerSec(s, m));
 }
 
@@ -226,6 +255,8 @@ export function botAct(s: GameState, bot: BotDef, mem: BotMemory, out?: GameEven
     setInput(s, bot, out);
     return;
   }
+  if (bot.buy === 'cheapest') return buyCheapest(s, bot, out);
+  if (bot.buy === 'random') return buyRandom(s, bot, mem, out);
   for (let i = 0; i < 40; i++) {
     const t = nextTool(s);
     if (t && r.coins.gte(t.cost)) {
@@ -249,6 +280,50 @@ export function botAct(s: GameState, bot: BotDef, mem: BotMemory, out?: GameEven
     if (!best || !bestAffordable) break;
     if (!best.affordable && bestAffordable.score < best.score * 0.5) break;
     if (!act(s, { type: 'buy', item: bestAffordable.item, qty: 1 }, out).ok) break;
+  }
+}
+
+/**
+ * 安い順（gdd §8-2）: 道具と候補のうち、いちばん安いものを買う。それが買えなければ待つ（ほかの安くないものは買わない）。
+ * 枠は標準と同じ（収入が最大の組み合わせ）
+ */
+function buyCheapest(s: GameState, bot: BotDef, out?: GameEvent[]): void {
+  for (let i = 0; i < 40; i++) {
+    arrangeSlots(s, bot, out);
+    let best: { item: LevelItem | 'tool'; cost: Num; affordable: boolean } | null = null;
+    const t = nextTool(s);
+    if (t) best = { item: 'tool', cost: num(t.cost), affordable: s.run.coins.gte(t.cost) };
+    for (const item of candidates(s)) {
+      const q = buyQuote(s, item, 1);
+      if (q.state === 'locked' || q.state === 'maxed') continue;
+      if (!best || q.cost.lt(best.cost)) best = { item, cost: q.cost, affordable: q.state === 'affordable' };
+    }
+    if (!best?.affordable) return;
+    if (!act(s, { type: 'buy', item: best.item, qty: 1 }, out).ok) return;
+    if (best.item === 'tool') setInput(s, bot, out);
+  }
+}
+
+/**
+ * ランダム（gdd §8-2）: 買えるもの（道具・候補）から無作為に 1 つずつ、買えるものがなくなるまで買う（1 回の判断で最大 40）。
+ * 枠も無作為: 見つけた源泉から 1 つを無作為な枠につなぐ（つないである源泉なら何もしない）。詰み・例外の検出用
+ */
+function buyRandom(s: GameState, bot: BotDef, mem: BotMemory, out?: GameEvent[]): void {
+  const found = SPRINGS.filter((sp) => s.run.springs[sp.id]).map((sp) => sp.id);
+  if (found.length > 0) {
+    const id = found[sfc32Int(mem.rng, 0, found.length - 1)]!;
+    const slot = sfc32Int(mem.rng, 0, s.run.bath.slots.length - 1);
+    if (!s.run.bath.slots.includes(id)) act(s, { type: 'assignSlot', slot, spring: id }, out);
+  }
+  for (let i = 0; i < 40; i++) {
+    const options: (LevelItem | 'tool')[] = [];
+    const t = nextTool(s);
+    if (t && s.run.coins.gte(t.cost)) options.push('tool');
+    for (const item of candidates(s)) if (buyQuote(s, item, 1).state === 'affordable') options.push(item);
+    if (options.length === 0) return;
+    const item = options[sfc32Int(mem.rng, 0, options.length - 1)]!;
+    if (!act(s, { type: 'buy', item, qty: 1 }, out).ok) return;
+    if (item === 'tool') setInput(s, bot, out);
   }
 }
 
