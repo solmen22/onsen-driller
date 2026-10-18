@@ -13,6 +13,7 @@ import { onModalChange } from '../ui/overlay/modal-state.ts';
 import { playBreak, playHit, resumeAudio, setMuted, unlockAudio } from '../audio/sfx.ts';
 import { startAutosave } from './autosave.ts';
 import { createAppClock } from './clock.ts';
+import { createRewardHooks } from './rewards.ts';
 import type { View } from '../view/game.ts';
 import type { DevParams } from './dev-params.ts';
 import { captureErrors, createErrorLog } from './errors.ts';
@@ -152,8 +153,10 @@ async function boot(): Promise<void> {
     settings.lang = l;
     persistSettings();
   };
-  const now = (): number => clock.wallNow();
-  render(h(Ctx.Provider, { value: { store, platform, version: APP_VERSION, onLangChange, now } }, h(App, {})), uiRoot);
+  // ご褒美の口（R1 のチケット・R2 のチケット・動画の付与）。壁時計は store.wallTime()（startLoop がつないだ app の時計。BL-059）。
+  // 動画の要求（requestReward）は BL-059 の広告の流れでつなぐ（'rewarded' のときだけ rewards.grantAd を呼ぶ）
+  const rewards = createRewardHooks(store);
+  render(h(Ctx.Provider, { value: { store, platform, version: APP_VERSION, onLangChange, rewards } }, h(App, {})), uiRoot);
 
   const contextEvents: string[] = [];
   // 描画（Phaser）の起動。チャンクの読み込みや起動の失敗は記録に残し（errors()・S3 の「エラー情報をコピー」）、

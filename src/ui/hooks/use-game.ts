@@ -6,10 +6,17 @@ import type { GameStore } from '../../app/store.ts';
 import type { Lang } from '../../i18n/index.ts';
 import type { Platform, RewardPlacement, RewardResult } from '../../platform/types.ts';
 
-/** ご褒美の core の口（BL-058 がつなぐ。ない間はチケットで使うボタンを押せない） */
+/** ご褒美の core の口（app/rewards.ts の createRewardHooks が core のアクションにつなぐ。ない間はチケットで使うボタンを押せない） */
 export interface RewardHooks {
-  /** R2: 温泉チケット 1 枚で掘削ブーストを使う（core の useBoost('ticket')） */
+  /** R2: 温泉チケット 1 枚で掘削ブーストを使う（core の useBoost('ticket')。壁時計は store.wallTime()） */
   useBoostTicket(): void;
+  /** R1: おかえりの収入を受け取る（normal は ×1、double は温泉チケット 1 枚で ×2。core の claimOffline） */
+  claimOffline(mode: 'normal' | 'double'): void;
+  /**
+   * 動画のご褒美を付ける（R1: ×2 で受け取る・R2: ブースト・R3: 鉱脈をすぐ開く。source は 'ad'）。
+   * 呼ぶのは requestReward が 'rewarded' を返したときだけ（BL-059）
+   */
+  grantAd(p: RewardPlacement): void;
 }
 
 export interface UiContext {
@@ -18,8 +25,6 @@ export interface UiContext {
   version: string;
   /** 言語を選んだ（app が設定に保存する） */
   onLangChange?: (l: Lang) => void;
-  /** 壁時計（ms。ブーストの休みの残りの表示。既定は Date.now） */
-  now?: () => number;
   /** ご褒美の core の口（BL-058）。ない間はチケットのボタンを押せない */
   rewards?: RewardHooks;
   /**

@@ -8,17 +8,21 @@
 // - 失敗（failed・unavailable）では「今は広告を表示できません」（ad-unavailable）をシートの中に出したままにする（トーストにしない）。
 //   その後に rewardedAvailable() を読み直し、false なら動画のボタンを隠す
 import { useRef, useState } from 'preact/hooks';
+import { boostMult, veinView } from '../../core/index.ts';
+import { PARAMS } from '../../content/params.ts';
 import { t } from '../../i18n/index.ts';
 import type { RewardPlacement } from '../../platform/types.ts';
 import { useGame, useUi } from '../hooks/use-game.ts';
 import { Dialog } from './Dialog.tsx';
 
-/** gdd §5-9 の表示用の数（規則は core〔BL-058〕。BL-058 で PARAMS ができたらそちらを読む） */
-export const REWARD_TEXT = { boostMin: 5, veinSec: 90, veinHits: 15 } as const;
+/** gdd §5-9 の表示用の数（規則は core〔BL-058〕と content/params.ts。ここで数を書き直さない） */
+const BOOST_MIN = PARAMS.boost.durationMs / 60_000;
 
 export function RewardSheet({ placement, onClose }: { placement: Extract<RewardPlacement, 'R2' | 'R3'>; onClose: () => void }) {
   const { platform, rewards, requestReward } = useUi();
   const tickets = useGame((s) => s.meta.tickets);
+  // R3 の「自分で叩く」の残りの回数（core の veinView。叩いた分だけ減る）
+  const hitsLeft = useGame((s) => veinView(s).hitsLeft);
   const [requesting, setRequesting] = useState(false);
   const [failed, setFailed] = useState(false);
   const [videoOk, setVideoOk] = useState(() => requestReward !== undefined && platform.ads.rewardedAvailable());
@@ -56,7 +60,10 @@ export function RewardSheet({ placement, onClose }: { placement: Extract<RewardP
 
   const canTicket = rewards !== undefined && tickets > 0;
   const title = placement === 'R2' ? t('sheet.boost.title') : t('sheet.vein.title');
-  const desc = placement === 'R2' ? t('sheet.boost.desc', { n: REWARD_TEXT.boostMin }) : t('sheet.vein.desc', { n: REWARD_TEXT.veinSec });
+  const desc =
+    placement === 'R2'
+      ? t('sheet.boost.desc', { n: BOOST_MIN, d: boostMult().drill, a: boostMult().auto }) // 実際の倍率（自動掘削機は ×4。BL-059）
+      : t('sheet.vein.desc', { n: PARAMS.vein.incomeSec });
   return (
     <Dialog testId="sheet-reward" titleId="sheet-reward-title" title={title} onDismiss={onClose} dismissable={!requesting} variant="sheet">
       <div class="sheet-body" data-placement={placement} aria-busy={requesting}>
@@ -92,7 +99,7 @@ export function RewardSheet({ placement, onClose }: { placement: Extract<RewardP
           </button>
         ) : (
           <button type="button" class="sheet-btn" data-testid="sheet-hits" disabled={requesting} onClick={() => once(onClose)}>
-            {t('sheet.hits', { n: REWARD_TEXT.veinHits })}
+            {t('sheet.hits', { n: hitsLeft })}
           </button>
         )}
         <button type="button" class="sheet-btn" data-testid="sheet-close" disabled={requesting} onClick={() => once(onClose)}>

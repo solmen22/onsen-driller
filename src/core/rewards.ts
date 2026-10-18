@@ -72,6 +72,12 @@ const boostBlock = (s: Readonly<GameState>, wallMs: number): 'active' | 'cooldow
   return b.remainingMs > 0 ? 'active' : 'cooldown';
 };
 
+/**
+ * ブースト中の実際の倍率（表示用。BL-059。PR #34 のレビューの Nit）。modifiers はドリル威力と自動掘削機の打数の両方を mult 倍するので、
+ * 1 打のコインは mult 倍、自動掘削機のコイン（威力 × 打数）は mult × mult 倍（mult = 2 なら ×4）
+ */
+export const boostMult = (): { drill: number; auto: number } => ({ drill: B.mult, auto: B.mult * B.mult });
+
 /** HUD・シートの掘削ブーストの表示（wallMs は app の壁時計） */
 export function boostView(s: Readonly<GameState>, wallMs: number): BoostView {
   const b = s.run.boost;

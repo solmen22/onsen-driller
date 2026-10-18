@@ -3,18 +3,24 @@
 // - 掘削ブースト（BL-046。Q-37 (a)）: data-state="ready|active|cooldown|unavailable"（ui/overlay/boost-view.ts）。ready だけ押せて、
 //   押すとご褒美のシート（R2）を開く。active・cooldown は残り時間（m:ss）を出す。どの状態も色だけで伝えず、aria-label に状態と時間。
 //   ご褒美の core（BL-058）と広告の要求（BL-059）の口がない間は unavailable（S1 と同じ「準備中」）
+//   active の倍率は「×2」だけ。自動掘削機を持っているときだけ、名前（掘削機）で ×4 を足す（PR #55 のレビュー S-1）
+// - btn-boost の幅は CSS（global.css の .act-boost）で決める（PR #55 のレビュー S-2）
 // - 最初の 1 打の前だけ「タップで掘る」の案内を出す（押下はキャンバスに通す）
 // ボタンはステージ（#stage）の子ではないので、押してもステージの pointerdown（掘削）にはならない
-import { autoDigState } from '../../core/index.ts';
+import { autoDigState, boostMult } from '../../core/index.ts';
 import { t } from '../../i18n/index.ts';
 import { useGame, useUi } from '../hooks/use-game.ts';
 import { boostView, type BoostView } from '../overlay/boost-view.ts';
 
 /** ブーストのボタンの状態の文字（色だけで伝えない） */
-function boostText(b: BoostView, wired: boolean): string {
+function boostText(b: BoostView, wired: boolean, hasDigger: boolean): string {
   switch (b.state) {
-    case 'active':
-      return t('hud.boostActive', { t: b.time ?? '' });
+    case 'active': {
+      // 実際の倍率（ドリル ×2・自動掘削機 ×4。BL-059）。自動掘削機がなければ ×4 は出さない（S-1）
+      const m = boostMult();
+      const time = b.time ?? '';
+      return hasDigger ? t('hud.boostActiveDigger', { d: m.drill, a: m.auto, t: time }) : t('hud.boostActive', { d: m.drill, t: time });
+    }
     case 'cooldown':
       return t('hud.boostCooldown', { t: b.time ?? '' });
     case 'ready':
@@ -25,16 +31,17 @@ function boostText(b: BoostView, wired: boolean): string {
 }
 
 export function StageActions({ onBoost }: { onBoost?: () => void }) {
-  const { store, platform, rewards, requestReward, now } = useUi();
+  const { store, platform, rewards, requestReward } = useUi();
   const wired = rewards !== undefined || requestReward !== undefined;
   const v = useGame((s) => {
     // 動画を出せるかは 5Hz の通知ごとに読み直す（SDK の状態は変わりうる）
     const canVideo = requestReward !== undefined && platform.ads.rewardedAvailable();
-    const b = boostView(s, (now ?? Date.now)(), canVideo, rewards !== undefined);
-    return { dig: autoDigState(s), started: s.stats.hits > 0, boost: b.state, boostTime: b.time };
+    // 時刻は store と同じ壁時計（store が R2 の休みを切り詰めるのと同じ。PR #42 のレビューの Should）
+    const b = boostView(s, store.wallTime(), canVideo, rewards !== undefined);
+    return { dig: autoDigState(s), started: s.stats.hits > 0, boost: b.state, boostTime: b.time, hasDigger: s.run.autoDig.level > 0 };
   });
   const boost: BoostView = { state: v.boost, time: v.boostTime };
-  const boostLabel = boostText(boost, wired);
+  const boostLabel = boostText(boost, wired, v.hasDigger);
   const boostOff = boost.state !== 'ready';
   const on = v.dig === 'on';
   const locked = v.dig === 'locked';
