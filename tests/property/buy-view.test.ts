@@ -1,6 +1,7 @@
 // BL-043: 購入ボタンの表示（ui/panels/buy-view.ts）と実際の購入の一致（TS-043-09。QA §3-2(c)）。
 // ランダムなコイン・レベルで、表示の数とコストが、実際に買える数と差し引かれる額に一致することを確かめる（表示と購入は同じ buyQuote）
 import fc from 'fast-check';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import { describe, expect, it } from 'vitest';
 import { dispatch, num, stateHash, sub, type ItemId, type Qty } from '../../src/core/index.ts';
 import { buyView } from '../../src/ui/panels/buy-view.ts';
@@ -43,7 +44,7 @@ describe('表示と購入の一致（TS-043-09）', () => {
           expect(v.unlockDepth !== null).toBe(v.state === 'locked');
         },
       ),
-      { numRuns: 400 },
+      fcRuns(400),
     );
   });
 });

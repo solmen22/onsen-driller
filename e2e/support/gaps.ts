@@ -46,9 +46,6 @@ export const KNOWN_GAPS: readonly Requirement[] = [];
 const LATER = {
   'S2:lifecycle':
     'S2 で有効にする（CEO 決定 Q-01）: ライフサイクル（loadingStop → 最初の入力で gameplayStart）は BL-056 の後に BL-074 と一緒に確認する',
-  'S2:crazygames': 'S2 で有効にする（BL-057・BL-072）: e2e-crazygames のビルドと SDK のモック（page.route）の後',
-  'S2:newerSave':
-    'S2 で有効にする（BL-046。CEO 決定 S1-FIX で S3 から前倒し・Q-26）: 読み取り専用のセッションの案内の後。e2e の実装は BL-103（BL-094 で印を S2 に）',
   'S3:tutorial': 'S3 で有効にする（BL-049）: チュートリアルの指アイコン（tutorial-finger）の後',
   'S3:export': 'S3 で有効にする（BL-029）: 書き出し・読み込みの後',
   'S4:externalLinks': 'S4 で有効にする（BL-078。T5 は S3 の BL-045）: 設定画面の外部リンクの後',

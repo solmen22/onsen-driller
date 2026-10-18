@@ -3,6 +3,7 @@
 // TS-017-14（標準ボットの #5）は BL-033 の目標表の判定（それまでは npm run sim のレポート）
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { fcRuns } from '../helpers/fc-runs.ts';
 import en from '../../src/i18n/en.json';
 import ja from '../../src/i18n/ja.json';
 import { GUESTS, GUEST_BY_ID, type GuestId } from '../../src/content/guests.ts';
@@ -173,7 +174,7 @@ describe('TS-017-08 来訪は条件の式どおりで、擬似乱数に左右さ
           return JSON.stringify(before) === JSON.stringify(expected) && JSON.stringify(computeGuests(s)) === JSON.stringify(expected);
         },
       ),
-      { numRuns: 300 },
+      fcRuns(300),
     );
   });
 });
