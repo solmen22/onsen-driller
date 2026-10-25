@@ -52,6 +52,11 @@ export interface Platform {
   happyTime(): void;
   ads: {
     rewardedAvailable(): boolean;
+    /**
+     * 今すぐ SDK にリワードを要求できるか（SDK があり、前の広告を SDK が終えている）。Poki だけが持つ（BL-060。PR #84 のレビュー N-1）。
+     * false なら showRewarded は SDK を呼ばずにすぐ unavailable・failed を返すので、ad-flow は要求の間の停止（'reward'）を立てない
+     */
+    rewardedReady?(): boolean;
     showRewarded(p: RewardPlacement): Promise<RewardResult>;
     /** 区切りの機会を渡すだけ。流すかどうかは SDK が決める（広告のタイマーは持たない）。SDK が答えなくても必ず終わる（下の時間） */
     breakOpportunity(p: BreakPlacement): Promise<void>;
@@ -64,7 +69,7 @@ export interface Platform {
      * 開始の時間切れ（AD_START_TIMEOUT_MS）で showRewarded が failed を返した後に、**遅れて始まり最後まで見られた**リワード広告の
      * 報酬を知らせる（Q-45。決定 0010 の 5: 見終えたのに何ももらえない体験を避ける）。1 つの要求につき最大 1 回。
      * ミッドゲーム・開始の前の失敗・始まった後の失敗・再生の時間切れ（AD_END_TIMEOUT_MS）では呼ばない。
-     * 時間切れのない場合（web・itch・dev・Poki〔runBreak は BL-060〕）は呼ばない
+     * 時間切れのない場合（web・itch・dev）は呼ばない。Poki は rewardedBreak の開始（onStart）の時間切れで同じ形にする（BL-060）
      */
     onLateReward(cb: (r: LateReward) => void): void;
   };

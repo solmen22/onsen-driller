@@ -1,13 +1,15 @@
 // BL-059: 広告の流れ（app/ad-flow.ts）。シート → 広告 → 報酬・ミッドゲームの機会・広告の間の停止（TS-059-01〜17 の integration・unit の部分）
 // 画面からの流れ（シートの動画のボタン・スピナー・案内）は ui-overlay、本物のビルドは E8（BL-074）・BL-103 の e2e
 import { afterEach, describe, expect, it } from 'vitest';
-import { createAdFlow, type AdFlowDeps } from '../../src/app/ad-flow.ts';
+import { createAdFlow, pausesForReward, type AdFlowDeps } from '../../src/app/ad-flow.ts';
 import { createLifecycle } from '../../src/app/lifecycle.ts';
 import { subscribeSaveThenAds, wireVisibility } from '../../src/app/pause-wiring.ts';
 import { GameStore } from '../../src/app/store.ts';
 import { PARAMS } from '../../src/content/params.ts';
 import { blockHp, interludeLeftMs, type GameState } from '../../src/core/index.ts';
 import type { BreakPlacement, LateReward, Platform, RewardPlacement, RewardResult } from '../../src/platform/types.ts';
+import { createPokiPlatform } from '../../src/platform/poki.ts';
+import { pokiMock } from '../../e2e/mocks/poki.ts';
 import { dismissPrestigeConfirm, isPrestigeConfirmOpen, onPrestigeConfirmChange, openPrestigeConfirm } from '../../src/ui/overlay/prestige-confirm.ts';
 import { stateWith } from '../support/states.ts';
 
@@ -247,6 +249,142 @@ describe('リワード（requestReward）', () => {
     r.st.hidden = false;
     r.flow.syncHidden();
     expect(r.st.loopRunning).toBe(true);
+  });
+});
+
+describe('Poki のリワードの間の停止（BL-060。PR #68 のレビュー S-2: gameplayStop → rewardedBreak → gameplayStart）', () => {
+  it('pausesForReward: poki だけ true（CrazyGames は要求の間ポータルが止める。web・itch・dev は SDK がない）', () => {
+    expect((['web', 'itch', 'crazygames', 'poki', 'dev'] as const).filter(pausesForReward)).toEqual(['poki']);
+  });
+
+  it('要求の始まり（showRewarded の前）に gameplayStop、報酬を付けた後に gameplayStart。往復は 1 回で、その間はループ・入力も止める', async () => {
+    const order: string[] = [];
+    const r = rig({
+      pauseForReward: true,
+      grant: (p) => {
+        order.push(`grant:${p}`);
+        return { ok: true };
+      },
+    });
+    const life = r.life;
+    const setPaused = life.setPaused.bind(life);
+    life.setPaused = (reason, on) => {
+      setPaused(reason, on);
+      order.push(`${reason}:${on}`);
+    };
+    const pr = r.flow.requestReward('R2');
+    await flush();
+    expect(r.signals).toEqual(['gameplayStop']);
+    expect([r.st.loopRunning, r.st.inputBlocked]).toEqual([false, true]);
+    expect(r.a.calls).toEqual(['showRewarded:R2']);
+    r.a.emit(true);
+    r.a.emit(false); // 広告が終わっても、結果が決まるまでは止まったまま
+    expect(r.signals).toEqual(['gameplayStop']);
+    expect([r.st.loopRunning, r.st.inputBlocked]).toEqual([false, true]);
+    r.a.result('rewarded');
+    await expect(pr).resolves.toBe('rewarded');
+    expect(r.signals).toEqual(['gameplayStop', 'gameplayStart']);
+    expect([r.st.loopRunning, r.st.inputBlocked]).toEqual([true, false]);
+    expect(order).toEqual(['reward:true', 'ad:true', 'ad:false', 'grant:R2', 'reward:false']);
+  });
+
+  it('failed・unavailable・reject でも戻す（広告が始まらなくても 1 往復）', async () => {
+    for (const end of ['failed', 'unavailable', 'reject'] as const) {
+      const r = rig({ pauseForReward: true });
+      const pr = r.flow.requestReward('R1');
+      await flush();
+      if (end === 'reject') r.a.reject(new Error('sdk'));
+      else r.a.result(end);
+      await pr;
+      expect(r.signals, end).toEqual(['gameplayStop', 'gameplayStart']);
+      expect([r.st.loopRunning, r.st.inputBlocked], end).toEqual([true, false]);
+      expect(r.st.grants, end).toEqual([]);
+    }
+  });
+
+  it('隠れている間に結果が返ったら、gameplay もループも見えるまで止まったまま', async () => {
+    const r = rig({ pauseForReward: true });
+    const pr = r.flow.requestReward('R2');
+    await flush();
+    r.st.hidden = true;
+    r.life.setPaused('hidden', true);
+    r.a.result('rewarded');
+    await pr;
+    expect(r.signals).toEqual(['gameplayStop']);
+    expect(r.st.loopRunning).toBe(false);
+    r.st.hidden = false;
+    r.life.setPaused('hidden', false);
+    r.flow.syncHidden();
+    expect(r.signals).toEqual(['gameplayStop', 'gameplayStart']);
+    expect(r.st.loopRunning).toBe(true);
+  });
+
+  it('PR #84 のレビュー N-3: 転生の確認の画面（prestige）とリワード（reward）が重なっても、両方が外れるまでループ・gameplay は止まったまま。合図は 1 往復', async () => {
+    // (a) 確認の画面を開いたまま、リワードが決まる → 閉じたら動く
+    const a = rig({ pauseForReward: true });
+    a.flow.setPrestigeConfirm(true);
+    const pa = a.flow.requestReward('R2');
+    await flush();
+    a.a.result('rewarded');
+    await pa;
+    expect([a.st.loopRunning, a.signals]).toEqual([false, ['gameplayStop']]);
+    a.flow.setPrestigeConfirm(false);
+    expect([a.st.loopRunning, a.signals]).toEqual([true, ['gameplayStop', 'gameplayStart']]);
+    // (b) リワードの間に確認の画面を開いて閉じる → リワードが決まるまで止まったまま
+    const b = rig({ pauseForReward: true });
+    const pb = b.flow.requestReward('R2');
+    await flush();
+    b.flow.setPrestigeConfirm(true);
+    b.flow.setPrestigeConfirm(false);
+    expect([b.st.loopRunning, b.st.inputBlocked, b.signals]).toEqual([false, true, ['gameplayStop']]);
+    b.a.result('failed');
+    await pb;
+    expect([b.st.loopRunning, b.st.inputBlocked, b.signals]).toEqual([true, false, ['gameplayStop', 'gameplayStart']]);
+  });
+
+  it('pauseForReward なし（CrazyGames など）は今までどおり: 要求しただけでは止めず、広告の再生の間だけ止める', async () => {
+    const r = rig();
+    const pr = r.flow.requestReward('R2');
+    await flush();
+    expect(r.signals).toEqual([]);
+    expect([r.st.loopRunning, r.st.inputBlocked]).toEqual([true, false]);
+    r.a.emit(true);
+    expect(r.signals).toEqual(['gameplayStop']);
+    r.a.emit(false);
+    r.a.result('rewarded');
+    await pr;
+    expect(r.signals).toEqual(['gameplayStop', 'gameplayStart']);
+  });
+
+  it('本物の Poki のアダプタと SDK のモックで: SDK への呼び出しは gameplayStop → rewardedBreak → gameplayStart の順（報酬あり・なし）', async () => {
+    for (const rewarded of [true, false]) {
+      const sdk = pokiMock();
+      sdk.rewarded = rewarded;
+      const platform = createPokiPlatform({ getSdk: () => sdk });
+      await platform.init();
+      const life = createLifecycle(platform);
+      life.loadingStart();
+      life.loadingStop();
+      life.firstInput();
+      const grants: RewardPlacement[] = [];
+      const flow = createAdFlow({
+        ads: platform.ads,
+        isMuted: () => false,
+        life,
+        input: { setBlocked: () => {} },
+        loop: { pause: () => {}, resume: () => {} },
+        isHidden: () => false,
+        setMuted: () => {},
+        resumeAudio: () => {},
+        saveBeforeAd: () => {},
+        grant: (p) => (grants.push(p), { ok: true }),
+        pauseForReward: pausesForReward(platform.target),
+      });
+      sdk.log.length = 0;
+      await expect(flow.requestReward('R2')).resolves.toBe(rewarded ? 'rewarded' : 'failed');
+      expect(sdk.log, String(rewarded)).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']);
+      expect(grants).toEqual(rewarded ? ['R2'] : []);
+    }
   });
 });
 

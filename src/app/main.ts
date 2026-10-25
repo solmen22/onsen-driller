@@ -17,7 +17,7 @@ import { startAutosave } from './autosave.ts';
 import { subscribeSaveThenAds, wireVisibility } from './pause-wiring.ts';
 import { createAppClock } from './clock.ts';
 import { createRewardHooks } from './rewards.ts';
-import { createAdFlow, type LateKind } from './ad-flow.ts';
+import { createAdFlow, pausesForReward, type LateKind } from './ad-flow.ts';
 import type { View } from '../view/game.ts';
 import type { DevParams } from './dev-params.ts';
 import { captureErrors, createErrorLog } from './errors.ts';
@@ -151,6 +151,7 @@ async function boot(): Promise<void> {
     reserve: (p) => rewards.reserveAd(p),
     grant: (p) => rewards.grantAd(p),
     refund: (p) => rewards.refundAd(p),
+    pauseForReward: pausesForReward(platform.target), // Poki だけ: 要求の間 gameplayStop（BL-060・S-2）
     onError: (e) => errorLog.push(e),
   });
   // 出来事は「転生の保存 → 広告の流れ（M1・M2）」の順で受ける（TS-021-45）。転生の確認の画面とタブの表示・非表示の配線

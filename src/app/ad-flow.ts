@@ -22,9 +22,13 @@
 //   返すかどうか（チケットで払った回か・まだ返していないか）は core が決める。返した（refund）・上限で 0 枚（full）なら、
 //   その種類を添えて購読者に知らせる（トースト）。返さないなら何も知らせない
 // - 要求の前に予約する（reserve。R3 は鉱脈。要求の間に鉱脈が消えても、見終えたら報酬を付ける。PR #55 のレビュー S-5）
-// - 1 つの止まる理由の書き手は 1 か所: ライフサイクルの 'ad'・'break'・'prestige' と、入力の 'ad' を書くのはこのファイルだけ
+// - リワードの要求の間の停止（Poki だけ。pauseForReward。BL-060。PR #68 のレビュー S-2）: 要求の始まり（showRewarded の前）に
+//   止まる理由 'reward' を立て、結果が決まって報酬を付けた後に外す（'break' と同じ扱い: gameplay・入力・ループを止める）。
+//   Poki の「Order of events」の gameplayStop → rewardedBreak → gameplayStart の順になり、往復は 1 回（onPlaying の 'ad' は重なるだけ）。
+//   CrazyGames は要求の間はポータルの側でゲームを止めるので立てない（シートの待ちの間もゲームは動く。Q-37 (e)）
+// - 1 つの止まる理由の書き手は 1 か所: ライフサイクルの 'ad'・'break'・'prestige'・'reward' と、入力の 'ad' を書くのはこのファイルだけ
 import type { GameEvent } from '../core/index.ts';
-import type { LateReward, Platform, RewardPlacement, RewardResult } from '../platform/types.ts';
+import type { LateReward, Platform, RewardPlacement, RewardResult, Target } from '../platform/types.ts';
 import type { PauseReason } from './lifecycle.ts';
 
 export interface AdFlowDeps {
@@ -47,8 +51,18 @@ export interface AdFlowDeps {
   grant: (p: RewardPlacement) => { ok: boolean };
   /** 遅れた報酬を core が断ったときの、払ったチケットの返却（app/rewards.ts の refundAd。決定 0010 の 11） */
   refund?: (p: RewardPlacement) => 'refund' | 'full' | null;
+  /** リワードの要求の始まりから結果まで gameplay を止めるか（Poki だけ。pausesForReward。BL-060・S-2） */
+  pauseForReward?: boolean;
   onError?: (e: unknown) => void;
 }
+
+/**
+ * そのポータルで、リワードの要求の間（広告の開始を待つ間も）gameplay を止めるか（BL-060。PR #68 のレビュー S-2）。
+ * - poki: 止める（https://developers.poki.com/guide/sdk-overview の「Order of events」: gameplayStop() → rewardedBreak() → gameplayStart()）
+ * - crazygames: 止めない（要求の間はポータルの側でゲームを止める。公式 https://docs.crazygames.com/sdk/game/ ）
+ * - web・itch・dev: SDK がない。止めない（今までの形のまま）
+ */
+export const pausesForReward = (t: Target): boolean => t === 'poki';
 
 /** 遅れた報酬（Q-45）の知らせの種類: reward は報酬が付いた、refund は払ったチケットを返した、full は上限で返せなかった（決定 0010 の 11） */
 export type LateKind = 'reward' | 'refund' | 'full';
@@ -84,6 +98,8 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
   let prestigeConfirm = false;
   /** ライフサイクルの 'prestige' を立てているか（確認の画面が開いている間と、隠れている間に閉じてから見えるまで） */
   let prestigeHeld = false;
+  /** リワードの要求の間（pauseForReward のときだけ立つ） */
+  let rewarding = false;
   let pending: Promise<RewardResult> | null = null;
   /** 遅れた報酬を付けた（か断られた）要求の id。同じ id を 2 回扱わない（Q-45） */
   const lateSeen = new Set<number>();
@@ -91,7 +107,7 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
   const playingSubs = new Set<(playing: boolean) => void>();
 
   const syncLoop = (): void => {
-    if (d.isHidden() || adPlaying || breaking || prestigeConfirm) d.loop.pause();
+    if (d.isHidden() || adPlaying || breaking || prestigeConfirm || rewarding) d.loop.pause();
     else d.loop.resume();
   };
   const syncPrestige = (): void => {
@@ -100,7 +116,15 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
     prestigeHeld = held;
     d.life.setPaused('prestige', held);
   };
-  const syncInput = (): void => d.input.setBlocked('ad', adPlaying || breaking);
+  const syncInput = (): void => d.input.setBlocked('ad', adPlaying || breaking || rewarding);
+  /** リワードの要求の間の停止を立てる・外す（pauseForReward のときだけ。外すのは報酬を付けた後） */
+  const setRewarding = (on: boolean): void => {
+    if (!d.pauseForReward || rewarding === on) return;
+    rewarding = on;
+    d.life.setPaused('reward', on);
+    syncInput();
+    syncLoop();
+  };
 
   d.ads.onPlaying((playing) => {
     if (playing === adPlaying) return; // 壊れたアダプタの二重の通知は無視する（TS-059-06）
@@ -157,21 +181,27 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
     } catch (e) {
       onError(e);
     }
-    let r: RewardResult;
+    // Poki: rewardedBreak の前に gameplayStop（S-2）。SDK を呼ばずに返るとき（SDK がない・前の広告がまだ）は立てない（N-1）
+    if (d.ads.rewardedReady?.() !== false) setRewarding(true);
     try {
-      r = await d.ads.showRewarded(p);
-    } catch (e) {
-      onError(e);
-      r = 'failed';
-    }
-    if (r === 'rewarded') {
+      let r: RewardResult;
       try {
-        d.grant(p);
+        r = await d.ads.showRewarded(p);
       } catch (e) {
         onError(e);
+        r = 'failed';
       }
+      if (r === 'rewarded') {
+        try {
+          d.grant(p);
+        } catch (e) {
+          onError(e);
+        }
+      }
+      return r;
+    } finally {
+      setRewarding(false); // 報酬を付けた後に gameplayStart（往復は 1 回）
     }
-    return r;
   };
 
   const runBreak = (placement: 'M1' | 'M2'): void => {
