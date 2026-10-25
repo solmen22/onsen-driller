@@ -160,7 +160,7 @@ describe('BL-021 セーブの版 1 → 2 の移行', () => {
   it('TS-021-27 migrateGame: 入力を書き換えない。今の版はそのまま。schema がない・読めないものは 1 とみなす', () => {
     const g = v1Game(stateWith({}));
     const before = JSON.stringify(g);
-    const m = migrateGame(g);
+    const m = migrateGame(g)!;
     expect(JSON.stringify(g)).toBe(before);
     expect((m.meta as Rec).lastPrestigeGain).toBeDefined();
     expect(m.schema).toBe(2);

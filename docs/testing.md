@@ -27,3 +27,12 @@
 - `test:property:full` は最初に使ったシードを 1 行で出す（GitHub Actions では `$GITHUB_STEP_SUMMARY` にも書く）。
 - 反例が出たら、その行のコマンドで再現する: `FC_SEED=<seed> FC_RUNS_SCALE=5 npm run test:property:full -- tests/unit/num.test.ts`。fast-check の報告に出る `path` を使えば、その反例だけを速く再現できる（一時的に `fc.assert` の第 2 引数へ `{ ...fcRuns(...), path: '<path>' }` を渡す。lint がエラーにするので、コミットの前に戻す）。
 - 所要時間（倍率 5）: 手元の Windows で 1〜2 分（シードによる。1 時間ぶんの刻み幅の比較〔`tests/property/timestep.test.ts`〕が最も重い）。
+
+## セーブの見本（BL-028）
+- `tests/fixtures/saves/v{N}/` に、版ごとの 4 種（`early`・`pre-prestige`・`post-prestige`・`max`）の封筒の文字列（ストレージの値と同じ 1 行の JSON）を置く。`newer/` には今の版より新しい版の見本を置く。
+- **見本は消さない・上書きしない**（gdd §10）。`tests/unit/save-fixtures.test.ts` が、どの版の見本も今の版で補正なしに読めること・不変条件・200KB 以下・新しい版を上書きしないことを確かめる。
+- `SAVE_SCHEMA_VERSION` を上げたら:
+  1. `src/save/migrate.ts` の `STEPS` に移行の関数を 1 つ足す（各段階の後に形を確かめる）。
+  2. `tools/fixtures/save-fixtures.ts` に今の版の書き方を足し、`tools/fixtures/make-save-fixtures.ts` の `writers` に加える。
+  3. `node tools/fixtures/make-save-fixtures.ts` を流す（ない見本だけを書く。新しい版の見本と、次の版を模した `newer/` の見本が増える）。
+  4. arch §11 の「版の履歴」に 1 行足す。

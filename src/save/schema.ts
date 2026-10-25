@@ -223,6 +223,7 @@ function diffPaths(a: unknown, b: unknown, path: string, out: string[]): void {
 export function parseGame(input: unknown): ParseGameResult {
   if (!isRecord(input) || !isRecord(input.run) || !isRecord(input.meta)) return { ok: false, reason: 'invalidGame' };
   const raw = migrateGame(input); // 古い版の形を今の版の形にしてから検証する（移行で足した値は「補正」に数えない。入力は書き換えない）
+  if (!raw) return { ok: false, reason: 'invalidGame' }; // 移行の途中で形が崩れた（BL-028）
   try {
     const run = v.parse(RunSchema, raw.run);
     const meta = v.parse(MetaSchema, raw.meta);

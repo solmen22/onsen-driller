@@ -29,15 +29,37 @@ function v1ToV2(game: Rec): Rec {
   return { ...game, schema: 2, run: { ...run, startDepth: 0 }, meta: { ...meta, lastPrestigeGain: toStr(ZERO) } };
 }
 
-const STEPS: Readonly<Record<number, (g: Rec) => Rec>> = { 1: v1ToV2 };
+/** 版 N → N+1 の移行の関数（版を上げたら 1 つ足す。BL-028） */
+export type MigrationStep = (g: Rec) => Rec;
+export const STEPS: Readonly<Record<number, MigrationStep>> = { 1: v1ToV2 };
 
-/** 古い版の game を今の版の形に移す（今の版ならそのまま返す） */
-export function migrateGame(game: Rec): Rec {
+export interface MigrateOptions {
+  /** 移行の関数の表（テストで架空の版の連鎖を確かめるときだけ渡す） */
+  steps?: Readonly<Record<number, MigrationStep>>;
+  /** 移す先の版（既定は今の版） */
+  target?: number;
+}
+
+/**
+ * 古い版の game を今の版の形に移す（今の版ならそのまま返す。入力は書き換えない）。
+ * 1 版ずつ順に当て、**各段階の後に形を確かめる**（BL-028）: 結果がオブジェクトで、run・meta がオブジェクトで、schema がちょうど次の版。
+ * 確かめに落ちた・途中の版の関数がない・関数が例外を出したら null（読み込みはその枠を invalidGame にする。値の検証・補正は移行の後のスキーマ）
+ */
+export function migrateGame(game: Rec, opts: MigrateOptions = {}): Rec | null {
+  const steps = opts.steps ?? STEPS;
+  const target = opts.target ?? SAVE_SCHEMA_VERSION;
   let g = game;
-  for (let from = gameSchemaOf(game); from < SAVE_SCHEMA_VERSION; from++) {
-    const stepFn = STEPS[from];
-    if (!stepFn) break;
-    g = stepFn(g);
+  for (let from = gameSchemaOf(game); from < target; from++) {
+    const stepFn = steps[from];
+    if (!stepFn) return null;
+    let next: unknown;
+    try {
+      next = stepFn(g);
+    } catch {
+      return null;
+    }
+    if (!isRecord(next) || !isRecord(next.run) || !isRecord(next.meta) || readGameSchema(next) !== from + 1) return null;
+    g = next;
   }
   return g;
 }
