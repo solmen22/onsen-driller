@@ -74,6 +74,14 @@ function wired(opts: { video?: boolean; ticketHook?: boolean; startNow?: boolean
         await Promise.resolve();
       });
     },
+    /**
+     * act の外で結果を返す（BL-141 N-6）。マイクロタスクを回すと、結果の処理と描画までは進むが、
+     * 描画の後の effect（Preact は次のフレームか次の描画の前に流す）はまだ流れない
+     */
+    settleOutsideAct: async (r: RewardResult) => {
+      resolve?.(r);
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    },
     /** 遅れた報酬（Q-45）を付けた知らせ（BL-059 の adFlow.onLateReward と同じ形） */
     late: (p: RewardPlacement, kind: LateKind = 'reward') => {
       void act(() => {
@@ -282,6 +290,38 @@ describe('ご褒美のシート（R2・R3）', () => {
     await w.finish('failed');
     m.click('sheet-video');
     expect(m.q('ad-loading')).toBeNull();
+  });
+
+  it('BL-141 N-5: 要求 1 の広告が始まって失敗で終わった後、もう一度押すと、要求 2 の広告が始まるまで待ちの案内が出る（前の要求の「始まった」を持ち越さない）', async () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW, lang: 'ja' });
+    m.click('btn-boost');
+    m.click('sheet-video');
+    w.play(true); // 要求 1 の広告が始まった
+    expect(m.q('ad-loading')).toBeNull();
+    w.play(false);
+    await w.finish('failed');
+    expect(m.q('ad-unavailable')).not.toBeNull();
+    m.click('sheet-video'); // 要求 2（広告は非同期に始まる）
+    expect(m.get('ad-loading').textContent).toBe(t('ad.loading'));
+    w.play(true);
+    expect(m.q('ad-loading')).toBeNull();
+  });
+
+  it('BL-141 N-6: 結果が返った直後（描画の後の effect が流れる前）にもう一度押しても、非同期に始まった広告を数える（再生中に待ちの案内を残さない）', async () => {
+    const w = wired();
+    m = mount({ state: withTickets(2), ctx: w.ctx, wallNow: () => NOW, lang: 'ja' });
+    m.click('btn-boost');
+    m.click('sheet-video');
+    await w.settleOutsideAct('failed');
+    const video = m.get('sheet-video') as HTMLButtonElement;
+    expect(video.disabled).toBe(false); // 結果の描画までは済んでいる
+    video.click(); // act の外ですぐ押す（前の描画の effect はまだ流れていない）
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(m.get('ad-loading').textContent).toBe(t('ad.loading'));
+    w.play(true); // 要求 2 の広告が非同期に始まった
+    expect(m.q('ad-loading')).toBeNull();
+    expect(w.calls.requests).toEqual(['R2', 'R2']);
   });
 
   it('決定 0010 の 7 要求の外で始まった広告（ミッドゲームなど）は数えない: その後の要求では待ちの案内が出る', () => {

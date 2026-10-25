@@ -43,10 +43,11 @@ export function WelcomeModal({ amount, onClaim, ticketHook = false, canDouble = 
 
   const onVideo = (): void => {
     if (!requestReward || requesting || done.current) return;
-    ad.begin(); // requestReward の前に同じ呼び出しの中で（すぐ始まる広告でも待ちの案内を残さない。PR #68 のレビュー S-1）
+    const end = ad.begin(); // requestReward の前に同じ呼び出しの中で（すぐ始まる広告でも待ちの案内を残さない。PR #68 のレビュー S-1）
     setRequesting(true);
     setFailed(false);
     const after = (ok: boolean): void => {
+      end(); // 開始を数えるのはここまで（effect で倒さない。BL-141 N-6）
       setRequesting(false);
       if (ok) {
         finish('video');

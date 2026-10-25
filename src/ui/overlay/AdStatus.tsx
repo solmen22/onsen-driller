@@ -13,32 +13,40 @@ export interface AdWaiting {
   /**
    * 要求を始める。requestReward を呼ぶ**前に、同じ呼び出しの中で**呼ぶ（「始まった」の印を戻す。前の要求の印を持ち越さない）。
    * 広告が requestReward の中ですぐ始まっても（dev・e2e のテスト用の広告、Poki の onStart）、印の戻しが後から来て案内が
-   * 広告の再生中に出たままになることはない（PR #68 のレビュー S-1。effect で戻すと順番が逆になった）
+   * 広告の再生中に出たままになることはない（PR #68 のレビュー S-1。effect で戻すと順番が逆になった）。
+   * 戻り値の end は、要求の結果の処理（then の中。成功・失敗とも）で呼ぶ。これより後に始まった広告は数えない。
+   * end は自分の要求の間だけ効く（すぐ次の要求を始めた後に、古い要求の end が来ても、新しい要求を倒さない。BL-141 N-6）
    */
-  begin(): void;
+  begin(): () => void;
 }
 
-/** 要求ごとの「広告が始まったか」。広告の開始は、begin の後、要求が終わるまでの間だけ数える */
+/** 要求ごとの「広告が始まったか」。広告の開始は、begin から end までの間だけ数える */
 export function useAdWaiting(requesting: boolean): AdWaiting {
   const { onAdPlaying } = useUi();
   const [started, setStarted] = useState(false);
-  /** begin から要求が終わるまで true（要求の外で始まった広告〔ミッドゲームなど〕を数えない） */
-  const live = useRef(false);
-  useEffect(() => {
-    if (!requesting) live.current = false;
-  }, [requesting]);
+  /**
+   * 今の要求の番号（0 は要求の外。ミッドゲームなど要求の外で始まった広告を数えない）。
+   * 倒すのは結果の処理の end で行い、描画の後の effect では行わない。effect だと、結果の直後（ほぼ 1 フレーム）に
+   * もう一度押したとき、古い effect が新しい要求の印を倒しうる（PR #68 の再レビュー N-6）
+   */
+  const live = useRef(0);
+  const seq = useRef(0);
   useEffect(
     () =>
       onAdPlaying?.((playing) => {
-        if (playing && live.current) setStarted(true);
+        if (playing && live.current !== 0) setStarted(true);
       }),
     [onAdPlaying],
   );
   return {
     waiting: requesting && !started,
     begin: () => {
-      live.current = true;
+      const id = ++seq.current;
+      live.current = id;
       setStarted(false);
+      return () => {
+        if (live.current === id) live.current = 0;
+      };
     },
   };
 }
