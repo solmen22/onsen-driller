@@ -349,3 +349,25 @@ describe('BL-052 受け入れ基準 3: 文章は en.json・ja.json にあり、�
     expect(Object.keys(PENDING_FILES).filter((f) => !files.has(f))).toEqual([]);
   });
 });
+
+describe('句の区切り（U+200B。BL-136。PR #76 のレビューの Nit）', () => {
+  it('U+200B を含む文は hud.tapHint だけ（StageActions の HintText が区切って描く。生のまま aria-label・title などに使うと U+200B が入る）', () => {
+    const withBreak = (d: Record<string, string>) => Object.keys(d).filter((k) => d[k]!.includes('\u200b'));
+    expect(withBreak(ja)).toEqual(['hud.tapHint']);
+    expect(withBreak(en)).toEqual(['hud.tapHint']);
+  });
+
+  it('hud.tapHint を使うのは StageActions だけ', () => {
+    const root = fileURLToPath(new URL('../../src/', import.meta.url));
+    const users: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (/\.(ts|tsx)$/.test(e.name) && readFileSync(p, 'utf8').includes("'hud.tapHint'")) users.push(relative(root, p).replaceAll(String.fromCharCode(92), '/'));
+      }
+    };
+    walk(root);
+    expect(users).toEqual(['ui/hud/StageActions.tsx']);
+  });
+});
