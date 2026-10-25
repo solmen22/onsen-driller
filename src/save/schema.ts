@@ -188,7 +188,11 @@ const RestSchema = v.object({
 
 // ---- 読み込み ----
 
-export type ParseGameResult = { ok: true; state: GameState; corrected: string[] } | { ok: false; reason: 'invalidGame' };
+/**
+ * 読み込みの結果。migrateFailed は「古い版のセーブを今の版に移す途中で、こちらの移行のコードが失敗した」（データの破損ではない。BL-028。
+ * PR #87 のレビュー S-1）: 枠は壊れたものとして扱わず、newer と同じく読み取り専用にする（直したビルドで読めるように、上書きしない）
+ */
+export type ParseGameResult = { ok: true; state: GameState; corrected: string[] } | { ok: false; reason: 'invalidGame' | 'migrateFailed' };
 
 /** 補正の一覧に入れるパスの数の上限（壊れたデータで巨大な配列を作らない） */
 const MAX_CORRECTED = 50;
@@ -223,6 +227,7 @@ function diffPaths(a: unknown, b: unknown, path: string, out: string[]): void {
 export function parseGame(input: unknown): ParseGameResult {
   if (!isRecord(input) || !isRecord(input.run) || !isRecord(input.meta)) return { ok: false, reason: 'invalidGame' };
   const raw = migrateGame(input); // 古い版の形を今の版の形にしてから検証する（移行で足した値は「補正」に数えない。入力は書き換えない）
+  if (!raw) return { ok: false, reason: 'migrateFailed' }; // 移行のコードの誤り（BL-028。PR #87 のレビュー S-1）: 壊れた枠と分け、上書きしない
   try {
     const run = v.parse(RunSchema, raw.run);
     const meta = v.parse(MetaSchema, raw.meta);

@@ -27,3 +27,15 @@
 - `test:property:full` は最初に使ったシードを 1 行で出す（GitHub Actions では `$GITHUB_STEP_SUMMARY` にも書く）。
 - 反例が出たら、その行のコマンドで再現する: `FC_SEED=<seed> FC_RUNS_SCALE=5 npm run test:property:full -- tests/unit/num.test.ts`。fast-check の報告に出る `path` を使えば、その反例だけを速く再現できる（一時的に `fc.assert` の第 2 引数へ `{ ...fcRuns(...), path: '<path>' }` を渡す。lint がエラーにするので、コミットの前に戻す）。
 - 所要時間（倍率 5）: 手元の Windows で 1〜2 分（シードによる。1 時間ぶんの刻み幅の比較〔`tests/property/timestep.test.ts`〕が最も重い）。
+
+## セーブの見本（BL-028）
+- `tests/fixtures/saves/v{N}/` に、版ごとの 4 種（`early`・`pre-prestige`・`post-prestige`・`max`）の封筒の文字列（ストレージの値と同じ 1 行の JSON）を置く。`newer/` には今の版より新しい版の見本を置く。
+- 版 1 の見本は**合成**（今の状態から版 2 で足した欄を除いて作った）。版 1 のビルド（main `9b16498`）で 4 本とも補正なしに読めることを確かめた（2026-10-26）。版 2 以降は、その版のビルドの道具で書く。
+- **見本は凍結のデータ**: 一度置いたら変えない。道具（`tools/fixtures/save-fixtures.ts`）はボットで遊ばずに状態を直接組み立てるが、道具の出力が後で変わっても、置いてある見本は作り直さない（テストは置き場所の見本と道具の出力を比べない）。
+- **見本は消さない・上書きしない**（gdd §10）。見本ごとの内容のハッシュを `save-fixtures.test.ts` に固定している。新しい見本は表に行を足すだけで、既存の行は変えない。`tests/unit/save-fixtures.test.ts` が、どの版の見本も今の版で補正なしに読めること・不変条件・200KB 以下・新しい版を上書きしないことを確かめる。
+- 移行のコードが失敗した枠は `migrateFailed` になり、`newer` と同じく読み取り専用で起動する（壊れた枠として上書きしない。直したビルドで読めるように）。
+- `SAVE_SCHEMA_VERSION` を上げたら:
+  1. `src/save/migrate.ts` の `STEPS` に移行の関数を 1 つ足す（各段階の後に形を確かめる）。
+  2. `tools/fixtures/save-fixtures.ts` に今の版の書き方を足し、`tools/fixtures/make-save-fixtures.ts` の `writers` に加える。
+  3. `node tools/fixtures/make-save-fixtures.ts` を流す（ない見本だけを書く。新しい版の見本と、次の版を模した `newer/` の見本が増える）。増えた見本のハッシュを `save-fixtures.test.ts` の表に足す。
+  4. arch §11 の「版の履歴」に 1 行足す。

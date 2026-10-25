@@ -23,7 +23,8 @@ export interface SaveEnvelope {
 }
 
 /** 読み込みを拒否する理由（Q-10） */
-export type DecodeFail = 'notJson' | 'tooLarge' | 'shape' | 'newer' | 'checksum' | 'invalidGame';
+/** migrateFailed: 古い版のセーブの移行のコードが失敗した（データの破損ではない）。slots は newer と同じく読み取り専用にする（BL-028） */
+export type DecodeFail = 'notJson' | 'tooLarge' | 'shape' | 'newer' | 'checksum' | 'invalidGame' | 'migrateFailed';
 
 export type DecodeResult =
   | { ok: true; state: GameState; env: SaveEnvelope; corrected: string[] }
@@ -127,7 +128,7 @@ export function decodeEnvelope(parsed: unknown): DecodeResult {
   }
   if (sum !== parsed.checksum.toLowerCase()) return { ok: false, reason: 'checksum' };
   const g = parseGame(parsed.game);
-  if (!g.ok) return { ok: false, reason: 'invalidGame' };
+  if (!g.ok) return { ok: false, reason: g.reason };
   const savedAt = typeof parsed.savedAt === 'number' && Number.isFinite(parsed.savedAt) && parsed.savedAt >= 0 ? parsed.savedAt : 0;
   const appVersion = typeof parsed.appVersion === 'string' ? parsed.appVersion : 'unknown';
   const corrected = [...g.corrected];
@@ -166,7 +167,7 @@ const EXPORT_PREFIX = `ODR${EXPORT_FORMAT_VERSION}:`;
 export const MAX_IMPORT_CHARS = 300_000;
 
 /** 書き出し文字列を拒否する理由（Q-24）。format は書き出し文字列の形でないもの */
-export type ImportFail = 'format' | 'tooLarge' | 'notJson' | 'shape' | 'newer' | 'checksum' | 'invalidGame';
+export type ImportFail = 'format' | 'tooLarge' | 'notJson' | 'shape' | 'newer' | 'checksum' | 'invalidGame' | 'migrateFailed';
 export type ImportResult = { ok: true; state: GameState; corrected: string[] } | { ok: false; reason: ImportFail };
 
 export function exportString(s: GameState): string {
@@ -218,6 +219,6 @@ function importUnchecked(input: unknown): ImportResult {
   }
   if (sum !== m[2]) return importFail('checksum');
   const g = parseGame(game);
-  if (!g.ok) return importFail('invalidGame');
+  if (!g.ok) return importFail(g.reason); // migrateFailed は今のセーブを上書きしない（ほかの失敗と同じ）
   return { ok: true, state: g.state, corrected: g.corrected };
 }
