@@ -64,7 +64,7 @@ export interface Platform {
      * 開始の時間切れ（AD_START_TIMEOUT_MS）で showRewarded が failed を返した後に、**遅れて始まり最後まで見られた**リワード広告の
      * 報酬を知らせる（Q-45。決定 0010 の 5: 見終えたのに何ももらえない体験を避ける）。1 つの要求につき最大 1 回。
      * ミッドゲーム・開始の前の失敗・始まった後の失敗・再生の時間切れ（AD_END_TIMEOUT_MS）では呼ばない。
-     * 時間切れのない場合（web・itch・dev・Poki〔runBreak は BL-060〕）は呼ばない
+     * 時間切れのない場合（web・itch・dev）は呼ばない。Poki は rewardedBreak の開始（onStart）の時間切れで同じ形にする（BL-060）
      */
     onLateReward(cb: (r: LateReward) => void): void;
   };
