@@ -27,7 +27,7 @@
     "build:all": "npm run build:web && npm run build:crazygames && npm run build:itch && npm run build:poki",
     "build:e2e": "vite build --mode e2e && vite build --mode e2e-crazygames",
     "check:size": "node scripts/check-size.mjs",
-    "check:assets": "node scripts/check-assets.mjs",
+    "check:assets": "node scripts/check-assets.mjs && node scripts/check-font.mjs",
     "check:text": "node scripts/check-text.mjs",
     "test:checks": "node --test scripts/check-selftest.mjs",
     "package": "node scripts/package.mjs",
@@ -59,6 +59,7 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.70.1",
     "vite": "8.3.3",
-    "vitest": "5.0.3"
+    "vitest": "5.0.3",
+    "wawoff2": "2.0.1"
   }
 }

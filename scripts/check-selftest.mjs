@@ -569,6 +569,77 @@ describe('check:assets', () => {
   });
 });
 
+// BL-139（PR #62 のレビューの S-1 の再発防止）: フォントのサブセットに src/i18n・src/ui の全文字が入っているか。
+// 一時のリポジトリの根（src/i18n・src/ui）に文字を置き、本物のサブセット（生成物）を --font で渡して判定を見る。原本の TTF は使わない
+describe('check:font（BL-139。フォントのサブセットに i18n・UI の全文字が入っているか）', () => {
+  const FONT = join(root, 'src', 'generated', 'fonts', 'dotgothic16-subset.woff2');
+  const fontRoot = ({ i18n = { a: '温泉ドリル' }, ui = "export const x = 'ok';\n" } = {}) => {
+    const r = join(tmpRoot, `font-${++seq}`);
+    write(join(r, 'src', 'i18n', 'ja.json'), JSON.stringify(i18n));
+    write(join(r, 'src', 'ui', 'panels', 'X.tsx'), ui);
+    return r;
+  };
+  const font = (r, f = FONT) => run('check-font.mjs', ['--root', r, '--font', f]);
+
+  test('このリポジトリのサブセットは全文字を含む（npm run check:assets の中で check-assets.mjs の後に動く）', () => {
+    assertPass(run('check-font.mjs', []));
+    assert.match(pkg.scripts['check:assets'], /node scripts\/check-assets\.mjs && node scripts\/check-font\.mjs/);
+  });
+
+  test('サブセットにある字だけなら通る。原本にない字（NOT_IN_SOURCE_FONT）は数えず、使われていなければ警告だけ', () => {
+    const r = font(fontRoot({ ui: "export const tab = '⛏';\n" }));
+    assertPass(r);
+    assert.match(r.out, /WARN \[font\.allowlist\] 「♨」/);
+    assert.doesNotMatch(r.out, /WARN \[font\.allowlist\] 「⛏」/);
+  });
+
+  test('i18n に新しい字を足してサブセットを作り直さないと失敗し、字・コードポイント・ファイルを出す', () => {
+    assertFail(font(fontRoot({ i18n: { a: '温泉ドリル', b: '鬱金' } })), /\[font\.glyph\] 「鬱」（U\+9B31）がサブセットにない: src\/i18n\/ja\.json/);
+  });
+
+  test('src/ui の字（コメントを含む。subset-font.mjs と同じ集め方）も数える', () => {
+    assertFail(font(fontRoot({ ui: "// 龘\nexport const x = 'ok';\n" })), /\[font\.glyph\] 「龘」（U\+9F98）がサブセットにない: src\/ui\/panels\/X\.tsx/);
+  });
+
+  test('サブセットがない・woff2 として読めないと失敗する', () => {
+    const r = fontRoot();
+    assertFail(font(r, join(r, 'none.woff2')), /\[font\.missing\]/);
+    const broken = join(r, 'broken.woff2');
+    write(broken, 'wOF2 not a font');
+    assertFail(font(r, broken), /\[font\.unreadable\]/);
+  });
+
+  test('subset-font.mjs（サブセットを作る側）と同じ関数で文字を集める（集め方がずれない）', () => {
+    const src = readFileSync(join(root, 'scripts', 'subset-font.mjs'), 'utf8');
+    assert.match(src, /import \{ collectFontChars \} from '\.\/font-chars\.mjs';/);
+    assert.match(src, /collectFontChars\(root, extras\)/);
+    assert.doesNotMatch(src, /readdirSync/, 'subset-font.mjs が自分で文字を集めている');
+  });
+
+  test('cmap の読み方: 形式 4（本物のサブセット）と形式 12（合成）。グリフ 0 は数えない', async () => {
+    const { readCmap, woff2Cmap } = await import('./check-font.mjs');
+    const cps = await woff2Cmap(readFileSync(FONT));
+    assert.ok(cps.has(0x41) && cps.has('温'.codePointAt(0)) && !cps.has('鬱'.codePointAt(0)));
+    // 表 1 つ（cmap）・副表 1 つ（形式 12。U+1F600〜U+1F602 → グリフ 0〜2）のフォントを組み立てる
+    const b = Buffer.alloc(12 + 16 + 12 + 28);
+    b.writeUInt16BE(1, 4); // numTables
+    b.write('cmap', 12, 'latin1');
+    b.writeUInt32BE(28, 12 + 8); // cmap の位置
+    b.writeUInt16BE(1, 28 + 2); // 副表の数
+    b.writeUInt16BE(3, 28 + 4);
+    b.writeUInt16BE(10, 28 + 6);
+    b.writeUInt32BE(12, 28 + 8); // 副表の位置（cmap から）
+    const s = 40;
+    b.writeUInt16BE(12, s);
+    b.writeUInt32BE(28, s + 4);
+    b.writeUInt32BE(1, s + 12); // グループの数
+    b.writeUInt32BE(0x1f600, s + 16);
+    b.writeUInt32BE(0x1f602, s + 20);
+    b.writeUInt32BE(0, s + 24); // 最初の字はグリフ 0（.notdef）
+    assert.deepEqual([...readCmap(b)].sort(), [0x1f601, 0x1f602]);
+  });
+});
+
 describe('package', () => {
   const prod = ['web', 'crazygames', 'itch', 'poki'];
   const tag = `v${pkg.version}`;
