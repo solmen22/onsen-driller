@@ -2,7 +2,8 @@
 // TS-ID はテスト設計者のシナリオ（未作成。BL-022）が出たら付ける
 import { describe, expect, it } from 'vitest';
 import { PARAMS } from '../../src/content/params.ts';
-import { PERK_BY_ID, PERKS, type PerkId } from '../../src/content/perks.ts';
+import { PERK_BY_ID, PERK_IDS, PERKS, type PerkId } from '../../src/content/perks.ts';
+import { botAct, BOTS, newBotMemory, takePerksCheapest } from '../../tools/sim/bots.ts';
 import {
   bathIncomePerSec,
   buyQuote,
@@ -308,5 +309,22 @@ describe('BL-022 効果の式', () => {
     expect([v.nextGainDepth, v.metersToNextGain]).toEqual([159, 1]);
     s.run.maxDepth = 159;
     expect(yunohanaGain(s).toNumber()).toBeGreaterThan(v.gain.toNumber());
+  });
+});
+
+describe('BL-022 ボットの木（gdd §8-2・CEO 決定 0011）', () => {
+  it('標準ボットは転生のたびに、取れるノードを安い順（同じコストなら定義の順）に取れるだけ取る。振り直しはしない', () => {
+    const s = withTree([], 0, { depth: 300 }); // 得る 36
+    botAct(s, BOTS.standard, newBotMemory());
+    expect(s.meta.prestiges).toBe(1);
+    // 3（支度金）→ 5（研いだ刃）→ 5（湯守）→ 10（夜なべ）→ 10（ルーペ）＝ 33。残り 3 では 15 のノードは取れない
+    expect([s.meta.perks, s.meta.yunohana.spent.toNumber(), yunohanaAvailable(s).toNumber()]).toEqual([['sharpBlade', 'nightDig', 'yumori', 'travelFunds', 'loupe'], 33, 3]);
+  });
+
+  it('takePerksCheapest は、取れるものがなければ何もしない', () => {
+    const s = withTree(PERK_IDS.slice(), 258);
+    const before = stateHash(s);
+    takePerksCheapest(s);
+    expect(stateHash(s)).toBe(before);
   });
 });

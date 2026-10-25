@@ -147,6 +147,16 @@ describe('BL-021 セーブの版 1 → 2 の移行', () => {
     }
   });
 
+  it('PR #78 のレビュー N-1: run.startDepth が周回の最深より大きいセーブは、最深に直し、補正に数える（BL-022）', () => {
+    const g = toSaveGame(stateWith({ depth: 120 })) as unknown as Rec & { run: Rec };
+    g.run.startDepth = 500;
+    const r = decodeSave(JSON.stringify({ schema: 2, seq: 1, savedAt: 1, appVersion: APP, checksum: checksumOf(g), game: g }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect([r.state.run.startDepth, r.state.run.maxDepth]).toEqual([120, 120]);
+    expect(r.corrected).toContain('run.startDepth');
+  });
+
   it('TS-021-27 migrateGame: 入力を書き換えない。今の版はそのまま。schema がない・読めないものは 1 とみなす', () => {
     const g = v1Game(stateWith({}));
     const before = JSON.stringify(g);

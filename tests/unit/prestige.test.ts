@@ -112,6 +112,10 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
         const before = cloneState(s);
         const gain = yunohanaGain(before);
         const r = dispatch(s, { type: 'prestige' });
+        // 近道で見つけた源泉に初めて来たお客さんのチケット（今までの規則: 上限であふれた分はコイン）を出来事から足し合わせ、「ちょうど」で比べる（PR #78 のレビュー N-4）
+        const guestTickets = r.events.filter((e) => e.type === 'TicketGained' && e.source === 'guestFirstVisit');
+        const guestN = guestTickets.reduce((a, e) => a + (e.type === 'TicketGained' ? e.n : 0), 0);
+        const guestCoins = guestTickets.reduce((a, e) => (e.type === 'TicketGained' ? a.add(num(e.coins)) : a), num(0));
         expect(r.ok).toBe(true);
         // 周回: 新しい周回（シードは擬似乱数から。地形・掘削ブーストは引き継ぐ）。木の周回の始めの効果（BL-022）は
         // 旅の支度金（コイン）・形見のツルハシ（道具）・近道の坑道（深さと途中の源泉・帯・枠・お客さん）だけを変える
@@ -119,8 +123,8 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
         const has = (id: string): boolean => before.meta.perks.includes(id as never);
         const start = has('shortcut') ? Math.floor(before.run.maxDepth * 0.25) : 0;
         // コイン: 旅の支度金なら 500。近道で見つけた源泉で初めて来たお客さんのチケットが上限であふれたら、その分（今までの規則）が足される
-        if (start === 0) expect(s.run.coins.toNumber()).toBe(has('travelFunds') ? 500 : 0);
-        else expect(s.run.coins.gte(has('travelFunds') ? 500 : 0)).toBe(true);
+        expect(s.run.coins.toString()).toBe(guestCoins.add(has('travelFunds') ? 500 : 0).toString());
+        if (start === 0) expect(guestTickets).toEqual([]);
         expect(s.run.drill).toEqual({ level: 0, tool: has('heirloomPick') ? 2 : 0 });
         expect([s.run.depth, s.run.maxDepth, s.run.startDepth]).toEqual([start, start, start]);
         const startFields = ['coins', 'drill', 'depth', 'maxDepth', 'startDepth', 'springs', 'bath', 'guests', 'stratumSeen', 'boost'] as const;
@@ -142,8 +146,7 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
         expect(s.meta.yunohana.spent).toEqual(before.meta.yunohana.spent);
         expect({ ...s.stats, totalCoins: null }).toEqual({ ...before.stats, totalCoins: null });
         // 上限を超えた転生のチケットをコインに替えない（Q-47 (d)）。近道で初めて来たお客さんのチケットのあふれ（今までの規則）は除く
-        if (start === 0) expect(s.stats.totalCoins.eq(before.stats.totalCoins)).toBe(true);
-        else expect(s.stats.totalCoins.gte(before.stats.totalCoins)).toBe(true);
+        expect(s.stats.totalCoins.toString()).toBe(before.stats.totalCoins.add(guestCoins).toString());
         expect(s.clock).toEqual(before.clock);
         // 増えるもの
         expect(s.meta.prestiges).toBe(before.meta.prestiges + 1);
@@ -156,7 +159,7 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
         if (start === 0) {
           expect(s.meta.tickets).toBe(ticketsAfterPrestige);
           expect(types).toEqual(['PrestigeDone', 'TicketGained', 'BreakOpportunity']);
-        } else expect(s.meta.tickets).toBeGreaterThanOrEqual(ticketsAfterPrestige); // 近道の源泉で初めて来たお客さんの分
+        } else expect(s.meta.tickets).toBe(ticketsAfterPrestige + guestN); // 近道の源泉で初めて来たお客さんの分
       }),
       fcRuns(150),
     );

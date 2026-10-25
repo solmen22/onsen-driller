@@ -71,12 +71,12 @@ describe('BL-033 目標表の定義（gdd §8-3）', () => {
   it('#1 は E2E、#23 は性能の計測（外部）。まだ入っていない要素に依存する項目は保留（理由つき）', () => {
     const kind = (no: number): string | undefined => TARGETS.find((x) => x.no === no)?.kind;
     expect([kind(1), kind(23)]).toEqual(['external', 'external']);
-    for (const no of [9, 11, 12, 13, 16, 19, 20, 21, 24]) {
+    for (const no of [9, 12, 13, 16, 19, 20, 21, 24]) {
       expect(kind(no)).toBe('pending');
       expect(TARGETS.find((x) => x.no === no)?.pending).toMatch(/BL-\d{3}/);
     }
-    // #14・#15 は改良（BL-018）が入ったので判定に変えた（PR #62 のレビュー S-5）
-    for (const no of [2, 3, 4, 5, 6, 7, 8, 10, 14, 15, 17, 18, 22]) expect(kind(no)).toBe('judge');
+    // #14・#15 は改良（BL-018）が入ったので判定に変えた（PR #62 のレビュー S-5）。#11 は標準ボットの木（CEO 決定 0011）が入ったので判定に変えた
+    for (const no of [2, 3, 4, 5, 6, 7, 8, 10, 11, 14, 15, 17, 18, 22]) expect(kind(no)).toBe('judge');
   });
 
   it('受け入れ（ACCEPTED）には理由・承認・期限・幅がある（BL-122）', () => {
@@ -179,11 +179,11 @@ describe('TS-031-10 BL-033 npm run test の短縮版（標準・放置 × シー
   const runs = runSuite({ bots: ['standard', 'idle'], seeds: DEFAULT_SEEDS, longHours: 1, shortHours: 1 });
   const res = judgeTargets(runs);
 
-  it('TS-014-19・TS-015-16・TS-015-17・TS-015-18・TS-015-19・TS-015-20・TS-016-19・TS-017-14・TS-031-09・TS-033-07 判定する項目（#2〜#8・#10・#14・#15・#17・#18・#22）に失敗がない（受け入れた項目は ACCEPTED の理由つき）', () => {
+  it('TS-014-19・TS-015-16・TS-015-17・TS-015-18・TS-015-19・TS-015-20・TS-016-19・TS-017-14・TS-031-09・TS-033-07 判定する項目（#2〜#8・#10・#11・#14・#15・#17・#18・#22）に失敗がない（受け入れた項目は ACCEPTED の理由つき）', () => {
     const fails = res.filter((r) => r.verdict === 'fail').map((r) => `#${r.def.no} ${String(r.judged)}`);
     expect(fails).toEqual([]);
     const judged = res.filter((r) => r.def.kind === 'judge').map((r) => r.def.no);
-    expect(judged).toEqual([2, 3, 4, 5, 6, 7, 8, 10, 14, 15, 17, 18, 22]);
+    expect(judged).toEqual([2, 3, 4, 5, 6, 7, 8, 10, 11, 14, 15, 17, 18, 22]);
   });
 
   it('TS-033-06・TS-090-07 レポートの Markdown・CSV・グラフができる（シードごとの値と判定に使った値が出る）', () => {
