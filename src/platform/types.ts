@@ -52,6 +52,11 @@ export interface Platform {
   happyTime(): void;
   ads: {
     rewardedAvailable(): boolean;
+    /**
+     * 今すぐ SDK にリワードを要求できるか（SDK があり、前の広告を SDK が終えている）。Poki だけが持つ（BL-060。PR #84 のレビュー N-1）。
+     * false なら showRewarded は SDK を呼ばずにすぐ unavailable・failed を返すので、ad-flow は要求の間の停止（'reward'）を立てない
+     */
+    rewardedReady?(): boolean;
     showRewarded(p: RewardPlacement): Promise<RewardResult>;
     /** 区切りの機会を渡すだけ。流すかどうかは SDK が決める（広告のタイマーは持たない）。SDK が答えなくても必ず終わる（下の時間） */
     breakOpportunity(p: BreakPlacement): Promise<void>;

@@ -153,6 +153,7 @@ export function createPokiPlatform(opts: PokiOptions): Platform {
     happyTime: () => log.push('happyTime'),
     ads: {
       rewardedAvailable: () => sdk !== null,
+      rewardedReady: () => sdk !== null && !busy,
       showRewarded(p) {
         log.push('showRewarded', p);
         const s = sdk;

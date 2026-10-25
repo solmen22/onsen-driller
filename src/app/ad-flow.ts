@@ -181,7 +181,8 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
     } catch (e) {
       onError(e);
     }
-    setRewarding(true); // Poki: rewardedBreak の前に gameplayStop（S-2）
+    // Poki: rewardedBreak の前に gameplayStop（S-2）。SDK を呼ばずに返るとき（SDK がない・前の広告がまだ）は立てない（N-1）
+    if (d.ads.rewardedReady?.() !== false) setRewarding(true);
     try {
       let r: RewardResult;
       try {

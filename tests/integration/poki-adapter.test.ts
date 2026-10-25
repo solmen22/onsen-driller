@@ -104,6 +104,46 @@ describe('QA §4-2 の Poki の表（L2 の契約テスト）', () => {
     await expect(p.ads.showRewarded('R3')).resolves.toBe('failed');
   });
 
+  it('PR #84 のレビュー S-1: rewardedBreak が reject・同期の例外で failed になった後も、次のリワードとミッドゲームは SDK に届く（busy が立ったままにならない）', async () => {
+    for (const how of ['reject', 'throw'] as const) {
+      const { p, sdk } = await ready();
+      const real = sdk.rewardedBreak.bind(sdk);
+      sdk.rewardedBreak =
+        how === 'reject'
+          ? () => (sdk.log.push('rewardedBreak'), Promise.reject(new Error('sdk')))
+          : () => {
+              sdk.log.push('rewardedBreak');
+              throw new Error('sync');
+            };
+      await expect(p.ads.showRewarded('R2'), how).resolves.toBe('failed');
+      sdk.rewardedBreak = real;
+      await expect(p.ads.showRewarded('R2'), how).resolves.toBe('rewarded');
+      await p.ads.breakOpportunity('M1');
+      expect(sdk.log, how).toEqual(['rewardedBreak', 'rewardedBreak', 'commercialBreak']);
+      expect(p.calls().some((c) => c.name === 'adBusy'), how).toBe(false);
+    }
+  });
+
+  it('PR #84 のレビュー S-1: commercialBreak が reject・同期の例外の後も、次のミッドゲームとリワードは SDK に届く', async () => {
+    for (const how of ['reject', 'throw'] as const) {
+      const { p, sdk } = await ready();
+      const real = sdk.commercialBreak.bind(sdk);
+      sdk.commercialBreak =
+        how === 'reject'
+          ? () => (sdk.log.push('commercialBreak'), Promise.reject(new Error('sdk')))
+          : () => {
+              sdk.log.push('commercialBreak');
+              throw new Error('sync');
+            };
+      await p.ads.breakOpportunity('M2');
+      sdk.commercialBreak = real;
+      await p.ads.breakOpportunity('M2');
+      await expect(p.ads.showRewarded('R1'), how).resolves.toBe('rewarded');
+      expect(sdk.log, how).toEqual(['commercialBreak', 'commercialBreak', 'rewardedBreak']);
+      expect(p.calls().some((c) => c.name === 'adBusy'), how).toBe(false);
+    }
+  });
+
   it('openExternalLink: SDK に渡した URL を記録する（SDK にないときは window.open。ここでは SDK の側だけ）', async () => {
     const { p, sdk } = await ready();
     p.openExternalLink('https://example.com/privacy');
@@ -378,5 +418,60 @@ describe('広告ブロッカー（BL-060 の受け入れ基準 2026-10-26 追加
     expect(flow.breaking).toBe(false);
     expect([st.loop, st.input, st.grants.length, st.refunds]).toEqual([true, false, 0, 0]);
     expect(sdk.log.filter((x) => x === 'commercialBreak')).toHaveLength(1);
+  });
+});
+
+describe('PR #84 のレビュー N-1: SDK を呼ばずに返るときは、gameplayStop → gameplayStart の無駄な往復を出さない', () => {
+  it('SDK がない（読み込めない）: unavailable で、合図は出さない', async () => {
+    const p = createPokiPlatform({ getSdk: () => undefined });
+    await p.init();
+    const signals: string[] = [];
+    const life = createLifecycle({
+      loadingStart: () => {},
+      loadingStop: () => {},
+      gameplayStart: () => signals.push('gameplayStart'),
+      gameplayStop: () => signals.push('gameplayStop'),
+    });
+    life.loadingStart();
+    life.loadingStop();
+    life.firstInput();
+    signals.length = 0;
+    const flow = createAdFlow({
+      ads: p.ads,
+      isMuted: () => false,
+      life,
+      input: { setBlocked: () => {} },
+      loop: { pause: () => {}, resume: () => {} },
+      isHidden: () => false,
+      setMuted: () => {},
+      resumeAudio: () => {},
+      saveBeforeAd: () => {},
+      grant: () => ({ ok: true }),
+      pauseForReward: pausesForReward(p.target),
+    });
+    await expect(flow.requestReward('R2')).resolves.toBe('unavailable');
+    expect(signals).toEqual([]);
+  });
+
+  it('前の広告を SDK がまだ終えていない（開始の時間切れの後）: failed で、合図は出さない。終えた後はふつうに 1 往復', async () => {
+    vi.useFakeTimers();
+    try {
+      const { sdk, flow } = await wired((s) => (s.manual = true));
+      void flow.requestReward('R2');
+      await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+      expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']);
+      await expect(flow.requestReward('R2')).resolves.toBe('failed');
+      expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']); // 往復なし
+      sdk.finish(); // SDK が終えた（広告なし）
+      await flush();
+      const next = flow.requestReward('R2');
+      await flush();
+      sdk.start();
+      sdk.finish();
+      await expect(next).resolves.toBe('rewarded');
+      expect(sdk.log.slice(3)).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

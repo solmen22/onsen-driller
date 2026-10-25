@@ -319,6 +319,29 @@ describe('Poki のリワードの間の停止（BL-060。PR #68 のレビュー 
     expect(r.st.loopRunning).toBe(true);
   });
 
+  it('PR #84 のレビュー N-3: 転生の確認の画面（prestige）とリワード（reward）が重なっても、両方が外れるまでループ・gameplay は止まったまま。合図は 1 往復', async () => {
+    // (a) 確認の画面を開いたまま、リワードが決まる → 閉じたら動く
+    const a = rig({ pauseForReward: true });
+    a.flow.setPrestigeConfirm(true);
+    const pa = a.flow.requestReward('R2');
+    await flush();
+    a.a.result('rewarded');
+    await pa;
+    expect([a.st.loopRunning, a.signals]).toEqual([false, ['gameplayStop']]);
+    a.flow.setPrestigeConfirm(false);
+    expect([a.st.loopRunning, a.signals]).toEqual([true, ['gameplayStop', 'gameplayStart']]);
+    // (b) リワードの間に確認の画面を開いて閉じる → リワードが決まるまで止まったまま
+    const b = rig({ pauseForReward: true });
+    const pb = b.flow.requestReward('R2');
+    await flush();
+    b.flow.setPrestigeConfirm(true);
+    b.flow.setPrestigeConfirm(false);
+    expect([b.st.loopRunning, b.st.inputBlocked, b.signals]).toEqual([false, true, ['gameplayStop']]);
+    b.a.result('failed');
+    await pb;
+    expect([b.st.loopRunning, b.st.inputBlocked, b.signals]).toEqual([true, false, ['gameplayStop', 'gameplayStart']]);
+  });
+
   it('pauseForReward なし（CrazyGames など）は今までどおり: 要求しただけでは止めず、広告の再生の間だけ止める', async () => {
     const r = rig();
     const pr = r.flow.requestReward('R2');
