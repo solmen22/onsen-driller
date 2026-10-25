@@ -1,11 +1,14 @@
 // UI（Preact・DOM。arch §15・gdd §11-1）: HUD の帯・キャンバスの下端のボタン（BL-042）、タブと一覧（BL-043）
 // - 縦・横の配置は styles/global.css（#app の data-layout。判定は ui/layout.ts の layoutOf）
-// - タブは 5 つ（tab-1〜tab-5。クリックか 1〜5 キー）。中身があるのは T1・T2（BL-044）で、T3〜T5 は「準備中」（panel-placeholder。Q-09）
+// - タブは 5 つ（tab-1〜tab-5。クリックか 1〜5 キー）。中身があるのは T1・T2・T3（BL-044）で、T4・T5 は「準備中」（panel-placeholder。Q-09）
 // - 湯宿の「！」（BL-044。Q-38 (b)）: SpringFound のたびに（T2 を開いていないとき）立て、T2 を開いたら消す。保存しない（メモリだけ）
+// - 改良の「！」（BL-044 の T3。CEO 2026-10-18）: 新しい改良が解放されたとき（T3 を開いていないとき）に立て、T3 を開いたら消す。T2 と同じく保存しない。
+//   core にイベントがないので（core は変えない。TS-044-18）、解放済みの改良の集合（upgradeViews）が前の通知より増えたことで決める。
+//   起動・読み込みの直後の集合は「前」として覚えるだけで、立てない。転生で戻った後にまた解放されたら立てる
 // - 購入数（×1 → ×10 → 最大）は切り替えボタン（qty-toggle）か Shift。タブをまたいで共通で、保存しない（再読み込みで ×1）
 // - ご褒美のシート（R2: ブーストのボタン、R3: 鉱脈のチップ）とトースト（BL-046）。モーダル・シートの表示中は 1〜5・Shift を使わない
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { offlineClaimView, type Qty } from '../core/index.ts';
+import { offlineClaimView, upgradeViews, type Qty } from '../core/index.ts';
 import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
 import { formatNum } from './format.ts';
 import { useGame, useUi } from './hooks/use-game.ts';
@@ -18,6 +21,7 @@ import { Toasts } from './overlay/Toasts.tsx';
 import { WelcomeModal, type WelcomeChoice } from './overlay/WelcomeModal.tsx';
 import { DigPanel } from './panels/DigPanel.tsx';
 import { InnPanel } from './panels/InnPanel.tsx';
+import { UpgradesPanel } from './panels/UpgradesPanel.tsx';
 
 export type { TabNo } from './keys.ts';
 
@@ -33,7 +37,7 @@ export const TABS: readonly { no: TabNo; key: TextKey; icon: string }[] = [
 /** 購入の一覧があるタブ（購入数の切り替えを出す。T3 には出さない。Q-38 (e)） */
 const BUY_TABS: readonly TabNo[] = [1, 2];
 
-/** S1 で中身のないタブ（T2〜T5）の仮の表示（Q-09）。T5 だけ言語の切り替えと版を残す（設定の本体は S3 の BL-045） */
+/** 中身のないタブ（T4・T5）の仮の表示（Q-09）。T5 だけ言語の切り替えと版を残す（設定の本体は S3 の BL-045） */
 function Placeholder({ tab, lang, onLang }: { tab: TabNo; lang: Lang; onLang: (l: Lang) => void }) {
   const { platform, version } = useUi();
   return (
@@ -70,11 +74,13 @@ export function App() {
   const { onLangChange, rewards, store } = useUi();
   const [tab, setTabState] = useState<TabNo>(1);
   const [innAlert, setInnAlert] = useState(false);
+  const [upgradeAlert, setUpgradeAlert] = useState(false);
   const tabRef = useRef<TabNo>(1);
   const setTab = (n: TabNo): void => {
     tabRef.current = n;
     setTabState(n);
     if (n === 2) setInnAlert(false); // T2 を開いたら消す
+    if (n === 3) setUpgradeAlert(false); // T3 を開いたら消す
   };
   const [qty, setQty] = useState<Qty>(1);
   const [lang, setLangState] = useState<Lang>(getLang());
@@ -116,6 +122,20 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // 新しい改良の解放で改良のタブに「！」（T3 を開いていないとき）。解放済み（購入済みを含む）の ID の並びで比べる
+  const unlockedUpgrades = useGame(
+    (s) => upgradeViews(s).map((v) => v.id).join(','),
+    (a, b) => a === b,
+  );
+  const seenUpgrades = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const ids = unlockedUpgrades === '' ? [] : unlockedUpgrades.split(',');
+    const prev = seenUpgrades.current;
+    seenUpgrades.current = new Set(ids);
+    if (prev === null) return; // 起動・読み込みの直後は覚えるだけ
+    if (tabRef.current !== 3 && ids.some((id) => !prev.has(id))) setUpgradeAlert(true);
+  }, [unlockedUpgrades]);
+
   // 源泉の発見で湯宿のタブに「！」（T2 を開いていないとき）
   useEffect(
     () =>
@@ -139,13 +159,13 @@ export function App() {
               class="tab"
               aria-selected={tab === x.no}
               data-testid={`tab-${x.no}`}
-              data-alert={x.no === 2 && innAlert ? 'true' : undefined}
+              data-alert={(x.no === 2 && innAlert) || (x.no === 3 && upgradeAlert) ? 'true' : undefined}
               title={`${t(x.key)} (${x.no})`}
               onClick={() => setTab(x.no)}
             >
               <span aria-hidden="true">{x.icon}</span>
               <span class="tab-label">{t(x.key)}</span>
-              {x.no === 2 && innAlert && (
+              {((x.no === 2 && innAlert) || (x.no === 3 && upgradeAlert)) && (
                 <span class="tab-alert" role="img" aria-label={t('ui.tabAlert')}>
                   {t('ui.tabAlertMark')}
                 </span>
@@ -159,6 +179,8 @@ export function App() {
             <DigPanel qty={qty} lang={lang} />
           ) : tab === 2 ? (
             <InnPanel qty={qty} lang={lang} />
+          ) : tab === 3 ? (
+            <UpgradesPanel lang={lang} />
           ) : (
             <Placeholder tab={tab} lang={lang} onLang={onLang} />
           )}
