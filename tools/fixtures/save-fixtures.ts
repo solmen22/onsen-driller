@@ -1,6 +1,7 @@
 // セーブの見本（gdd §10・arch §11。BL-028）: 版ごとに 序盤・転生前・転生後・最大状態 の 4 種を tests/fixtures/saves/v{N}/ に置き、永久に残す。
 // - 見本は「その版のビルドが書く封筒の文字列」そのもの（ストレージの値と同じ。1 行の JSON）
-// - 状態は標準ボットで遊んで作る（決定的。シード 1）。最大状態は、どの欄も上限・すべての ID・最長の ID で作る
+// - 状態は直接組み立てる（ボットで遊ばない。ボットの規則で見本が変わらないように）。最大状態は、どの欄も上限・すべての ID・最長の ID で作る
+// - **見本は凍結のデータ**: 一度置いたら変えない（ハッシュを固定）。道具の出力が後で変わっても、置いてある見本は作り直さない
 // - 版 1 の見本は**合成**: 同じ状態から版 2 で足した欄（meta.lastPrestigeGain・run.startDepth）を除き、schema を 1 にして checksum を付け直す
 //   （版 1 と版 2 の違いはこの 2 つの欄と schema だけ。arch §11 の版の履歴）。版 1 のビルド（main `9b16498`。SAVE_SCHEMA_VERSION = 1）で
 //   4 本とも補正なしに読めることを確かめた（2026-10-26。PR #87 のレビュー N-1）
@@ -10,7 +11,8 @@ import { GUESTS } from '../../src/content/guests.ts';
 import { ORE_IDS } from '../../src/content/ores.ts';
 import { PARAMS } from '../../src/content/params.ts';
 import { PERK_IDS, PERK_BY_ID } from '../../src/content/perks.ts';
-import { SPRINGS } from '../../src/content/springs.ts';
+import { SPRINGS, type SpringId } from '../../src/content/springs.ts';
+import { STRATA } from '../../src/content/strata.ts';
 import { TERRAIN_IDS } from '../../src/content/terrains.ts';
 import { TOOLS } from '../../src/content/tools.ts';
 import { UPGRADES } from '../../src/content/upgrades.ts';
@@ -22,14 +24,11 @@ import {
   NUM_MAX,
   num,
   slotsForBathLevel,
-  step,
   toSaveGame,
-  yunohanaGain,
   type GameState,
 } from '../../src/core/index.ts';
 import { encodeSave } from '../../src/save/codec.ts';
 import { MAX_ID_LIST } from '../../src/save/schema.ts';
-import { botAct, botTap, BOTS, newBotMemory } from '../sim/bots.ts';
 
 export type FixtureKind = 'early' | 'pre-prestige' | 'post-prestige' | 'max';
 export const FIXTURE_KINDS: readonly FixtureKind[] = ['early', 'pre-prestige', 'post-prestige', 'max'];
@@ -38,37 +37,79 @@ export const FIXTURE_KINDS: readonly FixtureKind[] = ['early', 'pre-prestige', '
 const SAVED_AT = 1_790_000_000_000;
 const APP_VERSION = 'fixture';
 
-/** 標準ボットで ms だけ遊ぶ（5 秒ごとに判断、1 秒刻み）。until が true になったらその時点で止める */
-function play(s: GameState, ms: number, until: (s: GameState) => boolean = () => false): GameState {
-  const bot = BOTS.standard;
-  const mem = newBotMemory(1);
-  for (let t = 0; t < ms; t += 1000) {
-    if (until(s)) break;
-    if (t % 5000 === 0) botAct(s, bot, mem);
-    botTap(s, bot, mem, 1000);
-    step(s, 1000);
-  }
+/**
+ * 状態を直接組み立てる（ボットで遊ばない。PR #87 の合成の赤: ボットの規則〔#86〕で道具の出力が変わったため。CEO 方針: 見本は凍結のデータ）。
+ * 道具の出力は content の ID と式（お客さん・枠の数）だけに依存する。置いてある見本は、作ったときの出力のまま変えない（ハッシュを固定）
+ */
+interface Spec {
+  depth: number;
+  coins: string;
+  drill: number;
+  tool: number;
+  digger: number;
+  autoOn: boolean;
+  bath: number;
+  pumps: Partial<Record<SpringId, number>>;
+  upgrades: number;
+  playedMs: number;
+  tickets: number;
+  bestDepth?: number;
+}
+function build(sp: Spec): GameState {
+  const s = createInitialState(1);
+  const r = s.run;
+  r.coins = num(sp.coins);
+  r.depth = sp.depth;
+  r.maxDepth = sp.depth;
+  r.drill = { level: sp.drill, tool: sp.tool };
+  r.autoDig = { level: sp.digger, on: sp.autoOn && sp.tool >= 1 };
+  for (const [id, lv] of Object.entries(sp.pumps)) if (lv && lv > 0) r.springs[id as SpringId] = { pump: lv };
+  r.bath.level = sp.bath;
+  const found = Object.keys(r.springs) as SpringId[];
+  r.bath.slots = Array.from({ length: slotsForBathLevel(sp.bath) }, (_, i) => found[i] ?? null);
+  r.upgrades = UPGRADES.slice(0, sp.upgrades).map((u) => u.id);
+  r.stratumSeen = STRATA.map((b, i) => (b.start <= sp.depth ? i : -1)).filter((i) => i >= 0);
+  r.vein = { nextAtMs: sp.playedMs + PARAMS.vein.minIntervalMs, active: null };
+  s.clock.playedMs = sp.playedMs;
+  s.meta.tickets = sp.tickets;
+  s.collection.springsSeen = [...found];
+  s.collection.ores = { quartz: Math.floor(sp.depth * 0.04), copper: Math.floor(sp.depth * 0.02) };
+  s.stats = { totalCoins: num(sp.coins).mul(40), taps: sp.depth * 6, hits: sp.depth * 9, blocks: sp.depth, bestDepth: Math.max(sp.depth, sp.bestDepth ?? 0), offlineMaxMs: 0 };
+  r.guests = computeGuests(s);
+  s.collection.guestsSeen = Object.fromEntries(r.guests.map((g, i) => [g, SAVED_AT - 3_600_000 + i * 60_000]));
   return s;
 }
 
-/** 序盤: 3 分（ツルハシ・ドリル・単純温泉・タヌキのころ） */
+/** 序盤: 3 分ごろ（ツルハシ・ドリル Lv12・63m・単純温泉・タヌキ） */
 function early(): GameState {
-  return play(createInitialState(1), 3 * 60_000);
+  return build({ depth: 63, coins: '842', drill: 12, tool: 1, digger: 0, autoOn: false, bath: 0, pumps: { simple: 6 }, upgrades: 0, playedMs: 180_000, tickets: 3 });
 }
 
-/** 転生前: 1 周目で、転生の推奨の手前（湯の華 25 以上・まだ転生していない） */
+/** 転生前: 1 周目の 250m（湯の華 25。推奨の手前）。源泉 4 つ・改良 8 つ・自動掘り */
 function prePrestige(): GameState {
-  const s = play(createInitialState(1), 60 * 60_000, (x) => yunohanaGain(x).gte(25));
-  if (s.meta.prestiges !== 0 || yunohanaGain(s).lt(25)) throw new Error('pre-prestige: 転生の前で止められなかった');
-  return s;
+  return build({
+    depth: 250,
+    coins: '3.1e9',
+    drill: 83,
+    tool: 5,
+    digger: 24,
+    autoOn: true,
+    bath: 15,
+    pumps: { simple: 40, co2: 31, salt: 26, sulfur: 12 },
+    upgrades: 8,
+    playedMs: 14 * 60_000,
+    tickets: 6,
+  });
 }
 
-/** 転生後: 2 回転生して少し遊び、木を少し取った（前回の獲得・使った湯の華）。受け取り待ちのオフラインの報酬を持つ */
+/** 転生後: 2 回転生した 3 周目の 60m。木を少し取り（使った 23）、前回の獲得 45、受け取り待ちのオフラインの報酬がある */
 function postPrestige(): GameState {
-  const s = play(createInitialState(1), 90 * 60_000, (x) => x.meta.prestiges >= 2 && x.run.maxDepth >= 60);
-  if (s.meta.prestiges < 2) throw new Error('post-prestige: 2 回転生しなかった');
-  for (const perk of ['sharpBlade', 'yumori', 'travelFunds', 'nightDig']) dispatch(s, { type: 'takePerk', perk }); // 木を少し取った（BL-022）
-  if (s.meta.perks.length === 0) throw new Error('post-prestige: 木を取れなかった');
+  const s = build({ depth: 60, coins: '1.5e3', drill: 12, tool: 1, digger: 0, autoOn: false, bath: 0, pumps: { simple: 5 }, upgrades: 0, playedMs: 41 * 60_000, tickets: 8, bestDepth: 300 });
+  s.meta.prestiges = 2;
+  s.meta.yunohana = { lifetime: num(75), spent: num(0) };
+  s.meta.lastPrestigeGain = num(45);
+  for (const perk of ['sharpBlade', 'yumori', 'travelFunds', 'nightDig']) dispatch(s, { type: 'takePerk', perk });
+  if (s.meta.yunohana.spent.toNumber() !== 23) throw new Error('post-prestige: 木を取れなかった');
   s.run.pendingOffline = { coins: num('1.25e9'), ms: 2 * 3_600_000 };
   return s;
 }

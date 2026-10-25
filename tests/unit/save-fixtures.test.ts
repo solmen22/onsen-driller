@@ -94,8 +94,15 @@ describe('BL-028 見本は上書きしない（PR #87 のレビュー S-2）', (
       expect(readFileSync(join(dir, 'v1', 'early.json'), 'utf8')).toBe('SENTINEL');
       expect(wrote.length).toBe(versions.length * FIXTURE_KINDS.length); // v1/early 以外の見本 ＋ newer の 1 つ
       expect(writeFixtures(dir)).toEqual([]); // 2 回目は何も書かない
-      // 書いた見本は、置き場所の見本と同じ（道具の出力が今のコードで変わっていない。変わったら新しい版の見本として足すこと）
-      for (const v of versions) for (const k of FIXTURE_KINDS) if (!(v === 1 && k === 'early')) expect(readFileSync(join(dir, `v${v}`, `${k}.json`), 'utf8').trim(), `v${v}/${k}`).toBe(read(`v${v}`, `${k}.json`));
+      // 書いた見本は、今のコードで補正なしに読め、不変条件を満たす（置き場所の見本との一致は見ない: 見本は凍結のデータで、道具の出力が
+      // 後で変わっても置いてある見本は作り直さない。CEO 方針 2026-10-26。置き場所の見本は上のハッシュで固定）
+      for (const v of versions)
+        for (const k of FIXTURE_KINDS) {
+          if (v === 1 && k === 'early') continue;
+          const r = decodeSave(readFileSync(join(dir, `v${v}`, `${k}.json`), 'utf8').trim());
+          expect(r.ok && r.corrected, `v${v}/${k}`).toEqual([]);
+          if (r.ok) invariants(r.state);
+        }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
