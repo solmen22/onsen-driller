@@ -278,3 +278,105 @@ describe('Q-45: 開始の時間切れの後に遅れて始まり、最後まで�
     expect([st.loop, st.input]).toEqual([true, false]);
   });
 });
+
+/** アダプタ → 広告の流れ → ライフサイクルをつなぐ（main.ts と同じ形。音・入力・ループ・報酬・返却を記録する） */
+async function wired(setup: (sdk: PokiMock) => void = () => {}) {
+  const sdk = pokiMock();
+  setup(sdk);
+  const p = createPokiPlatform({ getSdk: () => sdk });
+  await p.init();
+  const life = createLifecycle(p);
+  life.loadingStart();
+  life.loadingStop();
+  life.firstInput();
+  const st = { muted: false, loop: true, input: false, resumes: 0, grants: [] as RewardPlacement[], refunds: 0, mutes: [] as boolean[] };
+  const flow = createAdFlow({
+    ads: p.ads,
+    isMuted: () => false, // Poki の SDK には消音の設定がない（アダプタの isMuted は false）
+    life,
+    input: { setBlocked: (_r, on) => void (st.input = on) },
+    loop: { pause: () => void (st.loop = false), resume: () => void (st.loop = true) },
+    isHidden: () => false,
+    setMuted: (m) => {
+      st.muted = m;
+      st.mutes.push(m);
+    },
+    resumeAudio: () => void st.resumes++,
+    saveBeforeAd: () => {},
+    grant: (x) => (st.grants.push(x), { ok: true }),
+    refund: () => (st.refunds++, 'refund'),
+    pauseForReward: pausesForReward(p.target),
+  });
+  sdk.log.length = 0;
+  return { sdk, p, flow, st };
+}
+
+describe('広告の間の音（BL-060 の受け入れ基準 2026-10-26 追加。Poki の要件「広告の間は音を止める」）', () => {
+  it('rewardedBreak: 広告が始まった時点（onStart）で消音し、再生の間は消音のまま・ループも入力も止まる。終われば true でも false でも消音を解き、音の再開を呼ぶ', async () => {
+    for (const rewarded of [true, false]) {
+      const { sdk, flow, st } = await wired((s) => (s.manual = true));
+      sdk.rewarded = rewarded;
+      const r = flow.requestReward('R2');
+      await flush();
+      expect(st.muted, String(rewarded)).toBe(false); // 広告が始まるまでは鳴らしたまま（止めるのはループ・入力。S-2）
+      sdk.start();
+      expect([st.muted, st.loop, st.input], String(rewarded)).toEqual([true, false, true]);
+      sdk.finish();
+      await expect(r).resolves.toBe(rewarded ? 'rewarded' : 'failed');
+      expect([st.muted, st.loop, st.input], String(rewarded)).toEqual([false, true, false]);
+      expect(st.mutes, String(rewarded)).toEqual([true, false]);
+      expect(st.resumes, String(rewarded)).toBe(1);
+    }
+  });
+
+  it('commercialBreak（M1・M2）も同じ: 消音のコールバック（onStart）で消音し、終われば戻す', async () => {
+    const { sdk, flow, st } = await wired((s) => (s.manual = true));
+    flow.onEvents([{ type: 'BreakOpportunity', placement: 'M2', band: 3 }]);
+    await flush();
+    expect(sdk.log).toContain('commercialBreak');
+    sdk.start();
+    expect([st.muted, st.loop, st.input]).toEqual([true, false, true]);
+    sdk.finish();
+    await flush();
+    expect([st.muted, st.loop, st.input]).toEqual([false, true, false]);
+    expect(st.mutes).toEqual([true, false]);
+  });
+
+  it('再生の時間切れ（AD_END_TIMEOUT_MS）でも消音を解く（消音のままにならない）', async () => {
+    vi.useFakeTimers();
+    try {
+      const { sdk, flow, st } = await wired((s) => (s.manual = true));
+      void flow.requestReward('R1');
+      await flush();
+      sdk.start();
+      expect(st.muted).toBe(true);
+      await vi.advanceTimersByTimeAsync(AD_END_TIMEOUT_MS);
+      expect([st.muted, st.loop, st.input]).toEqual([false, true, false]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('広告ブロッカー（BL-060 の受け入れ基準 2026-10-26 追加。Poki の要件「広告ブロッカーを検出したら報酬を付けない」）', () => {
+  it('rewardedBreak が広告を出さずに false: 報酬もチケットの返却も付けず failed（案内「今は広告を表示できません」）。gameplay・ループ・入力は戻り、音は止めない', async () => {
+    const { sdk, flow, st } = await wired((s) => (s.adblock = true));
+    await expect(flow.requestReward('R2')).resolves.toBe('failed');
+    expect(st.grants).toEqual([]);
+    expect(st.refunds).toBe(0);
+    expect(st.mutes).toEqual([]);
+    expect([st.loop, st.input]).toEqual([true, false]);
+    expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']); // 遊べなくしない（1 往復で戻る）
+  });
+
+  it('次の要求も同じように答え、ミッドゲームも止まらない（広告ブロッカーを理由に遊べなくしない）', async () => {
+    const { sdk, flow, st } = await wired((s) => (s.adblock = true));
+    await flow.requestReward('R2');
+    await expect(flow.requestReward('R3')).resolves.toBe('failed');
+    flow.onEvents([{ type: 'BreakOpportunity', placement: 'M1' }]);
+    await flush();
+    expect(flow.breaking).toBe(false);
+    expect([st.loop, st.input, st.grants.length, st.refunds]).toEqual([true, false, 0, 0]);
+    expect(sdk.log.filter((x) => x === 'commercialBreak')).toHaveLength(1);
+  });
+});
