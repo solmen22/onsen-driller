@@ -47,7 +47,7 @@ export function WelcomeModal({ amount, onClaim, ticketHook = false, canDouble = 
     setRequesting(true);
     setFailed(false);
     const after = (ok: boolean): void => {
-      end(); // 開始を数えるのはここまで（effect で倒さない。BL-141 N-6）
+      end(); // 開始を数えるのはここまで（effect で外さない。BL-141 N-6）
       setRequesting(false);
       if (ok) {
         finish('video');

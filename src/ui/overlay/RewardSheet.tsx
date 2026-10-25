@@ -70,7 +70,7 @@ export function RewardSheet({ placement, onClose }: { placement: Extract<RewardP
     setFailed(false);
     requestReward(placement).then(
       (r) => {
-        end(); // 開始を数えるのはここまで（effect で倒さない。BL-141 N-6）
+        end(); // 開始を数えるのはここまで（effect で外さない。BL-141 N-6）
         setRequesting(false);
         if (r === 'rewarded') {
           used.current = true;
