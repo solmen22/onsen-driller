@@ -3,6 +3,7 @@
 // - 未解放・完了は押せない（disabled）。足りないときは aria-disabled で押せるままにし、押すと core が断る（状態は変わらない）。
 //   表示から押すまでの間にコインが増えて買えるようになっていれば、そのとき買える（買う数とコストは押した時点の buyQuote で決まる）
 // - テストが読む値は data-*（data-n・data-cost・data-level、-eta の data-seconds・data-lack、-lock の data-depth）
+// - 改良（T3）はレベルがないので -level を出さない。完了の文は buyView の doneText（改良は「購入済み」）
 import type { ItemId, Qty } from '../../core/index.ts';
 import { t, type Lang } from '../../i18n/index.ts';
 import { useGame, useUi } from '../hooks/use-game.ts';
@@ -23,7 +24,8 @@ export function BuyButton({ item, qty, lang }: { item: ItemId; qty: Qty; lang: L
       a.eta?.seconds === b.eta?.seconds &&
       a.name === b.name &&
       a.levelText === b.levelText &&
-      a.costText === b.costText,
+      a.costText === b.costText &&
+      a.doneText === b.doneText,
   );
   const id = v.testId;
   const blocked = v.state === 'locked' || v.state === 'maxed';
@@ -47,9 +49,11 @@ export function BuyButton({ item, qty, lang }: { item: ItemId; qty: Qty; lang: L
           <span class="row-name" data-testid={`${id}-name`}>
             {v.name}
           </span>
-          <small class="buy-level" data-testid={`${id}-level`}>
-            {v.levelText}
-          </small>
+          {v.levelText && (
+            <small class="buy-level" data-testid={`${id}-level`}>
+              {v.levelText}
+            </small>
+          )}
         </span>
         {v.effectText && (
           <span class="buy-effect" data-testid={`${id}-effect`}>
@@ -59,7 +63,9 @@ export function BuyButton({ item, qty, lang }: { item: ItemId; qty: Qty; lang: L
       </span>
       <span class="buy-side">
         {v.state === 'maxed' ? (
-          <span class="buy-done">{t('buy.maxed')}</span>
+          <span class="buy-done" data-testid={`${id}-done`}>
+            {v.doneText}
+          </span>
         ) : (
           <span class="row-cost">
             {v.showQty && (

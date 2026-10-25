@@ -8,7 +8,7 @@ export type GameEvent =
   | { type: 'BlockBroken'; depth: number; ore: OreId | null; coins: string }
   /** 周回の中で初めて新しい帯に入った（band は 0 始まり。帯 2 なら 1） */
   | { type: 'StratumEntered'; band: number }
-  /** ミッドゲーム広告の機会（M2＝帯 4〜6 の幕間の終わり。M1＝転生の演出の後〔S3〕）。Q-06 */
+  /** ミッドゲーム広告の機会（M2＝帯 4〜6 の幕間の終わり。M1＝転生の確定の直後〔演出 BL-041 が入ったら演出の後〕。Q-06・Q-47 (m)） */
   | { type: 'BreakOpportunity'; placement: 'M1' | 'M2'; band?: number }
   | { type: 'SpringFound'; spring: SpringId; depth: number }
   | { type: 'ToolEvolved'; tool: number }

@@ -1,10 +1,11 @@
 // 目標表（gdd §8-3）の「何分で何が起きるか」の記録（BL-015 で作り、BL-031・033 で広げた）。
 // 判定の定義（範囲・保留・受け入れ）は targets.ts。ここでは出来事が初めて起きた時刻と、判定に使う値を集めるだけ
+import { PARAMS } from '../../src/content/params.ts';
 import type { GuestId } from '../../src/content/guests.ts';
 import { yunohanaGain, type GameEvent, type GameState } from '../../src/core/index.ts';
 
 /** 転生の推奨（#10）の湯の華（gdd §8-3。「湯の華 30 以上」） */
-export const RECOMMEND_YUNOHANA = 30;
+export const RECOMMEND_YUNOHANA = PARAMS.prestige.recommendGain; // T4 の「転生の推奨」と同じ値（BL-021）
 /** エンディング（#13。伝説の源泉）の深さ */
 export const ENDING_DEPTH = 500;
 

@@ -2,7 +2,7 @@
   "hud.coins": "Coins",
   "hud.perSec": "/sec",
   "hud.depth": "Depth",
-  "hud.tapHint": "Tap to dig (hold to keep digging)",
+  "hud.tapHint": "Tap to dig\u200b (hold to keep digging)",
   "tab.dig": "Dig",
   "tab.onsen": "Inn",
   "tab.upgrades": "Upgrades",
@@ -168,5 +168,15 @@
   "upgrade.yumomiSalt": "Stirring paddle (Salt spring)",
   "upgrade.twinBit": "Twin bit",
   "upgrade.polisher": "Polishing table",
-  "upgrade.yumomiSulfur": "Stirring paddle (Sulfur spring)"
+  "upgrade.yumomiSulfur": "Stirring paddle (Sulfur spring)",
+  "upgrade.bought": "Bought",
+  "upgrades.intro": "Each upgrade can be bought once. Its effect lasts for this run and resets when you prestige.",
+  "upgrades.available": "Not bought yet",
+  "upgrades.boughtHead": "Bought",
+  "upgrades.noneAvailable": "You have bought every unlocked upgrade",
+  "upgrades.next": "Next upgrade: {name}",
+  "upgrades.condDepth": "Unlocks at {n}m ({left}m to go)",
+  "upgrades.condPump": "Unlocks at {spring} pump Lv {n} (now {cur})",
+  "upgrades.allBought": "All upgrades bought",
+  "upgrades.condPumpUnfound": "Find {spring} at {depth}m, then pump Lv {n} ({left}m to go)"
 }

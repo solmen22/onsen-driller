@@ -6,6 +6,7 @@
 //   擬似乱数の状態が不正なら周回のシードから作り直す、欠けたフィールドは初期値、知らない追加のフィールドは捨てる
 // - 直したフィールドは corrected（"run.coins" のようなパス）に入れる（入力と、補正後の保存の形を比べて求める）
 import * as v from 'valibot';
+import { migrateGame, readGameSchema } from './migrate.ts';
 import { GUEST_BY_ID, type GuestId } from '../content/guests.ts';
 import { ORE_BY_ID, type OreId } from '../content/ores.ts';
 import { PARAMS } from '../content/params.ts';
@@ -154,6 +155,7 @@ const MetaSchema = v.object({
   yunohana: section({ lifetime: field(dec), spent: field(dec) }),
   perks: field(idList<string>(isShapedId)),
   prestiges: field(int(0)),
+  lastPrestigeGain: field(dec),
   terrainsUnlocked: field((x) => {
     const t = idList<TerrainId>((e) => isTerrain(e))(x);
     return t.includes(INITIAL_TERRAIN) ? t : [INITIAL_TERRAIN, ...t];
@@ -216,8 +218,9 @@ function diffPaths(a: unknown, b: unknown, path: string, out: string[]): void {
  * 保存の形の game（信頼しない入力）→ 状態。拒否は { ok:false, reason:'invalidGame' }、それ以外は補正して読む。
  * 例外を投げない。入力のオブジェクトは書き換えない
  */
-export function parseGame(raw: unknown): ParseGameResult {
-  if (!isRecord(raw) || !isRecord(raw.run) || !isRecord(raw.meta)) return { ok: false, reason: 'invalidGame' };
+export function parseGame(input: unknown): ParseGameResult {
+  if (!isRecord(input) || !isRecord(input.run) || !isRecord(input.meta)) return { ok: false, reason: 'invalidGame' };
+  const raw = migrateGame(input); // 古い版の形を今の版の形にしてから検証する（移行で足した値は「補正」に数えない。入力は書き換えない）
   try {
     const run = v.parse(RunSchema, raw.run);
     const meta = v.parse(MetaSchema, raw.meta);
@@ -248,6 +251,8 @@ export function parseGame(raw: unknown): ParseGameResult {
     state.run.guests = computeGuests(state);
     const corrected: string[] = [];
     diffPaths(raw, toSaveGame(state), '', corrected);
+    // game の schema が読めなかった（v1 とみなして移した）ことは補正に数える。移行が足した値は数えない（PR #75 のレビュー N-4）
+    if (readGameSchema(input) === null && !corrected.includes('schema')) corrected.unshift('schema');
     return { ok: true, state, corrected };
   } catch {
     // どのスキーマも fallback と transform だけなので、ここには来ない想定（念のため拒否にする）

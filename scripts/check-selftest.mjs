@@ -1384,7 +1384,7 @@ describe('nightly-gate.mjs（公開中は毎日・非公開の間は月・木。
 
   // 偽の API サーバー（GITHUB_API_URL で向ける）にスクリプトを子プロセスでつなぎ、GITHUB_OUTPUT と要求を確かめる
   const execFileP = promisify(execFile);
-  async function runGate({ event = 'schedule', schedule = TW, eventPrivate = '', head = H, repo = { private: false }, runs = [], jobs = {}, fail = [] }) {
+  async function runGate({ event = 'schedule', schedule = TW, eventPrivate = '', head = H, repo = { private: false }, runs = [], jobs = {}, fail = [], ignoreFilter = false }) {
     const requests = [];
     const server = createServer((req, res) => {
       const url = new URL(req.url, 'http://x');
@@ -1399,9 +1399,10 @@ describe('nightly-gate.mjs（公開中は毎日・非公開の間は月・木。
       if (!kind || fail.includes(kind)) return send(kind ? 500 : 404, { message: 'x' });
       if (kind === 'repo') return send(200, repo);
       if (kind === 'runs') {
-        // 本物の API と同じく status・head_sha で絞り、per_page・page で切る（新しい順は渡した runs の順）
+        // 本物の API と同じく status・head_sha で絞り、per_page・page で切る（新しい順は渡した runs の順）。
+        // ignoreFilter のときは絞り込みを無視して全件を返す（API が絞り込みを無視しても取り違えないかを見る。BL-142）
         const q = url.searchParams;
-        const list = runs.filter((r) => (!q.get('head_sha') || r.head_sha === q.get('head_sha')) && (q.get('status') !== 'success' || r.conclusion === 'success'));
+        const list = ignoreFilter ? runs : runs.filter((r) => (!q.get('head_sha') || r.head_sha === q.get('head_sha')) && (q.get('status') !== 'success' || r.conclusion === 'success'));
         const per = Number(q.get('per_page') ?? 30);
         const page = Number(q.get('page') ?? 1);
         return send(200, { total_count: list.length, workflow_runs: list.slice((page - 1) * per, page * per) });
@@ -1461,6 +1462,22 @@ describe('nightly-gate.mjs（公開中は毎日・非公開の間は月・木。
     assert.equal(jobReqs.length, 1, `古い順に見ていない（jobs の呼び出しが ${jobReqs.length} 回）`);
     // この SHA の成功がなく、別の SHA の成功だけがある → 流す
     const r2 = await runGate({ schedule: OD, runs: [run(2000, OLD), ...gateOnly], jobs });
+    assert.equal(r2.run, 'run=true', r2.log);
+  });
+
+  // BL-142（PR #66 のレビューの N-4）: API が head_sha・status の絞り込みを無視して、別の SHA や失敗の run も返したとき、
+  // スクリプトの手元の確かめ（SHA と結論）で、別の SHA の成功・失敗の run を「この SHA の成功」と取り違えない
+  test('偽の API（BL-142）: 絞り込みを無視して全件を返しても、別の SHA の成功・失敗の run を数えず、この SHA の成功を見つけて流さない', async () => {
+    const gateOnly = Array.from({ length: 250 }, (_, i) => run(1000 - i, H));
+    // 新しい順: 別の SHA の成功（新）→ gate だけの回 250 件 → この SHA の成功 → この SHA の失敗の run → 別の SHA の成功（いちばん古い）
+    const runs = [run(2000, OLD), ...gateOnly, run(5, H), run(4, H, 'failure'), run(3, OLD)];
+    const jobs = { 2000: JOBS.green, 5: JOBS.green, 4: JOBS.gateOnly, 3: JOBS.green, ...Object.fromEntries(gateOnly.map((r) => [r.id, JOBS.gateOnly])) };
+    const r = await runGate({ schedule: OD, runs, jobs, ignoreFilter: true });
+    assert.equal(r.run, 'run=false', `この SHA の成功を見落とした（または別の SHA の成功を取り違えた）:\n${r.log}`);
+    const jobReqs = r.requests.filter((q) => q.path.endsWith('/jobs')).map((q) => q.path.split('/').at(-2));
+    assert.deepEqual(jobReqs, ['5'], `jobs を読んだ run: ${jobReqs.join(', ')}（別の SHA・失敗の run の jobs を読んでいる）`);
+    // この SHA の成功がなく、別の SHA の成功だけがある → 流す
+    const r2 = await runGate({ schedule: OD, runs: runs.filter((x) => x.id !== 5), jobs, ignoreFilter: true });
     assert.equal(r2.run, 'run=true', r2.log);
   });
 

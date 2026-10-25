@@ -13,3 +13,4 @@ export * from './debug.ts';
 export * from './selectors.ts';
 export * from './rewards.ts';
 export * from './upgrades.ts';
+export * from './prestige.ts';

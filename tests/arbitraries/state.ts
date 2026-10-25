@@ -3,9 +3,11 @@
 // レベルは極端な値（上限 PARAMS.levelMax まで）も混ぜる（レビュー S-4）
 import fc from 'fast-check';
 import Decimal from 'break_infinity.js';
+import { GUESTS } from '../../src/content/guests.ts';
 import { ORE_IDS } from '../../src/content/ores.ts';
 import type { SpringId } from '../../src/content/springs.ts';
 import { PARAMS } from '../../src/content/params.ts';
+import { INITIAL_TERRAIN, TERRAIN_IDS } from '../../src/content/terrains.ts';
 import { UPGRADES } from '../../src/content/upgrades.ts';
 import { computeGuests, createInitialState, num, NUM_MAX, slotsForBathLevel, type GameState, type Num } from '../../src/core/index.ts';
 
@@ -30,6 +32,8 @@ export const levelArb = (normalMax: number): fc.Arbitrary<number> =>
     { weight: 1, arbitrary: fc.constantFrom(25_574, 25_575, 25_600, 30_000, PARAMS.levelMax - 1, PARAMS.levelMax) },
     { weight: 1, arbitrary: fc.integer({ min: normalMax, max: PARAMS.levelMax }) },
   );
+/** 形の正しい ID（木・実績は S3 以降で定義する。読み込みは形だけを見る〔isShapedId〕ので、往復が一致する） */
+const shapedIdArb = fc.oneof(fc.constantFrom('a1_first-dig', 'deep_150', 'perk-short-cut', 'X'), fc.stringMatching(/^[A-Za-z0-9_-]{1,16}$/));
 const ms = fc.oneof(fc.constant(0), fc.integer({ min: 0, max: 2 ** 40 }), fc.double({ min: 0, max: 1e12, noNaN: true, noDefaultInfinity: true }));
 
 export const gameStateArb: fc.Arbitrary<GameState> = fc
@@ -64,6 +68,13 @@ export const gameStateArb: fc.Arbitrary<GameState> = fc
     endingSeen: fc.boolean(),
     // 知っている改良の ID だけ（知らない ID は読み込みで捨てるので往復が一致しない。BL-018・TS-026-11）。順番は保つ
     upgrades: fc.uniqueArray(fc.constantFrom(...UPGRADES.map((u) => u.id)), { maxLength: 5 }),
+    // 転生で残るもの（TS-021-16。レビュー PR #75 S-1）: 実績・図鑑の来訪・木・解放済みの地形・前回の転生の獲得
+    achievements: fc.uniqueArray(shapedIdArb, { maxLength: 6 }),
+    guestsSeen: fc.dictionary(fc.constantFrom(...GUESTS.map((g) => g.id)), fc.integer({ min: 0, max: 2 ** 45 })),
+    perks: fc.uniqueArray(shapedIdArb, { maxLength: 6 }),
+    terrains: fc.subarray(TERRAIN_IDS.filter((t) => t !== INITIAL_TERRAIN)),
+    terrainPick: fc.nat(),
+    lastPrestigeGain: decimalArb,
     rng: fc.tuple(fc.nat(0xffffffff), fc.nat(0xffffffff), fc.nat(0xffffffff), fc.integer({ min: 1, max: 0xffffffff })),
   })
   .map((g) => {
@@ -95,6 +106,12 @@ export const gameStateArb: fc.Arbitrary<GameState> = fc
     s.meta.prestiges = g.prestiges;
     s.meta.yunohana = { lifetime: g.yunohana, spent: g.spent };
     s.meta.endingSeen = g.endingSeen;
+    s.meta.perks = g.perks;
+    s.meta.terrainsUnlocked = [INITIAL_TERRAIN, ...g.terrains];
+    r.terrain = s.meta.terrainsUnlocked[g.terrainPick % s.meta.terrainsUnlocked.length] ?? INITIAL_TERRAIN;
+    s.meta.lastPrestigeGain = g.lastPrestigeGain;
+    s.collection.achievements = g.achievements;
+    s.collection.guestsSeen = Object.fromEntries(Object.entries(g.guestsSeen).sort());
     s.collection.ores = Object.fromEntries(Object.entries(g.ores).sort());
     s.collection.springsSeen = [...found];
     s.stats = { ...g.stats, totalCoins: g.totalCoins, bestDepth: r.maxDepth };
