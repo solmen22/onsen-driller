@@ -8,12 +8,15 @@ import { SAVE_SCHEMA_VERSION, toStr, ZERO } from '../core/index.ts';
 type Rec = Record<string, unknown>;
 const isRecord = (x: unknown): x is Rec => typeof x === 'object' && x !== null && !Array.isArray(x);
 
-/** game.schema（整数・数値の文字列）。読めなければ 1 */
-export function gameSchemaOf(game: Rec): number {
+/** game.schema（1 以上の整数・数字だけの文字列）を読む。読めなければ null */
+export function readGameSchema(game: Rec): number | null {
   const x = game.schema;
   const n = typeof x === 'string' && /^\d{1,9}$/.test(x) ? Number(x) : x;
-  return typeof n === 'number' && Number.isSafeInteger(n) && n >= 1 ? n : 1;
+  return typeof n === 'number' && Number.isSafeInteger(n) && n >= 1 ? n : null;
 }
+
+/** game.schema。読めなければ 1（S1〜S3 の v1 とみなす。parseGame はこのとき補正の記録に schema を足す。PR #75 のレビュー N-4） */
+export const gameSchemaOf = (game: Rec): number => readGameSchema(game) ?? 1;
 
 /**
  * v1 → v2（BL-021）: meta.lastPrestigeGain（前回の転生で得た湯の華）を足す。v1 は記録していないので 0

@@ -55,7 +55,7 @@ describe('BL-021 prestigeView（T4・確認の画面に出す値）', () => {
     const s = stateWith({ depth: 160 });
     s.meta.yunohana.lifetime = num(20);
     const v = prestigeView(s);
-    expect(v).toMatchObject({ unlocked: true, canPrestige: true, runMaxDepth: 160, nextGainDepth: 166, recommended: false });
+    expect(v).toMatchObject({ unlocked: true, canPrestige: true, runMaxDepth: 160, nextGainDepth: 166, metersToNextGain: 6, recommended: false });
     expect(v.gain.toNumber()).toBe(10);
     expect(v.multNow.toNumber()).toBeCloseTo(1.4, 12);
     expect(v.multAfter.toNumber()).toBeCloseTo(1.6, 12);
@@ -75,7 +75,7 @@ describe('BL-021 prestigeView（T4・確認の画面に出す値）', () => {
     const s = stateWith({ depth: 200 });
     dispatch(s, { type: 'prestige' });
     const v = prestigeView(s);
-    expect(v).toMatchObject({ unlocked: true, canPrestige: false, runMaxDepth: 0, nextGainDepth: 150 });
+    expect(v).toMatchObject({ unlocked: true, canPrestige: false, runMaxDepth: 0, nextGainDepth: 150, metersToNextGain: 150 });
   });
 
   it('TS-021-13 チケットが上限の近く: 実際に増える枚数を出す（9 枚なら 1、10 枚なら 0）。転生の結果と同じ', () => {
@@ -106,6 +106,7 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
     fc.assert(
       fc.property(gameStateArb, fc.integer({ min: P.unlockDepth, max: 2000 }), (g, maxDepth) => {
         const s: GameState = cloneState(g);
+        // 生成器は実績・図鑑の来訪・木・解放済みの地形・前回の獲得も作る（レビュー PR #75 S-1。初期値のままでは消す回帰を見つけられない）
         s.run.maxDepth = Math.max(s.run.maxDepth, maxDepth);
         const before = cloneState(s);
         const gain = yunohanaGain(before);
@@ -127,6 +128,7 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
         expect(s.clock).toEqual(before.clock);
         // 増えるもの
         expect(s.meta.prestiges).toBe(before.meta.prestiges + 1);
+        expect(s.meta.lastPrestigeGain.toString()).toBe(gain.toString()); // 前回の獲得は今回の獲得で上書き（生成器は 0 以外も作る）
         expect(s.meta.yunohana.lifetime.toString()).toBe(before.meta.yunohana.lifetime.add(gain).toString());
         expect(s.meta.tickets).toBe(Math.min(PARAMS.tickets.max, before.meta.tickets + PARAMS.tickets.prestige));
         expect(r.events.map((e) => e.type)).toEqual(['PrestigeDone', 'TicketGained', 'BreakOpportunity']);

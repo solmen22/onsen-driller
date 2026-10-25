@@ -125,6 +125,26 @@ describe('BL-021 セーブの版 1 → 2 の移行', () => {
     );
   });
 
+  it('PR #75 のレビュー N-4: game の schema が読めない（0・"abc"・なし）と v1 とみなして移し、補正の記録に schema を足す。読める版（1・2）では足さない（"2" は型の補正として今までどおり数える）', () => {
+    const s = stateWith({ depth: 300 });
+    dispatch(s, { type: 'prestige' });
+    for (const [schema, counted] of [
+      [0, true],
+      ['abc', true],
+      [undefined, true],
+      [1, false],
+      [2, false],
+      ['2', true], // 読めるが文字列: 型の補正として数える（main から同じ）
+    ] as const) {
+      const g = JSON.parse(JSON.stringify(toSaveGame(s))) as Rec;
+      if (schema === undefined) delete g.schema;
+      else g.schema = schema;
+      const r = decodeSave(JSON.stringify({ schema: 2, seq: 1, savedAt: 1, appVersion: APP, checksum: checksumOf(g), game: g }));
+      expect(r.ok, String(schema)).toBe(true);
+      expect(r.ok && r.corrected.includes('schema'), String(schema)).toBe(counted);
+    }
+  });
+
   it('TS-021-27 migrateGame: 入力を書き換えない。今の版はそのまま。schema がない・読めないものは 1 とみなす', () => {
     const g = v1Game(stateWith({}));
     const before = JSON.stringify(g);

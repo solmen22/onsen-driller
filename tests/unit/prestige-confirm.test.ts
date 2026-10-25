@@ -62,7 +62,7 @@ function srcFiles(dir = 'src'): { path: string; text: string }[] {
 }
 
 describe('TS-021-39（確認の画面の分）: 止まる理由の書き手は 1 か所', () => {
-  it("setPaused('prestige', …) を書くのは app/ad-flow.ts だけ。ほかの理由も決まった 1 ファイル（hidden・interlude は main.ts、ad・break は ad-flow.ts）", () => {
+  it("setPaused('prestige', …) を書くのは app/ad-flow.ts だけ。ほかの理由も決まった 1 ファイル（hidden は pause-wiring.ts、interlude は main.ts、ad・break は ad-flow.ts）", () => {
     const writers = (reason: string): string[] =>
       srcFiles()
         .filter((f) => f.path !== 'src/app/lifecycle.ts' && new RegExp(`setPaused\\(\\s*'${reason}'`).test(f.text))
@@ -70,7 +70,7 @@ describe('TS-021-39（確認の画面の分）: 止まる理由の書き手は 1
     expect(writers('prestige')).toEqual(['src/app/ad-flow.ts']);
     expect(writers('ad')).toEqual(['src/app/ad-flow.ts']);
     expect(writers('break')).toEqual(['src/app/ad-flow.ts']);
-    expect(writers('hidden')).toEqual(['src/app/main.ts']);
+    expect(writers('hidden')).toEqual(['src/app/pause-wiring.ts']);
     expect(writers('interlude')).toEqual(['src/app/main.ts']);
   });
 });

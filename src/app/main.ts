@@ -13,7 +13,8 @@ import { Ctx } from '../ui/hooks/use-game.ts';
 import { onModalChange } from '../ui/overlay/modal-state.ts';
 import { dismissPrestigeConfirm, onPrestigeConfirmChange } from '../ui/overlay/prestige-confirm.ts';
 import { playBreak, playHit, resumeAudio, setMuted, unlockAudio } from '../audio/sfx.ts';
-import { saveReasonForEvents, startAutosave } from './autosave.ts';
+import { startAutosave } from './autosave.ts';
+import { subscribeSaveThenAds, wireVisibility } from './pause-wiring.ts';
 import { createAppClock } from './clock.ts';
 import { createRewardHooks } from './rewards.ts';
 import { createAdFlow, type LateKind } from './ad-flow.ts';
@@ -132,11 +133,6 @@ async function boot(): Promise<void> {
     isSuppressed: () => settings.recordingMode || slots.readOnly || params.demo,
     onStatus: (st) => store.setSaveStatus(saveDisplay(st, slots.readOnly)),
   });
-  // 転生の後はすぐ保存する（BL-021。録画モード・読み取り専用・デモでは isSuppressed で書かない）
-  store.onEvents((evs) => {
-    const reason = saveReasonForEvents(evs);
-    if (reason) autosave.saveNow(reason);
-  });
   // タブを隠したら gameplay とループを止める（保存は autosave が先に行う。戻ったときの早送りは S3 の BL-030）。
   // 見えるようになったら、ほかに止まる理由がなければ gameplay を再開する（CrazyGames は gameplay の合図を送らず、ループだけ止める）
   // 広告の流れ（BL-059）: 再生中（onPlaying）・ミッドゲームの機会の間はループ・入力・音・gameplay を止める。ループは理由
@@ -157,18 +153,16 @@ async function boot(): Promise<void> {
     refund: (p) => rewards.refundAd(p),
     onError: (e) => errorLog.push(e),
   });
-  store.onEvents((evs) => ads.onEvents(evs));
-  // 転生の確認の画面（M3）を開いている間はループと gameplay を止める（見せた湯の華と実際に得る湯の華をずらさない。Q-47 (j)）。
-  // 止める理由は ad-flow の判定（hidden・ad・break・prestige）に入れる。開いている間に広告が終わってもループは動かない（QA の申し送り）
-  onPrestigeConfirmChange((open) => ads.setPrestigeConfirm(open));
-  life.setPaused('hidden', document.hidden);
-  document.addEventListener('visibilitychange', () => {
-    life.setPaused('hidden', document.hidden);
-    // 確認の画面を開いたまま隠れたら閉じる（戻ったら開き直したときの値を見せる。留守の早送りで値がずれないように。決定 0010 の 14 (b)）。
-    // 閉じても、隠れている間は gameplayStart を出さない（'prestige' の理由は見えるまで ad-flow が持つ。CrazyGames も同じ。決定 0010 の 15）
-    if (document.hidden) dismissPrestigeConfirm();
-    ads.syncHidden();
+  // 出来事は「転生の保存 → 広告の流れ（M1・M2）」の順で受ける（TS-021-45）。転生の確認の画面とタブの表示・非表示の配線
+  // （隠れたら確認の画面を閉じ、見えるまで gameplayStart を出さない。決定 0010 の 14 (b)・15）。どちらも app/pause-wiring.ts（テストと同じ関数）
+  subscribeSaveThenAds(store, autosave, ads);
+  const visibility = wireVisibility({
+    life,
+    ads,
+    isHidden: () => document.hidden,
+    prestigeConfirm: { onChange: onPrestigeConfirmChange, dismiss: dismissPrestigeConfirm },
   });
+  document.addEventListener('visibilitychange', () => visibility.onVisibilityChange());
   // 幕間（新しい帯に入った直後の 1.5 秒。ドリルが止まる）の間は gameplay を止める（ストアの通知は 200ms ごと）
   store.subscribe(() => life.setPaused('interlude', interludeLeftMs(store.state) > 0));
 

@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createAdFlow, type AdFlowDeps } from '../../src/app/ad-flow.ts';
 import { createLifecycle } from '../../src/app/lifecycle.ts';
+import { subscribeSaveThenAds, wireVisibility } from '../../src/app/pause-wiring.ts';
 import { GameStore } from '../../src/app/store.ts';
 import { PARAMS } from '../../src/content/params.ts';
 import { blockHp, interludeLeftMs, type GameState } from '../../src/core/index.ts';
@@ -473,17 +474,20 @@ describe('遅れた報酬（Q-45。決定 0010 の 5: 開始の時間切れの�
 });
 
 describe('転生の確認の画面（BL-021。Q-47 (j)・決定 0010 の 14 (b)・15）: 止める理由 prestige を ad-flow の判定に入れる', () => {
-  /** main.ts と同じ順に結線する: 確認の画面の開閉 → ad-flow、タブの切り替え → hidden・確認の画面を閉じる・syncHidden */
+  /** main.ts と同じ配線の関数（app/pause-wiring.ts の wireVisibility。PR #75 のレビュー S-2 (a)）で、本物の確認の画面の口とつなぐ */
   const wire = (opts: { signalHidden?: boolean } = {}) => {
     const r = rig({}, opts);
-    const off = onPrestigeConfirmChange((open) => r.flow.setPrestigeConfirm(open));
+    const vis = wireVisibility({
+      life: r.life,
+      ads: r.flow,
+      isHidden: () => r.st.hidden,
+      prestigeConfirm: { onChange: onPrestigeConfirmChange, dismiss: dismissPrestigeConfirm },
+    });
     const setHidden = (hidden: boolean): void => {
       r.st.hidden = hidden;
-      r.life.setPaused('hidden', hidden);
-      if (hidden) dismissPrestigeConfirm();
-      r.flow.syncHidden();
+      vis.onVisibilityChange();
     };
-    return { ...r, off, setHidden };
+    return { ...r, off: vis.dispose, setHidden };
   };
   let offs: (() => void)[] = [];
   afterEach(() => {
@@ -591,14 +595,11 @@ describe('転生の確認の画面（BL-021。Q-47 (j)・決定 0010 の 14 (b)�
       (PARAMS.ads.midgame as { onPrestige: boolean }).onPrestige = onPrestige;
     });
 
-    /** main.ts と同じ順に結線する: 転生の保存（autosave）→ ad-flow の onEvents */
+    /** main.ts と同じ配線の関数（app/pause-wiring.ts の subscribeSaveThenAds）で、転生の保存 → ad-flow の順に購読する */
     const wireStore = () => {
       const w = wired();
       const store = new GameStore(stateWith({ seed: 1, depth: 160 }));
-      store.onEvents((evs) => {
-        if (evs.some((e) => e.type === 'PrestigeDone')) w.log.push('save:prestige');
-      });
-      store.onEvents((evs) => w.flow.onEvents(evs));
+      offs.push(subscribeSaveThenAds(store, { saveNow: (reason) => (w.log.push(`save:${reason}`), true) }, w.flow));
       return { ...w, store };
     };
 

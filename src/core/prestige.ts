@@ -26,6 +26,8 @@ export interface PrestigeView {
   readonly runMaxDepth: number;
   /** 得られる湯の華が 1 つ増える深さ（「あと 〇m で +1」。まだ 0 なら解放の深さ） */
   readonly nextGainDepth: number;
+  /** 「あと 〇m で +1」の 〇（nextGainDepth − この周回の最深。UI で引き算しない。PR #75 のレビュー N-3） */
+  readonly metersToNextGain: number;
   /**
    * 転生の推奨の基準（湯の華の数）: 前回の転生で得た湯の華の 1.5 倍、最低 PARAMS.prestige.recommendGain（30）。
    * 1 周目は 30（目標表 #10）。ボットの規則と同じ（CEO 回答 2026-10-18）
@@ -48,11 +50,15 @@ export interface PrestigeView {
   readonly ticketsOverflow: number;
 }
 
-/** 得られる湯の華が g＋1 になる最小の深さ（m）。式は floor((d ÷ divisor)²) */
+/** 深さ d（解放の深さ以上）で得られる湯の華。formulas.ts の yunohanaGain と同じ式 floor((d ÷ divisor)²) */
+const gainAtDepth = (d: number): number => Math.floor((d / P.divisor) ** 2);
+
+/** 得られる湯の華が g 以上になる最小の深さ（m。解放の深さより浅くはならない。「あと 〇m で +1」は depthForGain(今 + 1)） */
 export function depthForGain(g: number): number {
   let d = Math.max(P.unlockDepth, Math.ceil(P.divisor * Math.sqrt(g)));
-  while (d > P.unlockDepth && Math.floor((d - 1) / P.divisor) ** 2 >= g) d--; // 浮動小数の誤差の補正（小さい方へ）
-  while (Math.floor((d / P.divisor) ** 2) < g) d++; // （大きい方へ）
+  // 浮動小数の誤差の補正。どちら向きも獲得量と同じ式（gainAtDepth）で比べる（PR #75 のレビュー N-2）
+  while (d > P.unlockDepth && gainAtDepth(d - 1) >= g) d--; // 小さい方へ
+  while (gainAtDepth(d) < g) d++; // 大きい方へ
   return d;
 }
 
@@ -77,6 +83,7 @@ export function prestigeView(s: Readonly<GameState>): PrestigeView {
   const lifetimeNow = s.meta.yunohana.lifetime;
   const lifetimeAfter = add(lifetimeNow, gain);
   const recommendAt = recommendThreshold(s);
+  const nextGainDepth = depthForGain(g + 1);
   return {
     unlocked: s.stats.bestDepth >= P.unlockDepth,
     unlockDepth: P.unlockDepth,
@@ -84,7 +91,8 @@ export function prestigeView(s: Readonly<GameState>): PrestigeView {
     metersToUnlock: Math.max(0, P.unlockDepth - s.run.maxDepth),
     gain,
     runMaxDepth: s.run.maxDepth,
-    nextGainDepth: depthForGain(g + 1),
+    nextGainDepth,
+    metersToNextGain: Math.max(0, nextGainDepth - s.run.maxDepth),
     recommendAt,
     recommended: g >= recommendAt,
     lifetimeNow,

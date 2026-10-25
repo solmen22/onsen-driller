@@ -6,7 +6,7 @@
 //   擬似乱数の状態が不正なら周回のシードから作り直す、欠けたフィールドは初期値、知らない追加のフィールドは捨てる
 // - 直したフィールドは corrected（"run.coins" のようなパス）に入れる（入力と、補正後の保存の形を比べて求める）
 import * as v from 'valibot';
-import { migrateGame } from './migrate.ts';
+import { migrateGame, readGameSchema } from './migrate.ts';
 import { GUEST_BY_ID, type GuestId } from '../content/guests.ts';
 import { ORE_BY_ID, type OreId } from '../content/ores.ts';
 import { PARAMS } from '../content/params.ts';
@@ -251,6 +251,8 @@ export function parseGame(input: unknown): ParseGameResult {
     state.run.guests = computeGuests(state);
     const corrected: string[] = [];
     diffPaths(raw, toSaveGame(state), '', corrected);
+    // game の schema が読めなかった（v1 とみなして移した）ことは補正に数える。移行が足した値は数えない（PR #75 のレビュー N-4）
+    if (readGameSchema(input) === null && !corrected.includes('schema')) corrected.unshift('schema');
     return { ok: true, state, corrected };
   } catch {
     // どのスキーマも fallback と transform だけなので、ここには来ない想定（念のため拒否にする）
