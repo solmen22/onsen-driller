@@ -1,11 +1,11 @@
 // 転生の確認の画面（M3。BL-045）を開いているか（BL-021。Q-47 (j)。CEO 決定 2026-10-18）。
-// 開いている間は、app がループを止め、gameplay を止める理由 'prestige' を立てる（自動掘りで最深が伸びて、見せた湯の華と実際に得る湯の華が
+// 開いている間は、app がループを止め、gameplay を止める理由 'prestige' を立てる（自動掘りで最深が増えて、見せた獲得量と実際に得る量が
 // ずれないように）。止める判定は app/ad-flow.ts の 1 か所（hidden・ad・break・prestige）。確認の画面は開くときに
 // openPrestigeConfirm(onDismiss) を呼び、閉じるとき（確定・キャンセル・Esc・背景）に返された関数を呼ぶ。
 // **確定は「dispatch({type:'prestige'}) → 閉じる関数」の順**にする（TS-021-45）。dispatch で core の BreakOpportunity（M1）が届き、
-// 'break' が先に立つので、'prestige' を外しても gameplayStart → gameplayStop の往復が出ない（止まっているので値は同じ）。
+// 'break' が先に立つので、'prestige' を外しても gameplayStart → gameplayStop の行き来が出ない（止まっているので値は同じ）。
 // タブが隠れたら app が dismissPrestigeConfirm() を呼び、開いている確認の画面をすべて閉じる（onDismiss で UI が画面を閉じる）。
-// 戻ったときは、開き直したときの値を見せる（留守の早送りで値がずれないように。決定 0010 の 14 (b)。Q-50 (b)）
+// 戻ったときは、開き直したときの値を見せる（留守の間の進み〔BL-030〕で値がずれないように。決定 0010 の 14 (b)。Q-50 (b)）
 interface Entry {
   close: () => void;
   onDismiss?: () => void;
