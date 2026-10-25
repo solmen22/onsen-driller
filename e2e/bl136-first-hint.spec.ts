@@ -3,7 +3,9 @@
 //   狭い: 320×568・360×640・375×667・390×844・402×874・568×320（横向き）。広い: 414×896・800×450（横向き）は同じ行のまま（PR #69 のレビュー N-1・N-2）
 //   （375×667 は前は広い組だったが、案内の幅が 123px しかなく WebKit・Firefox で 3 行になっていた。nightly 10/19〜。
 //   ja の案内は句の中で折らないので、同じ行で 2 行に収まるのは中の幅 395px 以上。global.css の .hint）
-// - 句の中で折れない（ja は「タップで掘る／（長押しで／掘り続ける）」の区切りでだけ折る。「長／押し」のように語の途中で折れない）
+// - 句の中で折れない（ja は「タップで掘る／（長押しで／掘り続ける）」、en は「Tap to dig／(hold to keep digging)」の区切りでだけ折る。
+//   「長／押し」や「(hold to／keep digging)」のように句の途中で折れない。Q-52 (b)）
+// - シナリオ: org/30_quality/test-designer/scenarios/BL-136_first-hint.md の TS-136-01〜04（狭い組 01・広い組 02・句 03・ボタンが跳ねない 04）
 // - ボタンの位置（x・y）は案内の有無で変わらない（最初の 1 打で案内が消えても跳ねない。PR #55 のレビュー S-2 を崩さない）
 // - 測る: 案内の幅・行数、2 つのボタンの x・y（案内あり → 1 打の後の案内なし）。ja・en
 import type { Page } from '@playwright/test';
@@ -71,7 +73,8 @@ for (const locale of ['ja-JP', 'en-US'] as const) {
       { width: 414, height: 896, narrow: false }, // しきい値のすぐ外側（中の幅 402px。案内の幅 162px で 2 行）
       { width: 800, height: 450, narrow: false }, // 横向き（N-2）
     ]) {
-      test(`${vp.width}×${vp.height}: 案内が細い柱にならず、ボタンの位置は案内の有無で変わらない（${locale}）`, async ({ page }) => {
+      const ids = vp.narrow ? 'TS-136-01・03・04' : 'TS-136-02・03・04';
+      test(`${ids} ${vp.width}×${vp.height}: 案内が細い柱にならず、句の途中で折れず、ボタンの位置は案内の有無で変わらない（${locale}）`, async ({ page }) => {
         const g = await bootGame(page, { viewport: { width: vp.width, height: vp.height } });
         await settle(page);
         const before = await measure(page);
@@ -93,7 +96,7 @@ for (const locale of ['ja-JP', 'en-US'] as const) {
           expect(hint.bottom, '広い画面ではボタンと同じ行').toBeGreaterThan(before.boost.top);
         }
         expect(hint.lines, '案内は 2 行まで（PR #69 のレビュー N-1）').toBeLessThanOrEqual(2);
-        expect(hint.phrases, 'ja は句ごとの span（3 つ）、en は区切らない').toBe(locale === 'ja-JP' ? 3 : 0);
+        expect(hint.phrases, '句ごとの span（ja 3 つ・en 2 つ）').toBe(locale === 'ja-JP' ? 3 : 2);
         expect(hint.split, '句の途中で折れない（「長／押し」など）').toBe(false);
         expect(after.auto, '自動掘りのボタンが跳ねない').toEqual(before.auto);
         expect({ x: after.boost.x, y: after.boost.y }, 'btn-boost が跳ねない').toEqual({ x: before.boost.x, y: before.boost.y });

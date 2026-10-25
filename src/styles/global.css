@@ -287,7 +287,7 @@ body {
   animation: blink 1.2s steps(2) infinite;
 }
 
-/* 句の中では折らない（句の間の <wbr> でだけ折る。StageActions の HintText） */
+/* 句の中では折らない（句の間の <wbr> でだけ折る。StageActions の HintText）。ja「タップで掘る／（長押しで／掘り続ける）」・en「Tap to dig／(hold to keep digging)」 */
 .hint-phrase {
   white-space: nowrap;
 }

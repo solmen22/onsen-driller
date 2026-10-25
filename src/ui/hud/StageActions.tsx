@@ -7,7 +7,7 @@
 // - btn-boost の幅は CSS（global.css の .act-boost）で決める（PR #55 のレビュー S-2）
 // - 最初の 1 打の前だけ「タップで掘る」の案内を出す（押下はキャンバスに通す）
 //   文に U+200B（ゼロ幅スペース）があれば、そこで区切り、区切りの中では改行しない（「長押し」の中で改行しない。
-//   ja は区切る。en は区切らず、語の間で改行する）。区切りの間にだけ <wbr>（改行してよい所）を置く。CSS は global.css の .hint-phrase
+//   ja は 3 つ、en は 2 つに区切る〔Q-52 (b)〕）。区切りの間にだけ <wbr>（改行してよい所）を置く。CSS は global.css の .hint-phrase
 // ボタンはステージ（#stage）の子ではないので、押してもステージの pointerdown（掘削）にはならない
 import { Fragment } from 'preact';
 import { autoDigState, boostMult } from '../../core/index.ts';

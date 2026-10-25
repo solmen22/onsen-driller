@@ -2,7 +2,7 @@
   "hud.coins": "Coins",
   "hud.perSec": "/sec",
   "hud.depth": "Depth",
-  "hud.tapHint": "Tap to dig (hold to keep digging)",
+  "hud.tapHint": "Tap to dig\u200b (hold to keep digging)",
   "tab.dig": "Dig",
   "tab.onsen": "Inn",
   "tab.upgrades": "Upgrades",
