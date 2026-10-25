@@ -11,10 +11,10 @@ import { normalizeSeed, seedSfc32, sfc32Next, type Sfc32State } from './rng.ts';
 export const SAVE_SCHEMA_VERSION = 2; // 2: meta.lastPrestigeGain を足した（BL-021。移行は save/migrate.ts）
 
 export type { OreId } from '../content/ores.ts';
-/** 改良の ID（content/upgrades.ts。BL-018）。湯の華の木・実績の ID は S3 以降で定義する */
+/** 改良の ID（content/upgrades.ts。BL-018）・湯の華の木の ID（content/perks.ts。BL-022）。実績の ID は S3 以降で定義する */
 import type { UpgradeId } from '../content/upgrades.ts';
-export type { UpgradeId };
-export type PerkId = string;
+import type { PerkId } from '../content/perks.ts';
+export type { UpgradeId, PerkId };
 export type AchId = string;
 
 export interface RunState {
@@ -26,6 +26,11 @@ export interface RunState {
   depth: number;
   /** 周回の最深 */
   maxDepth: number;
+  /**
+   * 周回の始めの深さ（湯の華の木「近道の坑道」。ふだんは 0。BL-022）。この深さより 1m 以上掘り進めるまで転生できない
+   * （始めの深さだけで湯の華を得る転生の繰り返し・同じ確認の画面からの二重の転生を防ぐ。PR #75 のレビューの申し送り）
+   */
+  startDepth: number;
   /** 今のブロックに入ったダメージ */
   blockDmg: Num;
   /** 長押し・自動掘りの基本の打撃の端数（刻み幅によらないため） */
@@ -124,6 +129,7 @@ export function createRun(seed: number, terrain: TerrainId = INITIAL_TERRAIN): R
     coins: ZERO,
     depth: 0,
     maxDepth: 0,
+    startDepth: 0,
     blockDmg: ZERO,
     digCarry: 0,
     diggerCarry: 0,

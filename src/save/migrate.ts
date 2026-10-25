@@ -19,12 +19,14 @@ export function readGameSchema(game: Rec): number | null {
 export const gameSchemaOf = (game: Rec): number => readGameSchema(game) ?? 1;
 
 /**
- * v1 → v2（BL-021）: meta.lastPrestigeGain（前回の転生で得た湯の華）を足す。v1 は記録していないので 0
- * （＝2 周目以降の転生の推奨は最低値の 30 から。1.5 倍の基準は次の転生から効く）
+ * v1 → v2（BL-021・BL-022）: meta.lastPrestigeGain（前回の転生で得た湯の華）と run.startDepth（近道の坑道の始めの深さ）を足す。
+ * v1 はどちらも持たないので 0（＝2 周目以降の転生の推奨は最低値の 30 から。1.5 倍の基準は次の転生から効く。v1 に近道はない）。
+ * 版 2 は公開前なので、BL-022 の欄も版 2 に入れる（公開した版の形は変えない。arch §11 の版の履歴）
  */
 function v1ToV2(game: Rec): Rec {
   const meta = isRecord(game.meta) ? game.meta : {};
-  return { ...game, schema: 2, meta: { ...meta, lastPrestigeGain: toStr(ZERO) } };
+  const run = isRecord(game.run) ? game.run : {};
+  return { ...game, schema: 2, run: { ...run, startDepth: 0 }, meta: { ...meta, lastPrestigeGain: toStr(ZERO) } };
 }
 
 const STEPS: Readonly<Record<number, (g: Rec) => Rec>> = { 1: v1ToV2 };

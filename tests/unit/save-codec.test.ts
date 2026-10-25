@@ -680,17 +680,29 @@ describe('レビュー S-5: ID の配列の重複除去は O(n) で、長さに�
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(t.ms, `${t.method} で判定`).toBeLessThan(1000);
-    // 改良は知っている ID だけを残す（BL-018。TS-026-11）ので、u0… はすべて捨てられる。上限の確かめは perks・achievements で行う
+    // 改良・木は知っている ID だけを残す（BL-018・BL-022。TS-026-11）ので、u0… はすべて捨てられる。上限の確かめは achievements で行う
     expect(r.state.run.upgrades).toEqual([]);
-    expect(r.state.meta.perks).toHaveLength(MAX_ID_LIST);
+    expect(r.state.meta.perks).toEqual([]);
     expect(r.state.collection.achievements).toHaveLength(MAX_ID_LIST);
     expect(r.corrected).toEqual(expect.arrayContaining(['run.upgrades', 'meta.perks', 'collection.achievements']));
   });
   it('重複は 1 つにし、順番を保つ（上限より少なければ今までどおり）', () => {
-    const g = toSaveGame(createInitialState(1)) as unknown as { meta: Record<string, unknown> };
-    g.meta.perks = ['b', 'a', 'b', 'bad id!', 'c', 'a'];
+    const g = toSaveGame(createInitialState(1)) as unknown as { collection: Record<string, unknown> };
+    g.collection.achievements = ['b', 'a', 'b', 'bad id!', 'c', 'a'];
     const r = parseGame(g);
-    expect(r.ok && r.state.meta.perks).toEqual(['b', 'a', 'c']);
+    expect(r.ok && r.state.collection.achievements).toEqual(['b', 'a', 'c']);
+  });
+  it('BL-022 湯の華の木: 知っている ID だけを定義の順に残し、前提を満たさないノードは捨てる。使った分はコストの合計に直す。合計が累計を超えたら木を空にする', () => {
+    const g = toSaveGame(createInitialState(1)) as unknown as { meta: Record<string, unknown> & { yunohana: Record<string, unknown> } };
+    g.meta.perks = ['nightDig', 'sharpBlade', 'grip', 'famousSpring', 'sharpBlade', 'travelFunds'];
+    g.meta.yunohana = { lifetime: '1e2', spent: '7e0' };
+    const r = parseGame(g);
+    expect(r.ok && r.state.meta.perks).toEqual(['sharpBlade', 'nightDig', 'travelFunds']); // famousSpring は前提（大工の顔なじみ）なし
+    expect(r.ok && r.state.meta.yunohana.spent.toNumber()).toBe(18);
+    expect(r.ok && r.corrected).toEqual(expect.arrayContaining(['meta.perks', 'meta.yunohana.spent']));
+    g.meta.yunohana = { lifetime: '1e1', spent: '1.8e1' };
+    const poor = parseGame(g);
+    expect(poor.ok && [poor.state.meta.perks, poor.state.meta.yunohana.spent.toNumber()]).toEqual([[], 0]);
   });
   it('TS-026-11・TS-018-14: 改良は知らない ID（後半の grip・prototype の名前）を捨て、知っている ID は重複を 1 つにして順番を保つ。解放の条件を満たしていない購入済みの ID も残す（Q-39 (a)）', () => {
     const g = toSaveGame(createInitialState(1)) as unknown as { run: Record<string, unknown> };

@@ -9,6 +9,7 @@ import * as v from 'valibot';
 import { migrateGame, readGameSchema } from './migrate.ts';
 import { GUEST_BY_ID, type GuestId } from '../content/guests.ts';
 import { ORE_BY_ID, type OreId } from '../content/ores.ts';
+import { isPerkId, PERKS, type PerkId } from '../content/perks.ts';
 import { PARAMS } from '../content/params.ts';
 import { SPRING_BY_ID, type SpringId } from '../content/springs.ts';
 import { STRATA } from '../content/strata.ts';
@@ -117,6 +118,7 @@ const RunSchema = v.object({
   coins: field(dec),
   depth: field(int(0)),
   maxDepth: field(int(0)),
+  startDepth: field(int(0)),
   blockDmg: field(dec),
   digCarry: field(frac),
   diggerCarry: field(frac),
@@ -153,7 +155,7 @@ const RunSchema = v.object({
 
 const MetaSchema = v.object({
   yunohana: section({ lifetime: field(dec), spent: field(dec) }),
-  perks: field(idList<string>(isShapedId)),
+  perks: field(idList<PerkId>(isPerkId)),
   prestiges: field(int(0)),
   lastPrestigeGain: field(dec),
   terrainsUnlocked: field((x) => {
@@ -228,6 +230,20 @@ export function parseGame(input: unknown): ParseGameResult {
 
     // 形を越えた整合: 最深 ≧ 深さ、道具が 1 段目未満なら自動掘りはオフ、枠は湯船のレベルに合う数・発見済みの源泉だけ・重複なし
     run.maxDepth = Math.max(run.maxDepth, run.depth);
+    run.startDepth = Math.min(run.startDepth, run.maxDepth); // 近道の始めの深さは周回の最深を超えない（BL-022）
+    // 湯の華の木（BL-022）: 定義の順に並べ、前提を満たすものだけ残す（前提は定義で先に来る）。使った分は取ったノードのコストの合計。
+    // 合計が累計を超える（手で書き換えた）なら、木を空にする（使った分 0）
+    const owned = new Set(meta.perks);
+    const perks: PerkId[] = [];
+    for (const p of PERKS) if (owned.has(p.id) && (p.requiresAny.length === 0 || p.requiresAny.some((r) => perks.includes(r)))) perks.push(p.id);
+    const spent = perks.reduce((a, id) => a + (PERKS.find((p) => p.id === id)?.cost ?? 0), 0);
+    if (meta.yunohana.lifetime.gte(spent)) {
+      meta.perks = perks;
+      meta.yunohana = { ...meta.yunohana, spent: num(spent) };
+    } else {
+      meta.perks = [];
+      meta.yunohana = { ...meta.yunohana, spent: num(0) };
+    }
     if (run.drill.tool < 1) run.autoDig.on = false;
     const nSlots = slotsForBathLevel(run.bath.level);
     const slots: (SpringId | null)[] = [];

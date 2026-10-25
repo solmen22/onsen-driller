@@ -3,8 +3,9 @@ import { PARAMS } from '../content/params.ts';
 import type { SpringId } from '../content/springs.ts';
 import type { GameEvent } from './events.ts';
 import { slotsForBathLevel, yunohanaGain } from './formulas.ts';
+import { checkPerkSet, startRun, takePerk } from './perks.ts';
 import { applyManualRateChange, autoDigUnlocked, manualRate, setHold } from './input.ts';
-import { add, sub, toStr } from './num.ts';
+import { add, num, sub, toStr } from './num.ts';
 import { claimOffline, gainTickets, openVeinByAd, refundAdTicket, reserveVein, useBoost } from './rewards.ts';
 import { sfc32Next } from './rng.ts';
 import { buyQuote, isItemId, isQty, isSpringId, isUpgradeItem, type ItemId, type LevelItem, type Qty } from './selectors.ts';
@@ -17,7 +18,13 @@ export type Action =
   | { type: 'setAutoDig'; on: boolean }
   | { type: 'buy'; item: ItemId; qty: Qty }
   | { type: 'assignSlot'; slot: number; spring: SpringId | null }
-  | { type: 'prestige' }
+  /**
+   * 転生（BL-021）。perks を渡すと、木をその形に振り直す（無料。使った分が全部戻ってから選び直す。BL-022）。
+   * 渡さなければ今の木のまま。perks が正しくない（知らない ID・前提を満たさない・湯の華が足りない）なら invalid で、転生もしない
+   */
+  | { type: 'prestige'; perks?: readonly string[] }
+  /** 湯の華の木のノードを取る（BL-022） */
+  | { type: 'takePerk'; perk: string }
   /** R2 掘削ブースト（BL-058）。wallMs は app の壁時計（休みの起点。core は時刻を読まない）。'ad' は app が広告の成功を確かめてから */
   | { type: 'useBoost'; source: 'ad' | 'ticket'; wallMs: number }
   /** R3 ラッキー鉱脈を広告ですぐ開く（BL-058）。広告なしの道は 15 回のタップ（tap の中で開く） */
@@ -146,7 +153,15 @@ export function dispatch(s: GameState, input: unknown): ActionResult {
       // S1 は PoC の簡易版（地形・木は S3 の BL-021・022）
       const gain = yunohanaGain(s);
       if (!gain.gt(0)) return fail('locked');
+      // 木の振り直し（BL-022）: 転生で得る分を足した累計の範囲で選び直す。正しくなければ転生もしない（状態を変えない）
+      const respec = a.perks === undefined ? null : checkPerkSet(a.perks, add(s.meta.yunohana.lifetime, gain));
+      if (a.perks !== undefined && !respec) return fail('invalid');
+      const prevMaxDepth = s.run.maxDepth;
       s.meta.yunohana.lifetime = add(s.meta.yunohana.lifetime, gain);
+      if (respec) {
+        s.meta.perks = respec.perks;
+        s.meta.yunohana.spent = num(respec.cost);
+      }
       s.meta.prestiges += 1;
       s.meta.lastPrestigeGain = gain; // 次の周回の「転生の推奨」の基準（BL-021）
       // 掘削ブーストは周回をまたいで続く（効果の残りも休みも。転生で休みを消せないように。BL-058）。
@@ -158,10 +173,15 @@ export function dispatch(s: GameState, input: unknown): ActionResult {
       events.push({ type: 'PrestigeDone', gained: toStr(gain) }); // Decimal はイベントでも "<仮数>e<指数>"（arch §6-3。レビュー N-1）
       // 転生のたびに 2 枚。上限を超えた分はコインに替えず捨てる（確認の画面で前もって伝える。Q-47 (d)）
       gainTickets(s, 'prestige', PARAMS.tickets.prestige, events, { overflowToCoins: false });
+      // 木の周回の始めの効果（形見のツルハシ・近道の坑道・旅の支度金。BL-022）。転生のチケットの後に当てる（確認の画面で伝えた枚数を先に入れる。
+      // 近道で見つけた源泉でお客さんが初めて来たら、そのチケットはこの後に入る）
+      startRun(s, prevMaxDepth, events);
       // M1 の機会: 演出（BL-041）が入るまでは確定の直後（Q-47 (m)）。広告は app の ad-flow（BL-059）が受ける。保存は PrestigeDone で先に済む
       if (PARAMS.ads.midgame.onPrestige) events.push({ type: 'BreakOpportunity', placement: 'M1' });
       return { ok: true, events };
     }
+    case 'takePerk':
+      return done(takePerk(s, a.perk, events), events);
     case 'useBoost': {
       const w = a.wallMs;
       if (!isAdOrTicket(a.source) || typeof w !== 'number' || !Number.isFinite(w) || w < 0) return fail('invalid');

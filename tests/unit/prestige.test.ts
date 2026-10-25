@@ -108,30 +108,55 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
         const s: GameState = cloneState(g);
         // 生成器は実績・図鑑の来訪・木・解放済みの地形・前回の獲得も作る（レビュー PR #75 S-1。初期値のままでは消す回帰を見つけられない）
         s.run.maxDepth = Math.max(s.run.maxDepth, maxDepth);
+        s.run.startDepth = Math.min(s.run.startDepth, s.run.maxDepth - 1); // 始めの深さより掘り進めた周回（BL-022。そうでなければ locked）
         const before = cloneState(s);
         const gain = yunohanaGain(before);
         const r = dispatch(s, { type: 'prestige' });
         expect(r.ok).toBe(true);
-        // 周回: 新しい周回（シードは擬似乱数から。地形・掘削ブーストは引き継ぐ）
+        // 周回: 新しい周回（シードは擬似乱数から。地形・掘削ブーストは引き継ぐ）。木の周回の始めの効果（BL-022）は
+        // 旅の支度金（コイン）・形見のツルハシ（道具）・近道の坑道（深さと途中の源泉・帯・枠・お客さん）だけを変える
         const fresh = createRun(s.run.seed, before.run.terrain);
-        expect({ ...s.run, boost: fresh.boost }).toEqual(fresh);
+        const has = (id: string): boolean => before.meta.perks.includes(id as never);
+        const start = has('shortcut') ? Math.floor(before.run.maxDepth * 0.25) : 0;
+        // コイン: 旅の支度金なら 500。近道で見つけた源泉で初めて来たお客さんのチケットが上限であふれたら、その分（今までの規則）が足される
+        if (start === 0) expect(s.run.coins.toNumber()).toBe(has('travelFunds') ? 500 : 0);
+        else expect(s.run.coins.gte(has('travelFunds') ? 500 : 0)).toBe(true);
+        expect(s.run.drill).toEqual({ level: 0, tool: has('heirloomPick') ? 2 : 0 });
+        expect([s.run.depth, s.run.maxDepth, s.run.startDepth]).toEqual([start, start, start]);
+        const startFields = ['coins', 'drill', 'depth', 'maxDepth', 'startDepth', 'springs', 'bath', 'guests', 'stratumSeen', 'boost'] as const;
+        const omit = (x: Record<string, unknown>): Record<string, unknown> => Object.fromEntries(Object.entries(x).filter(([k]) => !(startFields as readonly string[]).includes(k)));
+        expect(omit({ ...s.run })).toEqual(omit({ ...fresh }));
+        if (start === 0) expect({ ...s.run, boost: fresh.boost, coins: fresh.coins, drill: fresh.drill }).toEqual(fresh);
         expect(s.run.boost).toEqual(before.run.boost);
         // 残るもの
-        expect(s.collection).toEqual(before.collection);
+        // 図鑑は残る（近道の坑道で途中の源泉を見つけたときだけ、見つけた源泉が増える）
+        // 近道で見つけた源泉で初めて来たお客さんは、図鑑の来訪に 0（来訪の時刻は app が後で付ける）で加わる
+        expect({ ...s.collection, springsSeen: null, guestsSeen: null }).toEqual({ ...before.collection, springsSeen: null, guestsSeen: null });
+        for (const [g, t] of Object.entries(s.collection.guestsSeen)) expect(before.collection.guestsSeen[g as never] ?? (start > 0 ? 0 : -1)).toBe(t);
+        expect(s.collection.springsSeen).toEqual(expect.arrayContaining(before.collection.springsSeen));
+        if (start === 0) expect(s.collection.springsSeen).toEqual(before.collection.springsSeen);
         expect(s.tutorial).toEqual(before.tutorial);
         expect(s.meta.perks).toEqual(before.meta.perks);
         expect(s.meta.terrainsUnlocked).toEqual(before.meta.terrainsUnlocked);
         expect(s.meta.endingSeen).toBe(before.meta.endingSeen);
         expect(s.meta.yunohana.spent).toEqual(before.meta.yunohana.spent);
         expect({ ...s.stats, totalCoins: null }).toEqual({ ...before.stats, totalCoins: null });
-        expect(s.stats.totalCoins.eq(before.stats.totalCoins)).toBe(true); // 上限を超えたチケットをコインに替えない（Q-47 (d)）
+        // 上限を超えた転生のチケットをコインに替えない（Q-47 (d)）。近道で初めて来たお客さんのチケットのあふれ（今までの規則）は除く
+        if (start === 0) expect(s.stats.totalCoins.eq(before.stats.totalCoins)).toBe(true);
+        else expect(s.stats.totalCoins.gte(before.stats.totalCoins)).toBe(true);
         expect(s.clock).toEqual(before.clock);
         // 増えるもの
         expect(s.meta.prestiges).toBe(before.meta.prestiges + 1);
         expect(s.meta.lastPrestigeGain.toString()).toBe(gain.toString()); // 前回の獲得は今回の獲得で上書き（生成器は 0 以外も作る）
         expect(s.meta.yunohana.lifetime.toString()).toBe(before.meta.yunohana.lifetime.add(gain).toString());
-        expect(s.meta.tickets).toBe(Math.min(PARAMS.tickets.max, before.meta.tickets + PARAMS.tickets.prestige));
-        expect(r.events.map((e) => e.type)).toEqual(['PrestigeDone', 'TicketGained', 'BreakOpportunity']);
+        const ticketsAfterPrestige = Math.min(PARAMS.tickets.max, before.meta.tickets + PARAMS.tickets.prestige);
+        const types = r.events.map((e) => e.type);
+        expect(types.slice(0, 2)).toEqual(['PrestigeDone', 'TicketGained']); // 転生のチケットが先（確認の画面で伝えた枚数）
+        expect(types.at(-1)).toBe('BreakOpportunity');
+        if (start === 0) {
+          expect(s.meta.tickets).toBe(ticketsAfterPrestige);
+          expect(types).toEqual(['PrestigeDone', 'TicketGained', 'BreakOpportunity']);
+        } else expect(s.meta.tickets).toBeGreaterThanOrEqual(ticketsAfterPrestige); // 近道の源泉で初めて来たお客さんの分
       }),
       fcRuns(150),
     );

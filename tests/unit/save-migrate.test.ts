@@ -19,6 +19,7 @@ const APP = '0.0.1';
 function v1Game(s: GameState): Rec & { meta: Rec } {
   const g = JSON.parse(JSON.stringify(toSaveGame(s))) as Rec & { meta: Rec };
   delete g.meta.lastPrestigeGain;
+  delete (g.run as Rec).startDepth; // v1 は近道の始めの深さも持たない（BL-022）
   g.schema = 1;
   return g;
 }
@@ -115,6 +116,7 @@ describe('BL-021 セーブの版 1 → 2 の移行', () => {
     fc.assert(
       fc.property(gameStateArb, (s) => {
         s.meta.lastPrestigeGain = num(0);
+        s.run.startDepth = 0; // v1 は近道の始めの深さを持たない（BL-022）
         const r = decodeSave(v1Envelope(s, 1));
         expect(r.ok).toBe(true);
         if (!r.ok) return;

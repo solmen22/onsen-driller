@@ -37,6 +37,7 @@ const envOf = (st: FakeStore, slot: 'a' | 'b'): Env => JSON.parse(st.map.get(SAV
 function v1Envelope(s: GameState, seq: number): string {
   const game = JSON.parse(JSON.stringify(toSaveGame(s))) as Record<string, unknown> & { meta: Record<string, unknown> };
   delete game.meta.lastPrestigeGain;
+  delete (game.run as Record<string, unknown>).startDepth; // v1 は近道の始めの深さも持たない（BL-022）
   game.schema = 1;
   return JSON.stringify({ schema: 1, seq, savedAt: 1_700_000_000_000, appVersion: '0.0.1-v1', checksum: checksumOf(game), game });
 }

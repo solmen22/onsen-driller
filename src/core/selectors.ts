@@ -13,6 +13,8 @@ import {
   blockValue,
   drillPower,
   modifiers,
+  oreChanceOf,
+  perkTotals,
   nextPumpMilestone,
   nextSlotLevel,
   offlineEfficiency,
@@ -79,13 +81,13 @@ export function seriesOf(s: Readonly<GameState>, item: LevelItem): Series | null
     case 'autoDigger':
       return { c0: PARAMS.autoDigger.c0, r: PARAMS.autoDigger.r, owned: s.run.autoDig.level };
     case 'bath':
-      return { c0: PARAMS.bath.c0, r: PARAMS.bath.r, owned: s.run.bath.level };
+      return { c0: PARAMS.bath.c0 * perkTotals(s).pumpBathCost, r: PARAMS.bath.r, owned: s.run.bath.level }; // 大工の顔なじみ ×0.9（BL-022）
     default: {
       const id = item.slice(5) as SpringId;
       const sp = s.run.springs[id];
       if (!sp) return null;
       const def = SPRING_BY_ID[id];
-      return { c0: def.pumpC0, r: def.pumpR, owned: sp.pump };
+      return { c0: def.pumpC0 * perkTotals(s).pumpBathCost, r: def.pumpR, owned: sp.pump };
     }
   }
 }
@@ -170,7 +172,7 @@ export function incomePerSec(s: Readonly<GameState>): Num {
   const hits = autoHitsPerSec(s, m);
   if (!(hits > 0)) return bath;
   const d = s.run.depth;
-  const p = d >= PARAMS.block.oreFreeDepth ? PARAMS.block.oreChance : 0;
+  const p = d >= PARAMS.block.oreFreeDepth ? oreChanceOf(s) : 0;
   const expected = add(mul(blockValue(s, d, false, m), 1 - p), mul(blockValue(s, d, true, m), p));
   const perHit = div(mul(drillPower(s, m), expected), blockHp(s, d, m));
   return add(bath, mul(perHit, hits));

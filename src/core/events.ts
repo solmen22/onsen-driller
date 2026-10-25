@@ -1,6 +1,7 @@
 // ドメインイベント（arch §6-3）。描画・音・UI・ポータルはこれだけを見て動く。値は JSON にできる形だけ（Decimal は文字列）
 import type { GuestId } from '../content/guests.ts';
 import type { SpringId } from '../content/springs.ts';
+import type { PerkId } from '../content/perks.ts';
 import type { OreId } from './state.ts';
 
 export type GameEvent =
@@ -17,6 +18,8 @@ export type GameEvent =
   | { type: 'SlotUnlocked'; n: number }
   | { type: 'Purchased'; item: string; qty: number }
   | { type: 'PrestigeDone'; gained: string }
+  /** 湯の華の木のノードを取った（BL-022。cost は払った湯の華） */
+  | { type: 'PerkTaken'; perk: PerkId; cost: number }
   // ---- ご褒美（BL-058。gdd §5-9） ----
   /**
    * 温泉チケットを得る出来事。n は実際に増えた枚数、overflow は上限で増やせなかった枚数（coins〔Decimal の文字列〕に替えた）。

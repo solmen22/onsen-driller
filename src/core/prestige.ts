@@ -1,7 +1,7 @@
 // 転生「新しい湯の里へ」の表示に使う値（gdd §5-8。BL-021）。転生タブ（T4。BL-045）と確認の画面が、何が得られて何が残るかを
 // 1 か所の計算で出せるようにする（UI で式を持たない。数値の調整は content/params.ts の prestige だけ）
 import { PARAMS } from '../content/params.ts';
-import { yunohanaGain } from './formulas.ts';
+import { yunohanaGain, yunohanaGainBase } from './formulas.ts';
 import { add, mul, ONE, type Num } from './num.ts';
 import type { GameState } from './state.ts';
 
@@ -18,13 +18,21 @@ export interface PrestigeView {
   readonly unlockDepth: number;
   /** 今転生できるか（この周回の最深が解放の深さ以上＝得られる湯の華が 1 以上） */
   readonly canPrestige: boolean;
-  /** 転生できるまで、この周回であと何 m 掘るか（転生できるなら 0。ボタンが使えないときの「あと 〇m」） */
+  /**
+   * 転生できるまで、この周回であと何 m 掘るか（転生できるなら 0。ボタンが使えないときの「あと 〇m」）。
+   * 近道の坑道で始めた周回は、始めの深さより 1m 以上掘るまで転生できない（BL-022）ので、その分も含む
+   */
   readonly metersToUnlock: number;
-  /** 今転生すると得られる湯の華（この周回の最深から。floor((最深 ÷ 50)²)） */
+  /** 今転生すると得られる湯の華（最終の量＝floor(基本 × 目利きの倍率)。Q-47 (h)） */
   readonly gain: Num;
+  /** 基本の量 floor((この周回の最深 ÷ 50)²) と、目利き（湯の華の目利き ×1.5）の上乗せ。gainBase + gainBonus = gain（「+13（目利き +4）」。Q-47 (h)） */
+  readonly gainBase: number;
+  readonly gainBonus: number;
+  /** 近道の坑道で始めた深さ（ふだんは 0。BL-022） */
+  readonly startDepth: number;
   /** この周回の最深 */
   readonly runMaxDepth: number;
-  /** 得られる湯の華が 1 つ増える深さ（「あと 〇m で +1」。まだ 0 なら解放の深さ） */
+  /** 基本の量が 1 つ増える深さ（「あと 〇m で +1」。まだ 0 なら解放の深さ。近道の周回で始めの深さのままなら始めの深さ + 1） */
   readonly nextGainDepth: number;
   /** 「あと 〇m で +1」の 〇（nextGainDepth − この周回の最深。UI で引き算しない。PR #75 のレビュー N-3） */
   readonly metersToNextGain: number;
@@ -83,13 +91,19 @@ export function prestigeView(s: Readonly<GameState>): PrestigeView {
   const lifetimeNow = s.meta.yunohana.lifetime;
   const lifetimeAfter = add(lifetimeNow, gain);
   const recommendAt = recommendThreshold(s);
-  const nextGainDepth = depthForGain(g + 1);
+  const base = yunohanaGainBase(s);
+  const r = s.run;
+  const holdAtStart = r.startDepth > 0 && r.maxDepth <= r.startDepth; // 近道の始めの深さのまま（BL-022）
+  const nextGainDepth = holdAtStart ? Math.max(r.startDepth + 1, P.unlockDepth) : depthForGain(base + 1);
   return {
     unlocked: s.stats.bestDepth >= P.unlockDepth,
     unlockDepth: P.unlockDepth,
     canPrestige: gain.gt(0),
-    metersToUnlock: Math.max(0, P.unlockDepth - s.run.maxDepth),
+    metersToUnlock: Math.max(0, P.unlockDepth - r.maxDepth, r.startDepth > 0 ? r.startDepth + 1 - r.maxDepth : 0),
     gain,
+    gainBase: base,
+    gainBonus: Math.max(0, g - base),
+    startDepth: r.startDepth,
     runMaxDepth: s.run.maxDepth,
     nextGainDepth,
     metersToNextGain: Math.max(0, nextGainDepth - s.run.maxDepth),
