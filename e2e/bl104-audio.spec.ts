@@ -10,9 +10,21 @@
 //   TS-104-01 は WebKit の動的 import の失敗の文にチャンクの名前が入らない（"Importing a module script failed."）ので、WebKit だけその文も認める。
 //   TS-104-02 は、音の出力の装置が開けない環境（CI の Linux の Firefox）では、ゲームと関係のない AudioContext も running にならないので、
 //   その対照で確かめたときだけ Firefox に限って対象外にする
+import type { Page } from '@playwright/test';
 import { test, expect, type Harness } from './support/fixtures.ts';
 import { bootGame, tapUnderground } from './support/boot.ts';
 import { hitsOf } from './support/hooks.ts';
+
+/**
+ * 手元の Windows の Playwright の WebKit には Web Audio がない（AudioContext・webkitAudioContext とも undefined。2026-10-26 に確認）。
+ * ゲームは「AudioContext がない環境は黙る」ので音のチャンクを取りに行かず、この 2 件は見るものがない。Windows でだけ対象外にする
+ * （CI の Linux の WebKit・実機の Safari・Chromium・Firefox には AudioContext があるので、CI で無いなら skip せずに赤にする）
+ */
+async function skipIfNoWebAudioOnWindows(page: Page, browserName: string): Promise<void> {
+  if (process.platform !== 'win32') return;
+  const missing = await page.evaluate(() => typeof window.AudioContext === 'undefined');
+  test.skip(missing, `${browserName} のこの環境（手元の Windows）には AudioContext がない`);
+}
 
 test.describe('BL-104 音', () => {
   test('TS-104-01 ZzFX のチャンクが届かない: errors() に 1 件、ページの例外 0 件、5 回叩いて打撃 5（BL-102 の結線の見張り。PR #8 のレビュー N-3）', async ({
@@ -20,6 +32,7 @@ test.describe('BL-104 音', () => {
     harness,
     browserName,
   }) => {
+    await skipIfNoWebAudioOnWindows(page, browserName);
     let aborted = 0;
     await page.route('**/assets/zzfx-*.js', (r) => {
       aborted++;
@@ -49,6 +62,7 @@ test.describe('BL-104 音', () => {
     harness,
     browserName,
   }) => {
+    await skipIfNoWebAudioOnWindows(page, browserName);
     // 対照: ゲームと関係のないページで、クリックのハンドラの中で AudioContext を作って resume する。これも running にならない環境は、
     // 音の出力の装置が開けない（CI の Linux の Firefox。cubeb が開けず resume() が解決しない。手元の Firefox で
     // media.cubeb.force_null_context を true にすると同じ形になる）。Firefox に限ってこのときだけ対象外にする（Chromium・WebKit 系は必須のまま）

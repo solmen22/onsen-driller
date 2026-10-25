@@ -10,7 +10,16 @@ import { bootCrazyGames, CG_BASE_URL } from './support/crazygames.ts';
 
 test.use({ baseURL: CG_BASE_URL });
 
-test('Q-45 @nightly 時間切れの後に遅れて始まり最後まで見た広告の報酬が 1 回付き、トーストで知らせ、シートが閉じる', async ({ page, harness }) => {
+/**
+ * 手元の Windows の Playwright の WebKit（webkit・mobile-safari）では対象外にする。仮想の時計を進める間の描画がとても重く、
+ * 1 秒の仮想の時間に約 3 秒かかり（webkit）、mobile-safari は 180 秒でも終わらなかった（2026-10-26 に確認。待ちの期待どおりに
+ * 30 秒で ad-unavailable は出ている）。CI の毎晩（Linux）の webkit・mobile-safari では 54〜59.6 秒で通るので、そちらで見る
+ */
+const skipIfWebKitOnWindows = (browserName: string): void =>
+  test.skip(process.platform === 'win32' && browserName === 'webkit', '手元の Windows の WebKit は描画が重く、仮想の時計 35 秒が上限に収まらない（CI の毎晩で見る）');
+
+test('Q-45 @nightly 時間切れの後に遅れて始まり最後まで見た広告の報酬が 1 回付き、トーストで知らせ、シートが閉じる', async ({ page, harness, browserName }) => {
+  skipIfWebKitOnWindows(browserName);
   test.setTimeout(90_000);
   const g = await bootCrazyGames(page, harness, {
     viewport: { width: 390, height: 844 },
@@ -42,7 +51,8 @@ test('Q-45 @nightly 時間切れの後に遅れて始まり最後まで見た広
   expect((await g.calls()).filter((c) => c.name === 'lateReward')).toEqual([{ name: 'lateReward', arg: 'R2' }]);
 });
 
-test('決定 0010 の 11 @nightly 時間切れの後にチケットでブーストを使い、遅れた広告を見終えたら、払ったチケットが 1 枚戻る（ブーストは 1 回のまま）', async ({ page, harness }) => {
+test('決定 0010 の 11 @nightly 時間切れの後にチケットでブーストを使い、遅れた広告を見終えたら、払ったチケットが 1 枚戻る（ブーストは 1 回のまま）', async ({ page, harness, browserName }) => {
+  skipIfWebKitOnWindows(browserName);
   test.setTimeout(90_000);
   const g = await bootCrazyGames(page, harness, {
     viewport: { width: 390, height: 844 },
