@@ -5,6 +5,8 @@
 //   ③ empty: 最深 30m → 一覧なし・upgrades-empty（最初の条件）と冒頭の説明
 // - 確かめること: T3 の文字が切れない（scrollWidth ≤ clientWidth）・800×450 で文字が 12px 以上（TS-042-05 の測り方）・
 //   390×844 で行（押せるもの）が 44px 以上（TS-042-08）・行がパネルの幅からはみ出さない・data-testid が重複しない（TS-042-15）
+// - TS-044-21（PR #72 の再レビューの Must・S-4）: T3 を開いたまま上の買える行を 2 回押しても、行は指の下で動かず（説明も消えない）、
+//   2 回目は購入済みの同じ行に当たって下の改良を買わない。jsdom にはレイアウトがないので e2e で位置（getBoundingClientRect・elementFromPoint）を見る
 // - 並び・状態・購入の一致は integration（tests/integration/ui-upgrades.test.ts）。改良を買って効果が乗る流れは E3 の TS-E3-06（BL-074）
 import type { Page } from '@playwright/test';
 import { test, expect } from './support/fixtures.ts';
@@ -139,4 +141,91 @@ for (const screen of ['full', 'next', 'empty'] as const) for (const vp of [
       expect(await g.errors()).toEqual([]);
     });
   }
+}
+
+// TS-044-21: 買う前後で行の位置が変わらない（H-1 の案 a ＋ Q-51 の CEO 決定: 説明の出し分けは T3 を開いた時点の値）
+// - first: この周回で 1 つも買っていない（説明あり）。最深 52m で振動ビット・選鉱ざるの 2 行が買える
+// - second: 1 つ買ってある（説明なし）。最深 75m で、上の組に買える行が 2 つ以上ある
+async function prepareTap(g: Hooks, variant: 'first' | 'second'): Promise<void> {
+  await g.pause();
+  const s = await g.getState();
+  const r = s.run as unknown as { coins: string; depth: number; maxDepth: number; upgrades: string[] };
+  r.depth = variant === 'first' ? 52 : 75;
+  r.maxDepth = r.depth;
+  r.upgrades = variant === 'first' ? [] : ['vibroBit'];
+  r.coins = '1e6';
+  await g.setState(s);
+}
+
+interface RowBox {
+  id: string;
+  state: string;
+  x: number;
+  y: number;
+}
+
+async function availableRows(page: Page): Promise<RowBox[]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('[data-testid="upgrades-available"] button[data-testid^="buy-upgrade-"]')].map((b) => {
+      const r = b.getBoundingClientRect();
+      return { id: b.dataset['testid']!, state: b.dataset['state']!, x: r.x, y: r.y };
+    }),
+  );
+}
+
+/** 画面の点の下にある改良の行（なければ null） */
+async function rowAt(page: Page, x: number, y: number): Promise<string | null> {
+  return page.evaluate(([px, py]) => document.elementFromPoint(px!, py!)?.closest<HTMLElement>('button[data-testid^="buy-upgrade-"]')?.dataset['testid'] ?? null, [x, y]);
+}
+
+for (const variant of ['first', 'second'] as const) for (const vp of [
+  { name: '800×450（横）', width: 800, height: 450, portrait: false },
+  { name: '390×844（縦）', width: 390, height: 844, portrait: true },
+]) {
+  test(`TS-044-21 ${variant}・${vp.name}: T3 を開いたまま上の買える行を 2 回押しても、行は動かず、2 回目は購入済みの同じ行に当たって下の改良を買わない`, async ({ harness }) => {
+    const page = await harness.newPage({ locale: 'ja-JP', viewport: { width: vp.width, height: vp.height }, hasTouch: vp.portrait });
+    const g = await bootGame(page);
+    await prepareTap(g, variant);
+    await uiTick(page);
+    await page.getByTestId('tab-3').click();
+    await uiTick(page);
+    const intro = page.getByTestId('upgrades-intro');
+    if (variant === 'first') await expect(intro).toBeVisible();
+    else await expect(intro).toHaveCount(0);
+    const before = await availableRows(page);
+    expect(before.length, '買える行が 2 つ以上').toBeGreaterThanOrEqual(2);
+    expect(before.slice(0, 2).map((r) => r.state)).toEqual(['affordable', 'affordable']);
+    const target = before[0]!;
+    const box = (await page.getByTestId(target.id).boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    expect(await rowAt(page, x, y)).toBe(target.id);
+    const upgradesNow = async (): Promise<string[]> => ((await g.getState()).run as unknown as { upgrades: string[] }).upgrades;
+    const bought0 = await upgradesNow();
+    // 増えた改良を data-testid の形（buy-upgrade-<kebab>。buyTestId）で返す
+    const addedRows = async (): Promise<string[]> =>
+      (await upgradesNow()).filter((u) => !bought0.includes(u)).map((u) => `buy-upgrade-${u.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`);
+    const tap = async (): Promise<void> => {
+      if (vp.portrait) await page.touchscreen.tap(x, y);
+      else await page.mouse.click(x, y);
+      await uiTick(page);
+    };
+    await tap();
+    expect(await addedRows()).toEqual([target.id]);
+    // 1 回目の後: どの行も同じ位置（説明も残る）。押した点の下はまだ同じ行で、購入済み
+    const after = await availableRows(page);
+    expect(after.map((r) => r.id)).toEqual(before.map((r) => r.id));
+    const moved = after
+      .map((r, i) => ({ r, b: before[i]! }))
+      .filter(({ r, b }) => Math.abs(r.x - b.x) > 0.5 || Math.abs(r.y - b.y) > 0.5)
+      .map(({ r, b }) => `${r.id} (${b.x},${b.y}) -> (${r.x},${r.y})`);
+    expect(moved, '買った後も行が指の下で動かない').toEqual([]);
+    if (variant === 'first') await expect(intro).toBeVisible();
+    expect(await rowAt(page, x, y)).toBe(target.id);
+    expect(after[0]!.state).toBe('maxed');
+    // 2 回目: 購入済みの同じ行に当たり、何も買わない
+    await tap();
+    expect(await addedRows()).toEqual([target.id]);
+    expect(await g.errors()).toEqual([]);
+  });
 }

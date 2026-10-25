@@ -4,7 +4,9 @@
 // - UI は状態を読むだけで、変えるのは BuyButton の store.dispatch（buy）だけ（TS-044-18）
 // - 開いている間は、買った行をその位置のまま「購入済み」にする（組の入れ替えは次に T3 を開いたとき。連打で、指の下に来た別の改良を
 //   買わないように。CEO 決定 2026-10-18〔PR #72 のレビューの H-1 の案 a〕）。行が動くのは解放のときだけ
-// - 冒頭の説明は、まだ 1 つも買っていないとき（解放 0 のときを含む）だけ出す（H-2）
+// - 冒頭の説明は、T3 を開いた時点でまだ 1 つも買っていないとき（解放 0 のときを含む）だけ出す（H-2）。開いている間に最初の 1 つを
+//   買っても消さない（消すと下の行が上に詰まり、2 回目のタップが次の改良に当たる。PR #72 の再レビューの Must・Q-51 の CEO 決定）。
+//   消えるのは次に T3 を開いたとき
 import { useRef } from 'preact/hooks';
 import { UPGRADES, type UpgradeId } from '../../content/upgrades.ts';
 import { t, type Lang } from '../../i18n/index.ts';
@@ -41,7 +43,7 @@ export function UpgradesPanel({ lang }: { lang: Lang }) {
   const empty = shownAvailable.length === 0 && shownBought.length === 0;
   return (
     <div class="list" data-testid="panel-upgrades" data-state={empty ? 'empty' : 'open'}>
-      {v.bought.length === 0 && (
+      {boughtAtOpen.current.size === 0 && (
         <p class="note upgrades-intro" data-testid="upgrades-intro">
           {t('upgrades.intro')}
         </p>

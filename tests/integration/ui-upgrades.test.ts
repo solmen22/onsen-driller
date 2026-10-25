@@ -79,12 +79,16 @@ describe('T3 の並び（TS-044-12〜15）', () => {
     m = mount({ state: s });
     m.click('tab-3');
     expect(rowIds(m.get('upgrades-available'))).toEqual([id('vibroBit'), id('sieve')]);
-    const first = m.get('upgrades-available').querySelector<HTMLElement>('button[data-testid^="buy-upgrade-"]')!;
-    first.click();
-    m.notify();
+    const firstRow = (): HTMLElement => m!.get('upgrades-available').querySelector<HTMLElement>('button[data-testid^="buy-upgrade-"]')!;
+    // 押して描画まで流す（m.run の act。素の click と notify だけでは、2 回目の前に描画が反映されない。PR #72 の再レビューの S-4）
+    m.run(() => firstRow().click());
+    expect(m.store.state.run.upgrades).toEqual(['vibroBit']);
+    // 2 回目の前: 1 行目はまだ振動ビットで、購入済み（押せない）。下の選鉱ざるは 2 行目のまま
+    expect(firstRow().dataset['testid']).toBe(id('vibroBit'));
+    expect(firstRow().dataset['state']).toBe('maxed');
+    expect(rowIds(m.get('upgrades-available'))).toEqual([id('vibroBit'), id('sieve')]);
     // 2 回目も同じ位置（1 行目）を押す
-    m.get('upgrades-available').querySelector<HTMLElement>('button[data-testid^="buy-upgrade-"]')!.click();
-    m.notify();
+    m.run(() => firstRow().click());
     expect(m.store.state.run.upgrades).toEqual(['vibroBit']);
     expect(m.get(id('sieve')).dataset['state']).toBe('affordable');
   });
@@ -239,7 +243,7 @@ describe('ひと目で分かる行（PR #62 のレビューの H-2・H-3）', ()
     expect(m.get('upgrades-next').textContent).toContain('硫黄泉のポンプ Lv 3/25 で解放');
   });
 
-  it('H-2: 冒頭の説明は、まだ 1 つも買っていないとき（解放 0 を含む）だけ出す', () => {
+  it('TS-044-20（H-2・Q-51）: 冒頭の説明は、T3 を開いた時点でまだ 1 つも買っていないとき（解放 0 を含む）だけ出す。開いている間に最初の 1 つを買っても消さず、次に開いたときに消す', () => {
     m = mount({ state: stateWith({ depth: 10 }) });
     m.click('tab-3');
     expect(m.q('upgrades-intro')).not.toBeNull();
@@ -251,6 +255,17 @@ describe('ひと目で分かる行（PR #62 のレビューの H-2・H-3）', ()
     const s = stateWith({ depth: 60 });
     s.run.upgrades = ['vibroBit'];
     m = mount({ state: s });
+    m.click('tab-3');
+    expect(m.q('upgrades-intro')).toBeNull();
+    m.unmount();
+    // 開いたまま最初の 1 つを買う → 説明は残る（行を上に詰めない。PR #72 の再レビューの Must）→ 開き直すと消える
+    m = mount({ state: stateWith({ depth: 60, coins: VIBRO }) });
+    m.click('tab-3');
+    expect(m.q('upgrades-intro')).not.toBeNull();
+    m.click(id('vibroBit'));
+    expect(m.store.state.run.upgrades).toEqual(['vibroBit']);
+    expect(m.q('upgrades-intro')).not.toBeNull();
+    m.click('tab-1');
     m.click('tab-3');
     expect(m.q('upgrades-intro')).toBeNull();
   });
