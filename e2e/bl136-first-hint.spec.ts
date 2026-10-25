@@ -1,6 +1,11 @@
 // E2E: BL-136（PR #55 の再レビューの Nit 1）— 狭い画面（320×568）で、最初の 1 打の前の案内（.hint）が細い柱にならない
-// - 狭いときだけ、案内をボタン（自動掘り・btn-boost）の上の行に出す（.stage-actions を折り返す。しきい値は中の幅 22.5rem）。
-//   狭い: 320×568・360×640・568×320（横向き）。広い: 375×667・390×844・800×450（横向き）は同じ行のまま（PR #69 のレビュー N-1・N-2）
+// - 狭いときだけ、案内をボタン（自動掘り・btn-boost）の上の行に出す（.stage-actions を折り返す。しきい値は中の幅 25rem〔400px〕）。
+//   狭い: 320×568・360×640・375×667・390×844・402×874・568×320（横向き）。広い: 414×896・800×450（横向き）は同じ行のまま（PR #69 のレビュー N-1・N-2）
+//   （375×667 は前は広い組だったが、案内の幅が 123px しかなく WebKit・Firefox で 3 行になっていた。nightly 10/19〜。
+//   ja の案内は句の中で折らないので、同じ行で 2 行に収まるのは中の幅 395px 以上。global.css の .hint）
+// - 句の中で折れない（ja は「タップで掘る／（長押しで／掘り続ける）」、en は「Tap to dig／(hold to keep digging)」の区切りでだけ折る。
+//   「長／押し」や「(hold to／keep digging)」のように句の途中で折れない。Q-52 (b)）
+// - シナリオ: org/30_quality/test-designer/scenarios/BL-136_first-hint.md の TS-136-01〜04（狭い組 01・広い組 02・句 03・ボタンが跳ねない 04）
 // - ボタンの位置（x・y）は案内の有無で変わらない（最初の 1 打で案内が消えても跳ねない。PR #55 のレビュー S-2 を崩さない）
 // - 測る: 案内の幅・行数、2 つのボタンの x・y（案内あり → 1 打の後の案内なし）。ja・en
 import type { Page } from '@playwright/test';
@@ -11,7 +16,8 @@ import { bootGame } from './support/boot.ts';
 const settle = (page: Page) => page.clock.runFor(250);
 
 interface Shot {
-  hint: null | { w: number; lines: number; bottom: number };
+  /** split: 句（.hint-phrase）が 2 行にまたがったか */
+  hint: null | { w: number; lines: number; bottom: number; split: boolean; phrases: number };
   auto: { x: number; y: number };
   boost: { x: number; y: number; top: number };
   /** .stage-actions の中の幅（padding を除く） */
@@ -27,11 +33,20 @@ const measure = (page: Page): Promise<Shot> =>
     let hint: Shot['hint'] = null;
     if (h) {
       const r = h.getBoundingClientRect();
-      // 行数は文字の矩形の上端の数（line-height が normal でも数えられる）
-      const range = document.createRange();
-      range.selectNodeContents(h);
-      const lines = new Set([...range.getClientRects()].map((x) => Math.round(x.top))).size;
-      hint = { w: Math.round(r.width), lines, bottom: Math.round(r.bottom) };
+      // 行数は文字の矩形の上端の数（line-height が normal でも数えられる）。大きさ 0 の矩形（Firefox は <wbr> の分も返す）は数えない
+      const tops = (el: Node) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return new Set([...range.getClientRects()].filter((x) => x.width > 0 && x.height > 0).map((x) => Math.round(x.top))).size;
+      };
+      const phrases = [...h.querySelectorAll<HTMLElement>('.hint-phrase')];
+      hint = {
+        w: Math.round(r.width),
+        lines: tops(h),
+        bottom: Math.round(r.bottom),
+        split: phrases.some((p) => tops(p) > 1),
+        phrases: phrases.length,
+      };
     }
     const sa = document.querySelector<HTMLElement>('.stage-actions')!;
     const cs = getComputedStyle(sa);
@@ -50,13 +65,16 @@ for (const locale of ['ja-JP', 'en-US'] as const) {
 
     for (const vp of [
       { width: 320, height: 568, narrow: true },
-      { width: 360, height: 640, narrow: true }, // しきい値（22.5rem）のすぐ内側（中の幅 348px。PR #69 のレビュー N-1）
+      { width: 360, height: 640, narrow: true }, // 中の幅 348px（PR #69 のレビュー N-1）
+      { width: 375, height: 667, narrow: true }, // 中の幅 363px（前は広い組で、WebKit・Firefox で 3 行。nightly 10/19〜）
+      { width: 390, height: 844, narrow: true },
+      { width: 402, height: 874, narrow: true }, // しきい値（25rem）のすぐ内側（中の幅 390px）
       { width: 568, height: 320, narrow: true }, // 小さい横向き（メディアクエリでなく中の幅で決まる。N-2）
-      { width: 375, height: 667, narrow: false }, // しきい値のすぐ外側（中の幅 363px）
-      { width: 390, height: 844, narrow: false },
+      { width: 414, height: 896, narrow: false }, // しきい値のすぐ外側（中の幅 402px。案内の幅 162px で 2 行）
       { width: 800, height: 450, narrow: false }, // 横向き（N-2）
     ]) {
-      test(`${vp.width}×${vp.height}: 案内が細い柱にならず、ボタンの位置は案内の有無で変わらない（${locale}）`, async ({ page }) => {
+      const ids = vp.narrow ? 'TS-136-01・03・04' : 'TS-136-02・03・04';
+      test(`${ids} ${vp.width}×${vp.height}: 案内が細い柱にならず、句の途中で折れず、ボタンの位置は案内の有無で変わらない（${locale}）`, async ({ page }) => {
         const g = await bootGame(page, { viewport: { width: vp.width, height: vp.height } });
         await settle(page);
         const before = await measure(page);
@@ -72,12 +90,14 @@ for (const locale of ['ja-JP', 'en-US'] as const) {
           // ボタンの上の行に出す: 案内の下端がボタンの上端より上、幅は行いっぱい
           expect(hint.bottom, '案内はボタンの上の行').toBeLessThanOrEqual(before.boost.top);
           expect(hint.w, '案内の幅は行いっぱい（細い柱にならない）').toBeGreaterThanOrEqual(before.row - 1);
-          expect(before.row, '狭い組は中の幅がしきい値（360px）未満').toBeLessThan(360);
+          expect(before.row, '狭い組は中の幅がしきい値（400px）未満').toBeLessThan(400);
         } else {
-          expect(before.row, '広い組は中の幅がしきい値（360px）以上').toBeGreaterThanOrEqual(360);
+          expect(before.row, '広い組は中の幅がしきい値（400px）以上').toBeGreaterThanOrEqual(400);
           expect(hint.bottom, '広い画面ではボタンと同じ行').toBeGreaterThan(before.boost.top);
         }
-        expect(hint.lines, '案内は 2 行まで（3 行だと句の途中で折れる。PR #69 のレビュー N-1）').toBeLessThanOrEqual(2);
+        expect(hint.lines, '案内は 2 行まで（PR #69 のレビュー N-1）').toBeLessThanOrEqual(2);
+        expect(hint.phrases, '句ごとの span（ja 3 つ・en 2 つ）').toBe(locale === 'ja-JP' ? 3 : 2);
+        expect(hint.split, '句の途中で折れない（「長／押し」など）').toBe(false);
         expect(after.auto, '自動掘りのボタンが跳ねない').toEqual(before.auto);
         expect({ x: after.boost.x, y: after.boost.y }, 'btn-boost が跳ねない').toEqual({ x: before.boost.x, y: before.boost.y });
       });

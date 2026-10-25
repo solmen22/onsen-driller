@@ -6,11 +6,33 @@
 //   active の倍率は「×2」だけ。自動掘削機を持っているときだけ、名前（掘削機）で ×4 を足す（PR #55 のレビュー S-1）
 // - btn-boost の幅は CSS（global.css の .act-boost）で決める（PR #55 のレビュー S-2）
 // - 最初の 1 打の前だけ「タップで掘る」の案内を出す（押下はキャンバスに通す）
+//   文に U+200B（ゼロ幅スペース）があれば、そこで区切り、区切りの中では改行しない（「長押し」の中で改行しない。
+//   ja は 3 つ、en は 2 つに区切る〔Q-52 (b)〕）。区切りの間にだけ <wbr>（改行してよい所）を置く。CSS は global.css の .hint-phrase
 // ボタンはステージ（#stage）の子ではないので、押してもステージの pointerdown（掘削）にはならない
+import { Fragment } from 'preact';
 import { autoDigState, boostMult } from '../../core/index.ts';
 import { t } from '../../i18n/index.ts';
 import { useGame, useUi } from '../hooks/use-game.ts';
 import { boostView, type BoostView } from '../overlay/boost-view.ts';
+
+/** 区切り（i18n の文の中のゼロ幅スペース） */
+const PHRASE_BREAK = '\u200b';
+
+/** 最初の案内の中身。区切りがあれば、区切りごとに改行しない span にする（BL-136 の後続。nightly の 375×667） */
+function HintText({ text }: { text: string }) {
+  const phrases = text.split(PHRASE_BREAK);
+  if (phrases.length === 1) return <>{text}</>;
+  return (
+    <>
+      {phrases.map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 && <wbr />}
+          <span class="hint-phrase">{p}</span>
+        </Fragment>
+      ))}
+    </>
+  );
+}
 
 /** ブーストのボタンの状態の文字（色だけで伝えない） */
 function boostText(b: BoostView, wired: boolean, hasDigger: boolean): string {
@@ -47,7 +69,11 @@ export function StageActions({ onBoost }: { onBoost?: () => void }) {
   const locked = v.dig === 'locked';
   return (
     <div class="stage-actions">
-      {!v.started && <p class="hint">{t('hud.tapHint')}</p>}
+      {!v.started && (
+        <p class="hint">
+          <HintText text={t('hud.tapHint')} />
+        </p>
+      )}
       <button
         class="act act-auto"
         type="button"
