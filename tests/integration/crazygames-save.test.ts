@@ -133,7 +133,7 @@ describe('moveLegacySlots（以前の保存先 → 今の保存先）', () => {
   });
 });
 
-describe('「ない」を undefined で返す保存先（A-N1）', () => {
+describe('TS-057-11 「ない」を undefined で返す保存先（A-N1）', () => {
   it('空の枠は empty（unreadable ではない）。新しいプレイヤーも保存できる', () => {
     const store = new FakeStore('sdk', true);
     const slots = new SaveSlots(store, { appVersion: APP, now: () => 1 });

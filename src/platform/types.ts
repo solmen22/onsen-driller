@@ -23,6 +23,12 @@ export interface KeyValueStore {
   readonly writeProbe?: 'ok' | 'failed';
 }
 
+/** 遅れて見終わった広告の報酬（Q-45）。id は要求ごとに違う（同じ id は 2 回目から無視する） */
+export interface LateReward {
+  id: number;
+  placement: RewardPlacement;
+}
+
 export interface PlatformCall {
   name: string;
   arg?: string;
@@ -54,6 +60,13 @@ export interface Platform {
      * SDK から終了も失敗も来なければ、AD_END_TIMEOUT_MS でアダプタが false を出す（Q-35 (d)）
      */
     onPlaying(cb: (playing: boolean) => void): void;
+    /**
+     * 開始の時間切れ（AD_START_TIMEOUT_MS）で showRewarded が failed を返した後に、**遅れて始まり最後まで見られた**リワード広告の
+     * 報酬を知らせる（Q-45。決定 0010 の 5: 見終えたのに何ももらえない体験を避ける）。1 つの要求につき最大 1 回。
+     * ミッドゲーム・開始の前の失敗・始まった後の失敗・再生の時間切れ（AD_END_TIMEOUT_MS）では呼ばない。
+     * 時間切れのない場合（web・itch・dev・Poki〔runBreak は BL-060〕）は呼ばない
+     */
+    onLateReward(cb: (r: LateReward) => void): void;
   };
   storage: KeyValueStore;
   /**
@@ -73,7 +86,8 @@ export const STORAGE_PREFIX = 'onsen-driller:';
 export const INIT_TIMEOUT_MS = 5_000;
 /**
  * 広告の要求から開始（CrazyGames の adStarted）まで待つ上限（Q-35 (d)。arch §12-3）。過ぎたら結果を failed で返す
- * （ボタンのスピナー・ミッドゲームの待ちを終わらせる）。その後に遅れて始まったら、再生中はゲームを止め、終わったら戻す（報酬はなし）
+ * （ボタンのスピナー・ミッドゲームの待ちを終わらせる）。その後に遅れて始まったら、再生中はゲームを止め、終わったら戻す。
+ * リワード広告が最後まで見られたら、報酬は onLateReward で 1 回だけ知らせる（Q-45。ミッドゲームは報酬なし）
  */
 export const AD_START_TIMEOUT_MS = 30_000;
 /**

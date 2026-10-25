@@ -88,6 +88,7 @@ export function createPokiPlatform(opts: PokiOptions): Platform {
         await runBreak((onStart) => s.commercialBreak(onStart));
       },
       onPlaying: (cb) => playingL.add(cb),
+      onLateReward: () => {}, // 開始の時間切れは S4 の BL-060（runBreak）。そのとき Q-45 と同じ形にする
     },
     storage,
     locale: browserLocale,

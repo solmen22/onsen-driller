@@ -7,7 +7,7 @@ import { crazyMock } from '../../e2e/mocks/crazygames.ts';
 import { pokiMock } from '../../e2e/mocks/poki.ts';
 
 describe('web・itch', () => {
-  it('SDK を呼ばず、動画は出さない', async () => {
+  it('TS-056-02 SDK を呼ばず、動画は出さない', async () => {
     const p = createWebPlatform('itch');
     await p.init();
     expect(p.ads.rewardedAvailable()).toBe(false);
@@ -98,7 +98,7 @@ describe('crazygames', () => {
     expect(p.ads.rewardedAvailable()).toBe(false);
   });
 
-  it('init の失敗・タイムアウトでもゲームは続く', async () => {
+  it('TS-056-05 init の失敗・タイムアウトでもゲームは続く', async () => {
     const a = crazyMock();
     a.initBehavior = 'reject';
     const pa = createCrazyGamesPlatform({ getSdk: () => a, adsEnabled: true });

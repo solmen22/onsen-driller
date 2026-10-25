@@ -394,7 +394,7 @@ describe('止まった音（BL-104）: running のときだけ鳴らし、次の
     return { sfx, calls, ctx, failures, mode };
   }
 
-  it('止まっている間（suspended）は playHit・playBreak を 50 回ずつ呼んでも音を作らない。戻った後は、戻った後に呼んだ分だけ鳴る', async () => {
+  it('TS-104-03 止まっている間（suspended）は playHit・playBreak を 50 回ずつ呼んでも音を作らない。戻った後は、戻った後に呼んだ分だけ鳴る', async () => {
     const { sfx, calls, ctx } = await running();
     ctx.state = 'suspended'; // iOS のバックグラウンドからの復帰・電話の後など
     for (let i = 0; i < 50; i++) {
@@ -410,7 +410,7 @@ describe('止まった音（BL-104）: running のときだけ鳴らし、次の
     expect(calls.played).toBe(1);
   });
 
-  it('入力のハンドラの中で同期に resume() を呼ぶ（iOS の interrupted からも）。running の間は入力ごとに呼ばない', async () => {
+  it('TS-104-04 入力のハンドラの中で同期に resume() を呼ぶ（iOS の interrupted からも）。running の間は入力ごとに呼ばない', async () => {
     const { sfx, calls, ctx } = await running();
     expect(calls.resumed, '最初の入力の resume').toBe(1);
     for (let i = 0; i < 5; i++) sfx.resumeAudio();
@@ -429,7 +429,7 @@ describe('止まった音（BL-104）: running のときだけ鳴らし、次の
     expect(calls.played).toBe(2);
   });
 
-  it('読み込む前・AudioContext がない環境では何もしない（例外なし）', async () => {
+  it('TS-104-06 読み込む前・AudioContext がない環境では何もしない（例外なし）', async () => {
     const calls = stubWebAudio();
     let sfx = await freshSfx();
     expect(() => sfx.resumeAudio()).not.toThrow();
@@ -440,7 +440,7 @@ describe('止まった音（BL-104）: running のときだけ鳴らし、次の
     expect(() => sfx.resumeAudio()).not.toThrow();
   });
 
-  it('resume() が拒否しても外に出さず、記録は最初の 1 回だけ。ZzFX は残り、次に戻れば鳴る（BL-102 の「拒否で捨てる」を見直した）', async () => {
+  it('TS-104-05 resume() が拒否しても外に出さず、記録は最初の 1 回だけ。ZzFX は残り、次に戻れば鳴る（BL-102 の「拒否で捨てる」を見直した）', async () => {
     const { sfx, calls, ctx, failures, mode } = await running();
     ctx.state = 'suspended';
     mode.next = 'reject';
@@ -459,7 +459,7 @@ describe('止まった音（BL-104）: running のときだけ鳴らし、次の
     expect(failures).toHaveLength(1);
   });
 
-  it('最初の resume が拒否しても ZzFX は残し、次の入力で戻れば鳴る', async () => {
+  it('TS-104-05 最初の resume が拒否しても ZzFX は残し、次の入力で戻れば鳴る', async () => {
     const mode: { next: 'ok' | 'reject' } = { next: 'reject' };
     const calls = stubWebAudio(() => (mode.next === 'ok' ? Promise.resolve() : Promise.reject(new Error('NotAllowedError'))));
     const sfx = await freshSfx();
@@ -475,7 +475,7 @@ describe('止まった音（BL-104）: running のときだけ鳴らし、次の
     expect(calls.played).toBe(1);
   });
 
-  it('閉じた文脈（closed）は戻せないので resume を呼ばず、音も作らない。resume が閉じた文脈で拒否したら ZzFX を捨てる', async () => {
+  it('TS-104-05 閉じた文脈（closed）は戻せないので resume を呼ばず、音も作らない。resume が閉じた文脈で拒否したら ZzFX を捨てる', async () => {
     const { sfx, calls, ctx } = await running();
     ctx.state = 'closed';
     sfx.resumeAudio();

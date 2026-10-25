@@ -47,7 +47,26 @@ export interface RunState {
    * ラッキー鉱脈（S2。BL-058）。時刻はすべてロジックの時間（clock.playedMs）。nextAtMs は次の出現の時刻（0 は未予約で、次のステップで予約する）。
    * active は出ている鉱脈（depth は出たときの深さ、hits はタップの打撃の数、expiresAtMs で消える）
    */
-  vein: { nextAtMs: number; active: null | { depth: number; hits: number; expiresAtMs: number } };
+  vein: {
+    nextAtMs: number;
+    active: null | { depth: number; hits: number; expiresAtMs: number };
+    /**
+     * 動画の要求の予約（PR #55 のレビュー S-5。BL-059）。R3 の動画を要求した時点の鉱脈（at は その expiresAtMs）を予約し、
+     * 要求の間に消えたら gone にする。消えた予約の鉱脈は、広告を見終えたときに 1 回だけ報酬を付ける（Q-45 と同じ考え方）。
+     * タップで開いたら予約は外れる（二重にしない）。**保存しない**（toSaveGame に入れない。読み込み・転生で消える＝要求も消えているため）
+     */
+    reserved?: { at: number; gone: boolean };
+  };
+  /**
+   * チケットで払って、まだ返していない回の印（決定 0010 の 11。QA の条件 2・5）。R2 はチケットのブーストが始めた今の回、
+   * R1 はチケットで ×2 を受け取った今の復帰。refundAdTicket が 1 回だけ返して外す。広告で始めた回・×1・広告の ×2 では外す。
+   * **保存しない**（toSaveGame に入れない。読み込み・転生で消え、返さない側に倒れる。遅れた報酬はセッションをまたがない）。
+   * BL-030 が新しい復帰の pendingOffline を入れるときは R1 を外すこと（前の復帰の分を返さない）。
+   * R2 の印は「直近の useBoost がチケットだった」を表し、休みが明けても外さない（QA の条件 2 の「今の回」を「直近の支払い」と読む。
+   * 明けた後の遅れた報酬は useBoost('ad') が通って印も倒れるので返却に来ない。時計を戻した場合に前の回の 1 枚が返りうるが、
+   * 返却 ≤ 払った回数は崩れない。PR #68 のレビュー N-3）
+   */
+  ticketPaid?: { R1?: true; R2?: true };
   /**
    * 未受け取りのオフライン収入（R1。BL-058・Q-36 (d)）。coins は「受け取る」で入る額、ms はオフラインの経過時間（壁時計）。
    * 付けるのは S3 の BL-030。受け取ったら null に戻す（復帰 1 回につき 1 回）。保存する（おかえりを閉じても失わない）

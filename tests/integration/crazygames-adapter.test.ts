@@ -3,7 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLifecycle } from '../../src/app/lifecycle.ts';
 import { ADBLOCK_TIMEOUT_MS, createCrazyGamesPlatform, type CgAdCallbacks, type CgAdType } from '../../src/platform/crazygames.ts';
-import { AD_END_TIMEOUT_MS, AD_START_TIMEOUT_MS, type RewardResult } from '../../src/platform/types.ts';
+import { createAdFlow } from '../../src/app/ad-flow.ts';
+import { AD_END_TIMEOUT_MS, AD_START_TIMEOUT_MS, type LateReward, type RewardPlacement, type RewardResult } from '../../src/platform/types.ts';
 import { crazyMock, type CrazyMock } from '../mocks/sdk.ts';
 
 /** requestAd の呼び出しを外から操れるモック（開始だけ・何も返さない・遅れて始まる、を作るため） */
@@ -27,7 +28,7 @@ function track<T>(p: Promise<T>): { done: () => boolean; value: () => T | undefi
   return { done: () => done, value: () => value };
 }
 
-describe('S-2: init の前に来た loadingStart も SDK に届く（main.ts は init の前に life.loadingStart() を呼ぶ）', () => {
+describe('TS-057-21 S-2: init の前に来た loadingStart も SDK に届く（main.ts は init の前に life.loadingStart() を呼ぶ）', () => {
   it('main.ts と同じ順番（loadingStart → init → loadingStop → 最初の入力）で、SDK に loadingStart → loadingStop → gameplayStart が 1 回ずつ', async () => {
     const sdk = crazyMock('crazygames');
     const p = createCrazyGamesPlatform({ getSdk: () => sdk, adsEnabled: true });
@@ -165,19 +166,26 @@ describe('Q-35 (d): 広告の SDK が答えないときの時間切れ（ゲー�
     ]);
   });
 
-  it('開始の時間切れの後に遅れて始まったら、その再生の間だけ止めて、終わったら戻す（結果は failed のまま。報酬なし）', async () => {
+  it('開始の時間切れの後に遅れて始まったら、その再生の間だけ止めて、終わったら戻す（結果は failed のまま。報酬は Q-45 の onLateReward で 1 回）', async () => {
     const { p, ads, playing } = await setup();
+    const late: LateReward[] = [];
+    p.ads.onLateReward((x) => late.push(x));
     const r = track(p.ads.showRewarded('R3'));
     const cb = ads.last();
     await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
     expect(r.value()).toBe<RewardResult>('failed');
+    expect(late).toEqual([]); // 時間切れの時点では知らせない
     cb.adStarted?.();
     expect(playing).toEqual([true]);
     cb.adFinished?.();
     expect(playing).toEqual([true, false]);
+    expect(late).toEqual([{ id: 1, placement: 'R3' }]);
+    cb.adFinished?.(); // 二重の終了
     await vi.advanceTimersByTimeAsync(0);
     expect(r.value()).toBe<RewardResult>('failed');
-    // 遅れた再生にも終わりの時間切れが効く
+    expect(late).toHaveLength(1);
+    expect(p.calls()).toContainEqual({ name: 'lateReward', arg: 'R3' });
+    // 遅れた再生にも終わりの時間切れが効く（最後まで見られたと分からないので、報酬は知らせない）
     const r2 = track(p.ads.showRewarded('R3'));
     const cb2 = ads.last();
     await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
@@ -185,6 +193,8 @@ describe('Q-35 (d): 広告の SDK が答えないときの時間切れ（ゲー�
     cb2.adStarted?.();
     await vi.advanceTimersByTimeAsync(AD_END_TIMEOUT_MS);
     expect(playing).toEqual([true, false, true, false]);
+    cb2.adFinished?.(); // 再生の時間切れの後に来た終了は無視
+    expect(late).toHaveLength(1);
   });
 
   it('ふつうに終われば時間切れは起きない（タイマーが残らない）。adStarted が 2 回来ても onPlaying(true) は 1 回', async () => {
@@ -352,5 +362,150 @@ describe('広告ブロッカーの判定（hasAdblock）が返らなくても起
 
   it('上限の値: 1 秒（本物は local で即時。init の 5 秒と合わせても #1 の 10 秒に収まる）', () => {
     expect(ADBLOCK_TIMEOUT_MS).toBe(1_000);
+  });
+});
+
+describe('Q-45: 開始の時間切れの後に遅れて始まり最後まで見られた広告の報酬（決定 0010 の 5）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function setup() {
+    const sdk = crazyMock('crazygames');
+    const ads = manualAds(sdk);
+    const p = createCrazyGamesPlatform({ getSdk: () => sdk, adsEnabled: true });
+    await p.init();
+    const playing: boolean[] = [];
+    const late: LateReward[] = [];
+    p.ads.onPlaying((v) => playing.push(v));
+    p.ads.onLateReward((x) => late.push(x));
+    return { p, ads, playing, late };
+  }
+
+  it('SDK のモック（adStartDelayMs 31 秒・動画 15 秒）: failed で返り、遅れて見終えたら onLateReward が 1 回（L3 の e2e で使う形）', async () => {
+    const sdk = crazyMock('crazygames');
+    sdk.configure({ adStartDelayMs: AD_START_TIMEOUT_MS + 1_000, adDurationMs: 15_000 });
+    const p = createCrazyGamesPlatform({ getSdk: () => sdk, adsEnabled: true });
+    await p.init();
+    const late: LateReward[] = [];
+    const playing: boolean[] = [];
+    p.ads.onLateReward((x) => late.push(x));
+    p.ads.onPlaying((v) => playing.push(v));
+    const r = track(p.ads.showRewarded('R2'));
+    await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+    expect(r.value()).toBe<RewardResult>('failed');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(playing).toEqual([true]);
+    expect(late).toEqual([]);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(playing).toEqual([true, false]);
+    expect(late).toEqual([{ id: 1, placement: 'R2' }]);
+  });
+
+  it('時間内に終われば rewarded で返し、遅れた報酬は出さない（ふつうの報酬と二重にならない）', async () => {
+    const { p, ads, late } = await setup();
+    const r = track(p.ads.showRewarded('R2'));
+    await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS - 1);
+    ads.last().adStarted?.();
+    ads.last().adFinished?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(r.value()).toBe<RewardResult>('rewarded');
+    expect(late).toEqual([]);
+  });
+
+  it('遅れた報酬を出さない場合: ミッドゲーム・遅れて始まった後の失敗・開始なしの終了・開始の前の失敗', async () => {
+    const { p, ads, playing, late } = await setup();
+    // ミッドゲーム（報酬のない広告）
+    const m = track(p.ads.breakOpportunity('M2'));
+    const cm = ads.last();
+    await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+    expect(m.done()).toBe(true);
+    cm.adStarted?.();
+    cm.adFinished?.();
+    // 遅れて始まった後の失敗
+    void p.ads.showRewarded('R2');
+    const c1 = ads.last();
+    await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+    c1.adStarted?.();
+    c1.adError?.({ code: 'other' });
+    // 開始（adStarted）が来ないままの終了（見られたか分からない）
+    void p.ads.showRewarded('R2');
+    const c2 = ads.last();
+    await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+    c2.adFinished?.();
+    // 時間切れの後の、開始の前の失敗
+    void p.ads.showRewarded('R3');
+    const c3 = ads.last();
+    await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+    c3.adError?.({ code: 'unfilled' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(late).toEqual([]);
+    expect(playing).toEqual([true, false, true, false]);
+  });
+
+  it('別の要求と混ざらない: 時間切れの要求 A（R2）の広告が次の要求 B（R3）の最中に遅れて流れても、A の報酬は A の placement に 1 回、B の結果は B のまま。重なりの間 onPlaying は true のまま', async () => {
+    const { p, ads, playing, late } = await setup();
+    const a = track(p.ads.showRewarded('R2'));
+    const ca = ads.last();
+    await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+    expect(a.value()).toBe<RewardResult>('failed');
+    const b = track(p.ads.showRewarded('R3'));
+    const cb = ads.last();
+    expect(ads.count()).toBe(2); // A の時間切れの後は新しい要求（連打の 1 回の制限が残らない）
+    ca.adStarted?.();
+    cb.adStarted?.();
+    expect(playing).toEqual([true]);
+    ca.adFinished?.(); // A が先に終わる: B が流れている間はゲームを戻さない
+    expect(playing).toEqual([true]);
+    expect(late).toEqual([{ id: 1, placement: 'R2' }]);
+    expect(b.done()).toBe(false);
+    cb.adFinished?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(playing).toEqual([true, false]);
+    expect(b.value()).toBe<RewardResult>('rewarded');
+    expect(late).toHaveLength(1); // B は時間内なので遅れた報酬ではない
+  });
+
+  it('アダプタ → 広告の流れ → ライフサイクルをつなぐと: 時間切れの failed の後に遅れて見終えた報酬が 1 回付き、合図は 1 往復、止めたものは戻る', async () => {
+    const { p, ads } = await setup();
+    const life = createLifecycle(p);
+    life.loadingStart();
+    life.loadingStop();
+    life.firstInput();
+    const st = { loop: true, input: false, muted: false };
+    const grants: RewardPlacement[] = [];
+    const told: RewardPlacement[] = [];
+    const flow = createAdFlow({
+      ads: p.ads,
+      isMuted: () => false,
+      life,
+      input: { setBlocked: (_r, on) => void (st.input = on) },
+      loop: { pause: () => void (st.loop = false), resume: () => void (st.loop = true) },
+      isHidden: () => false,
+      setMuted: (m) => void (st.muted = m),
+      resumeAudio: () => {},
+      saveBeforeAd: () => {},
+      grant: (x) => {
+        grants.push(x);
+        return { ok: true };
+      },
+    });
+    flow.onLateReward((x) => told.push(x));
+    const r = track(flow.requestReward('R2'));
+    await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+    expect(r.value()).toBe<RewardResult>('failed');
+    expect(grants).toEqual([]);
+    ads.last().adStarted?.();
+    expect([st.loop, st.input, st.muted, life.playing]).toEqual([false, true, true, false]);
+    ads.last().adFinished?.();
+    ads.last().adFinished?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(grants).toEqual(['R2']);
+    expect(told).toEqual(['R2']);
+    expect([st.loop, st.input, st.muted, life.playing]).toEqual([true, false, false, true]);
+    expect(p.calls().filter((c) => c.name.startsWith('gameplay')).map((c) => c.name)).toEqual(['gameplayStart', 'gameplayStop', 'gameplayStart']);
   });
 });

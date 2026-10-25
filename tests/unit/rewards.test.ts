@@ -147,6 +147,8 @@ describe('温泉チケット（TS-058-01〜05）', () => {
       { type: 'useBoost', source: 'ticket', wallMs: -1 },
       { type: 'claimOffline', mode: 'double' },
       { type: 'claimOffline', mode: 'triple', source: 'ad' },
+      { type: 'refundAdTicket', placement: 'R3' },
+      { type: 'refundAdTicket' },
     ]) {
       expect(dispatch(s, a), JSON.stringify(a)).toEqual({ ok: false, reason: 'invalid', events: [] });
     }
@@ -156,16 +158,17 @@ describe('温泉チケット（TS-058-01〜05）', () => {
 
 /**
  * 温泉チケットを得る出来事の種類（QA の条件 3。Q-36 (a)）。src（TICKET_SOURCES・TicketSource）から import せず、ここに文字どおり書く。
- * src に 5 つ目を足すと、下のテストと型の検査が赤になる。**この一覧を変えるには QA リードの同意が要る**（BL-121。PR #34 のレビュー S-2）
+ * src に 6 つ目を足すと、下のテストと型の検査が赤になる。**この一覧を変えるには QA リードの同意が要る**（BL-121。PR #34 のレビュー S-2）。
+ * 5 つ目の adRefund（払ったチケットの返却）は QA リードの同意（qa-lead/2026-10-18_compensation-and-public.md §1-3 の条件 1）と決定 0010 の 11
  */
-const QA_SOURCES = ['guestFirstVisit', 'achievement', 'prestige', 'vein'] as const;
+const QA_SOURCES = ['guestFirstVisit', 'achievement', 'prestige', 'vein', 'adRefund'] as const;
 type QaSource = (typeof QA_SOURCES)[number];
 // 型でも両方向に一致させる（src の TicketSource に足しても、ここから消しても typecheck が赤になる）
 const _sourcesExact: [TicketSource, QaSource] extends [QaSource, TicketSource] ? true : never = true;
 void _sourcesExact;
 
-describe('BL-121 QA の条件 3: チケットの source は 4 つに閉じる（一覧はテストに文字どおり書く）', () => {
-  it('TICKET_SOURCES は QA の 4 つと集合として一致する（順番は問わない・重複なし）', () => {
+describe('BL-121 QA の条件 3: チケットの source は 5 つに閉じる（一覧はテストに文字どおり書く）', () => {
+  it('TICKET_SOURCES は QA の 5 つと集合として一致する（順番は問わない・重複なし）', () => {
     expect(new Set(TICKET_SOURCES).size).toBe(TICKET_SOURCES.length);
     expect([...TICKET_SOURCES].sort()).toEqual([...QA_SOURCES].sort());
   });
@@ -177,6 +180,7 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
     achievement: PARAMS.tickets.achievement,
     prestige: PARAMS.tickets.prestige,
     vein: PARAMS.tickets.vein,
+    adRefund: 1, // 返却は 1 回につき最大 1 枚（QA の条件 3）。上限で入らない分は overflow に数え、コインにしない（条件 4）
   };
   const items = ['drill', 'autoDigger', 'bath', 'tool', ...SPRINGS.map((sp) => `pump:${sp.id}`)];
   const opArb = fc.oneof(
@@ -194,9 +198,12 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
     fc.record({ k: fc.constant('step' as const), ms: fc.integer({ min: 1, max: 9 * MIN }) }),
     fc.record({ k: fc.constant('wall' as const), ms: fc.integer({ min: 0, max: 30 * MIN }) }),
     fc.record({ k: fc.constant('prestige' as const) }),
+    fc.record({ k: fc.constant('refund' as const), placement: fc.constantFrom('R1' as const, 'R2' as const) }),
+    fc.record({ k: fc.constant('reload' as const) }),
+    fc.record({ k: fc.constant('reserve' as const) }), // 予約が消えた道（S-5）も操作列に入れる（QA の PR #68 の確認 §3 の 2）
   );
 
-  it('ランダムな操作列: 増加は TicketGained の合計と一致・source は 4 つ・量は固定・回数に上限・0〜10・減るのは R1/R2 の成功で 1 枚', () => {
+  it('ランダムな操作列: 増加は TicketGained の合計と一致・source は 5 つ・量は固定・回数に上限・0〜10・減るのは R1/R2 の成功で 1 枚・返却は払った回数以下でコインにしない', () => {
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 1e6 }), fc.array(opArb, { maxLength: 40 }), (seed, ops) => {
         const s = stateWith({ seed, coins: '1e12', depth: 120, pumps: { simple: 9, co2: 9 }, bath: 15 });
@@ -205,6 +212,13 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
         let veinTickets = 0;
         let veinOpened = 0;
         let prestiges = 0;
+        /** チケットで払った回数と返却の回数（placement ごと。§3-2(b) ⑥・QA の条件 3） */
+        const paid = { R1: 0, R2: 0 };
+        const refunded = { R1: 0, R2: 0 };
+        /** 返してよい回か（テストの側の手書きの模型。チケットで払ったら立て、広告・×1・返却・読み込み・転生で倒す。TS-059-30 (b)） */
+        const owed = { R1: false, R2: false };
+        /** イベントで数えた adRefund の数（TS-059-30 (a)。QA の PR #68 の確認 §3 の 1） */
+        let refundEvents = 0;
         const unseenAtStart = GUESTS.filter((g) => !Object.hasOwn(s.collection.guestsSeen, g.id)).length;
         for (const op of ops) {
           const before = s.meta.tickets;
@@ -221,6 +235,8 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
               const r = dispatch(s, { type: 'useBoost', source: op.source, wallMs: wall });
               events = r.events;
               if (r.ok && op.source === 'ticket') spent = 1;
+              if (r.ok && op.source === 'ticket') paid.R2++;
+              if (r.ok) owed.R2 = op.source === 'ticket';
               break;
             }
             case 'vein':
@@ -231,6 +247,20 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
               const r = dispatch(s, a);
               events = r.events;
               if (r.ok && op.mode === 'double' && op.source === 'ticket') spent = 1;
+              if (r.ok && op.mode === 'double' && op.source === 'ticket') paid.R1++;
+              if (r.ok) owed.R1 = op.mode === 'double' && op.source === 'ticket';
+              break;
+            }
+            case 'refund': {
+              const coins = s.run.coins.toString();
+              const total = s.stats.totalCoins.toString();
+              const r = dispatch(s, { type: 'refundAdTicket', placement: op.placement });
+              events = r.events;
+              if (r.ok) refunded[op.placement]++;
+              expect(r.ok, '返すのはチケットで払って、まだ返していない回だけ（条件 2・3）').toBe(owed[op.placement]);
+              owed[op.placement] = false;
+              expect(s.run.coins.toString(), '返却はコインを変えない（条件 4）').toBe(coins);
+              expect(s.stats.totalCoins.toString()).toBe(total);
               break;
             }
             case 'offline':
@@ -247,10 +277,22 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
               break;
             case 'prestige':
               events = dispatch(s, { type: 'prestige' }).events;
+              if (ofType(events, 'PrestigeDone').length > 0) owed.R1 = owed.R2 = false; // 印は新しい周回で消える（条件 5）
+              break;
+            case 'reserve':
+              events = dispatch(s, { type: 'reserveVein' }).events;
+              break;
+            case 'reload':
+              Object.assign(s, fromSaveGameTrusted(toSaveGame(s))); // 保存して読み込む（印は保存しない。条件 5）
+              owed.R1 = owed.R2 = false;
               break;
           }
           const gained = ofType(events, 'TicketGained');
           for (const e of gained) {
+            if (e.source === 'adRefund') {
+              expect(op.k, 'adRefund を出すのは返却の操作だけ（条件 1）').toBe('refund');
+              refundEvents++;
+            }
             expect(QA_SOURCES).toContain(e.source); // ① source は QA の 4 つに閉じる（src の一覧ではなく、テストの一覧と比べる。BL-121）
             expect(e.n + e.overflow).toBe(FIXED[e.source]); // ③ 量は固定（購入の個数・コインの額で変わらない）
             if (e.source === 'guestFirstVisit') guestFirst++;
@@ -268,6 +310,10 @@ describe('TS-058-04 チケットの不変条件（QA §3-2(b)。Q-36 (a) の条�
         expect(guestFirst).toBeLessThanOrEqual(unseenAtStart);
         expect(veinTickets).toBeLessThanOrEqual(veinOpened);
         expect(prestiges).toBeLessThanOrEqual(ops.filter((o) => o.k === 'prestige').length);
+        // ⑥ 返却の回数 ≤ チケットで払った回数（1 回の R1・R2 につき返却は 0 か 1。純増にならない）
+        expect(refundEvents, 'イベントで数えた返却 = 返却の操作の成功').toBe(refunded.R1 + refunded.R2);
+        expect(refunded.R1).toBeLessThanOrEqual(paid.R1);
+        expect(refunded.R2).toBeLessThanOrEqual(paid.R2);
       }),
       fcRuns(150),
     );
@@ -665,18 +711,80 @@ describe('R3 ラッキー鉱脈（TS-058-13〜18）', () => {
     expect(dispatch(s, { type: 'openVein', source: 'ad' }).reason).toBe('notFound');
   });
 
+  it('S-5（PR #55 のレビュー。BL-059）: 動画の要求の時点で予約した鉱脈は、要求の間に消えても openVein(ad) で 1 回だけ報酬。予約がなければ消えた後は notFound（TS-058-17 のまま）', () => {
+    const s = withIncome();
+    expect(dispatch(s, { type: 'reserveVein' })).toEqual({ ok: false, reason: 'notFound', events: [] }); // 出ていなければ予約できない
+    spawnVeinNow(s);
+    const h = stateHash(s);
+    expect(dispatch(s, { type: 'reserveVein' })).toEqual({ ok: true, events: [] });
+    expect(stateHash(s)).toBe(h); // 予約は保存しない（保存の形・stateHash は変わらない）
+    expect(toSaveGame(s).run.vein).not.toHaveProperty('reserved');
+    advance(s, MIN); // 要求の間に消える
+    expect(veinView(s).active).toBe(false);
+    const R = incomePerSec(s);
+    const r = dispatch(s, { type: 'openVein', source: 'ad' });
+    expect(r.ok).toBe(true);
+    const opened = ofType(r.events, 'VeinOpened');
+    expect(opened.map((e) => e.source)).toEqual(['ad']);
+    expect(num(opened[0]?.coins).toNumber()).toBeCloseTo(R.toNumber() * PARAMS.vein.incomeSec, 6);
+    expect(dispatch(s, { type: 'openVein', source: 'ad' }).reason).toBe('notFound'); // 2 回目はない
+  });
+
+  it('S-5: 予約した鉱脈をタップで開いたら予約は外れる（消えた後の広告で二重にしない）。新しい鉱脈が出ていればそれを開き、予約は外れる。読み込みで消える', () => {
+    const s = withIncome();
+    spawnVeinNow(s);
+    dispatch(s, { type: 'reserveVein' });
+    advance(s, 1000);
+    const hits = tapSlowly(s, PARAMS.vein.hits);
+    expect(ofType(hits.events, 'VeinOpened').map((e) => e.source)).toEqual(['hits']);
+    expect(s.run.vein.reserved).toBeUndefined();
+    expect(dispatch(s, { type: 'openVein', source: 'ad' }).reason).toBe('notFound');
+    // 予約した鉱脈が消えた後に次の鉱脈が出た: 広告は出ている鉱脈を開き（1 回）、消えた予約も外れる
+    spawnVeinNow(s);
+    dispatch(s, { type: 'reserveVein' });
+    advance(s, MIN);
+    spawnVeinNow(s);
+    expect(dispatch(s, { type: 'openVein', source: 'ad' }).ok).toBe(true);
+    expect(veinView(s).active).toBe(false);
+    expect(s.run.vein.reserved).toBeUndefined();
+    expect(dispatch(s, { type: 'openVein', source: 'ad' }).reason).toBe('notFound');
+    // 保存しないので、読み込みで予約は消える
+    const p = withIncome(3);
+    spawnVeinNow(p);
+    dispatch(p, { type: 'reserveVein' });
+    advance(p, MIN);
+    expect(p.run.vein.reserved?.gone).toBe(true);
+    const back = parseGame(toSaveGame(p));
+    expect(back.ok && back.state.run.vein.reserved).toBeUndefined(); // 読み込みでも消える（要求も消えているため）
+  });
+
   it('TS-058-18 温泉チケットが付く割合は 25% 前後（シード 1,000 個で 20〜30%）。同じシードなら同じ結果', () => {
-    const roll = (seed: number): boolean => {
+    /**
+     * 鉱脈を広告で開く。gone なら予約した鉱脈が消えた後に開く（S-5 の道: spawn → reserveVein → 60 秒 → openVein）。
+     * どちらの道でも、チケットの source は vein だけ（付いたら ['vein']、付かなければ []。QA の PR #68 の確認 §3 の 3）
+     */
+    const roll = (seed: number, gone = false): boolean => {
       const s = createInitialState(seed);
       spawnVeinNow(s);
+      if (gone) {
+        expect(dispatch(s, { type: 'reserveVein' }).ok).toBe(true);
+        advance(s, MIN);
+        expect(veinView(s).active).toBe(false);
+      }
       const r = dispatch(s, { type: 'openVein', source: 'ad' });
-      return ofType(r.events, 'VeinOpened')[0]?.ticket === true;
+      expect(r.ok).toBe(true);
+      const ticket = ofType(r.events, 'VeinOpened')[0]?.ticket === true;
+      expect(ofType(r.events, 'TicketGained').map((e) => e.source)).toEqual(ticket ? ['vein'] : []);
+      return ticket;
     };
     let hit = 0;
     for (let seed = 1; seed <= 1000; seed++) if (roll(seed)) hit++;
     expect(hit / 1000).toBeGreaterThanOrEqual(0.2);
     expect(hit / 1000).toBeLessThanOrEqual(0.3);
     for (const seed of [1, 7, 99]) expect(roll(seed)).toBe(roll(seed));
+    let goneHit = 0;
+    for (let seed = 1; seed <= 200; seed++) if (roll(seed, true)) goneHit++;
+    expect(goneHit, '予約が消えた道でもチケットが付くことがある').toBeGreaterThan(0);
   });
 });
 
@@ -803,5 +911,89 @@ describe('TS-058-21 保存・読み込みの往復（ブースト・休み・鉱
     expect(parse([1, 2])).toBeNull();
     expect(parse({ coins: 'abc', ms: -5 })).toEqual({ coins: num(0), ms: 0 });
     expect(parse({ coins: '1.5e3', ms: 61_000 })).toEqual({ coins: num(1500), ms: 61_000 });
+  });
+});
+
+describe('払ったチケットの返却（refundAdTicket。決定 0010 の 11・QA の条件 1〜6）', () => {
+  const offline = (s: GameState): void => {
+    s.run.pendingOffline = { coins: num(1000), ms: 10 * MIN };
+  };
+
+  it('チケットで始めた R2 の回だけ 1 枚返し（adRefund）、2 回目は notFound。広告で始めた回・何もしていない回は notFound', () => {
+    const s = withIncome();
+    s.meta.tickets = 2;
+    expect(dispatch(s, { type: 'refundAdTicket', placement: 'R2' })).toEqual({ ok: false, reason: 'notFound', events: [] });
+    dispatch(s, { type: 'useBoost', source: 'ticket', wallMs: T0 });
+    expect(s.meta.tickets).toBe(1);
+    expect(dispatch(s, { type: 'refundAdTicket', placement: 'R2' })).toEqual({
+      ok: true,
+      events: [{ type: 'TicketGained', source: 'adRefund', n: 1, overflow: 0, coins: '0' }],
+    });
+    expect(s.meta.tickets).toBe(2);
+    expect(s.run.ticketPaid).toBeUndefined();
+    expect(dispatch(s, { type: 'refundAdTicket', placement: 'R2' }).ok).toBe(false);
+    dispatch(s, { type: 'useBoost', source: 'ad', wallMs: T0 + PARAMS.boost.cooldownMs });
+    expect(dispatch(s, { type: 'refundAdTicket', placement: 'R2' }).ok).toBe(false);
+  });
+
+  it('チケットで始めた回の後に広告で次の回を始めたら、前の回の印は外れる（条件 2）', () => {
+    const s = withIncome();
+    s.meta.tickets = 2;
+    dispatch(s, { type: 'useBoost', source: 'ticket', wallMs: T0 });
+    dispatch(s, { type: 'useBoost', source: 'ad', wallMs: T0 + PARAMS.boost.cooldownMs });
+    expect(dispatch(s, { type: 'refundAdTicket', placement: 'R2' }).ok).toBe(false);
+    expect(s.meta.tickets).toBe(1);
+  });
+
+  it('上限（10 枚）なら 0 枚で、コインにしない（n 0・overflow 1・coins 0。収入があっても）。印は外れる', () => {
+    const s = withIncome();
+    s.meta.tickets = PARAMS.tickets.max;
+    dispatch(s, { type: 'useBoost', source: 'ticket', wallMs: T0 });
+    s.meta.tickets = PARAMS.tickets.max;
+    expect(incomePerSec(s).gt(0)).toBe(true);
+    const coins = s.run.coins.toString();
+    const total = s.stats.totalCoins.toString();
+    expect(dispatch(s, { type: 'refundAdTicket', placement: 'R2' }).events).toEqual([
+      { type: 'TicketGained', source: 'adRefund', n: 0, overflow: 1, coins: '0' },
+    ]);
+    expect(s.meta.tickets).toBe(PARAMS.tickets.max);
+    expect(s.run.coins.toString()).toBe(coins);
+    expect(s.stats.totalCoins.toString()).toBe(total);
+    expect(dispatch(s, { type: 'refundAdTicket', placement: 'R2' }).ok).toBe(false);
+  });
+
+  it('R1: チケットで ×2 を受け取った復帰だけ返す。×1・広告の ×2 では返さない。R1 と R2 の印は別', () => {
+    const s = withIncome();
+    s.meta.tickets = 2;
+    offline(s);
+    dispatch(s, { type: 'claimOffline', mode: 'double', source: 'ticket' });
+    expect(dispatch(s, { type: 'refundAdTicket', placement: 'R2' }).ok).toBe(false);
+    expect(dispatch(s, { type: 'refundAdTicket', placement: 'R1' }).ok).toBe(true);
+    expect(s.meta.tickets).toBe(2);
+    offline(s);
+    dispatch(s, { type: 'claimOffline', mode: 'double', source: 'ticket' });
+    offline(s);
+    dispatch(s, { type: 'claimOffline', mode: 'normal' }); // 次の復帰を ×1 で受け取った（前の復帰の分は返さない）
+    expect(dispatch(s, { type: 'refundAdTicket', placement: 'R1' }).ok).toBe(false);
+    offline(s);
+    dispatch(s, { type: 'claimOffline', mode: 'double', source: 'ad' });
+    expect(dispatch(s, { type: 'refundAdTicket', placement: 'R1' }).ok).toBe(false);
+  });
+
+  it('印は保存しない（条件 5）: 保存して読み込むと消え、返さない側に倒れる。転生でも消える', () => {
+    const s = stateWith({ seed: 3, coins: '1e30', depth: 450, pumps: { simple: 9, co2: 9 }, bath: 15 });
+    s.meta.tickets = 2;
+    dispatch(s, { type: 'useBoost', source: 'ticket', wallMs: T0 });
+    offline(s);
+    dispatch(s, { type: 'claimOffline', mode: 'double', source: 'ticket' });
+    expect(s.run.ticketPaid).toEqual({ R1: true, R2: true });
+    expect(JSON.stringify(toSaveGame(s))).not.toContain('ticketPaid');
+    const loaded = fromSaveGameTrusted(toSaveGame(s));
+    expect(loaded.run.ticketPaid).toBeUndefined();
+    expect(dispatch(loaded, { type: 'refundAdTicket', placement: 'R2' }).ok).toBe(false);
+    expect(dispatch(loaded, { type: 'refundAdTicket', placement: 'R1' }).ok).toBe(false);
+    expect(dispatch(s, { type: 'prestige' }).ok).toBe(true);
+    expect(s.run.ticketPaid).toBeUndefined();
+    expect(dispatch(s, { type: 'refundAdTicket', placement: 'R2' }).ok).toBe(false);
   });
 });
