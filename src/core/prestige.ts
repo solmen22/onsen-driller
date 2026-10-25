@@ -39,9 +39,13 @@ export interface PrestigeView {
   /** 全生産（ドリル威力・入湯料）の倍率（今と、転生した後。1.18 なら +18%） */
   readonly multNow: Num;
   readonly multAfter: Num;
-  /** 転生で得る温泉チケット（固定の枚数）と、上限で実際に増える枚数（足りない分はコインに替わるが、新しい周回では 0 に近い） */
+  /**
+   * 転生で得る温泉チケット（固定の枚数）・上限で実際に増える枚数・上限のため入らない枚数（コインにも替えない。Q-47 (d)）。
+   * 確認の画面は ticketsOverflow が 1 以上なら「上限のため 〇 枚しか入りません」（0 枚なら「上限のため入りません」）を前もって出す
+   */
   readonly ticketsGain: number;
   readonly ticketsAdded: number;
+  readonly ticketsOverflow: number;
 }
 
 /** 得られる湯の華が g＋1 になる最小の深さ（m）。式は floor((d ÷ divisor)²) */
@@ -54,15 +58,21 @@ export function depthForGain(g: number): number {
 
 const multOf = (lifetime: Num): Num => add(ONE, mul(lifetime, P.bonusPerYunohana));
 
-/** 転生の推奨の基準: max(recommendGain, ceil(前回の獲得 × 1.5))（湯の華は整数なので切り上げ） */
+/**
+ * 転生の推奨の基準: max(recommendGain, ceil(前回の獲得 × 1.5))（湯の華は整数なので切り上げ）。
+ * 前回の獲得が number で表せないほど大きい（壊れたセーブの "Infinity" は読み込みで NUM_MAX になる）ときは Infinity
+ * ＝推奨しない側に倒す（TS-021-10。最低の 30 に戻すと、壊れたセーブで推奨が出てしまう）
+ */
 export function recommendThreshold(s: Readonly<GameState>): number {
   const last = s.meta.lastPrestigeGain.toNumber();
-  const scaled = Number.isFinite(last) && last > 0 ? Math.ceil(last * P.recommendGrowth) : 0;
-  return Math.max(P.recommendGain, scaled);
+  if (!(last > 0)) return P.recommendGain;
+  const scaled = Math.ceil(last * P.recommendGrowth);
+  return Number.isFinite(scaled) ? Math.max(P.recommendGain, scaled) : Number.POSITIVE_INFINITY;
 }
 
 export function prestigeView(s: Readonly<GameState>): PrestigeView {
   const gain = yunohanaGain(s);
+  const ticketsAdded = Math.min(Math.max(0, T.max - s.meta.tickets), T.prestige);
   const g = gain.toNumber();
   const lifetimeNow = s.meta.yunohana.lifetime;
   const lifetimeAfter = add(lifetimeNow, gain);
@@ -82,6 +92,7 @@ export function prestigeView(s: Readonly<GameState>): PrestigeView {
     multNow: multOf(lifetimeNow),
     multAfter: multOf(lifetimeAfter),
     ticketsGain: T.prestige,
-    ticketsAdded: Math.min(Math.max(0, T.max - s.meta.tickets), T.prestige),
+    ticketsAdded,
+    ticketsOverflow: T.prestige - ticketsAdded,
   };
 }

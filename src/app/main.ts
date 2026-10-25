@@ -11,6 +11,7 @@ import { App } from '../ui/App.tsx';
 import { applyLayout, layoutOf } from '../ui/layout.ts';
 import { Ctx } from '../ui/hooks/use-game.ts';
 import { onModalChange } from '../ui/overlay/modal-state.ts';
+import { dismissPrestigeConfirm, onPrestigeConfirmChange } from '../ui/overlay/prestige-confirm.ts';
 import { playBreak, playHit, resumeAudio, setMuted, unlockAudio } from '../audio/sfx.ts';
 import { saveReasonForEvents, startAutosave } from './autosave.ts';
 import { createAppClock } from './clock.ts';
@@ -139,7 +140,7 @@ async function boot(): Promise<void> {
   // タブを隠したら gameplay とループを止める（保存は autosave が先に行う。戻ったときの早送りは S3 の BL-030）。
   // 見えるようになったら、ほかに止まる理由がなければ gameplay を再開する（CrazyGames は gameplay の合図を送らず、ループだけ止める）
   // 広告の流れ（BL-059）: 再生中（onPlaying）・ミッドゲームの機会の間はループ・入力・音・gameplay を止める。ループは理由
-  // （hidden・ad・break）から決める（広告の最中に見せても動かない。PR #16 のレビュー S-3）。要求の前に保存を 1 回試す
+  // （hidden・ad・break・prestige〔転生の確認の画面。BL-021〕）から決める（広告の最中に見せても動かない。PR #16 のレビュー S-3）。要求の前に保存を 1 回試す
   const rewards = createRewardHooks(store);
   const ads = createAdFlow({
     ads: platform.ads,
@@ -157,9 +158,15 @@ async function boot(): Promise<void> {
     onError: (e) => errorLog.push(e),
   });
   store.onEvents((evs) => ads.onEvents(evs));
+  // 転生の確認の画面（M3）を開いている間はループと gameplay を止める（見せた湯の華と実際に得る湯の華をずらさない。Q-47 (j)）。
+  // 止める理由は ad-flow の判定（hidden・ad・break・prestige）に入れる。開いている間に広告が終わってもループは動かない（QA の申し送り）
+  onPrestigeConfirmChange((open) => ads.setPrestigeConfirm(open));
   life.setPaused('hidden', document.hidden);
   document.addEventListener('visibilitychange', () => {
     life.setPaused('hidden', document.hidden);
+    // 確認の画面を開いたまま隠れたら閉じる（戻ったら開き直したときの値を見せる。留守の早送りで値がずれないように。決定 0010 の 14 (b)）。
+    // 閉じても、隠れている間は gameplayStart を出さない（'prestige' の理由は見えるまで ad-flow が持つ。CrazyGames も同じ。決定 0010 の 15）
+    if (document.hidden) dismissPrestigeConfirm();
     ads.syncHidden();
   });
   // 幕間（新しい帯に入った直後の 1.5 秒。ドリルが止まる）の間は gameplay を止める（ストアの通知は 200ms ごと）

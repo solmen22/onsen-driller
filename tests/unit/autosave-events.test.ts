@@ -5,7 +5,7 @@ import { dispatch, type GameState } from '../../src/core/index.ts';
 import { stateWith } from '../support/states.ts';
 
 describe('BL-021 転生の後の保存', () => {
-  it('PrestigeDone を含む出来事の列は prestige、含まなければ null', () => {
+  it('TS-021-24・19 PrestigeDone を含む出来事の列は prestige、含まなければ null', () => {
     const s = stateWith({ depth: 160 });
     const r = dispatch(s, { type: 'prestige' });
     expect(r.ok).toBe(true);
@@ -14,7 +14,7 @@ describe('BL-021 転生の後の保存', () => {
     expect(saveReasonForEvents(dispatch(stateWith({ coins: 100 }), { type: 'buy', item: 'drill', qty: 1 }).events)).toBeNull();
   });
 
-  it('saveNow(prestige) は転生した後の状態を書く（録画モードなどで止めているときは書かない）', () => {
+  it('TS-021-24・25 (a) saveNow(prestige) は転生した後の状態を書く（録画モードなどで止めているときは書かない）', () => {
     const s = stateWith({ depth: 160 });
     const saved: GameState[] = [];
     const reasons: SaveReason[] = [];

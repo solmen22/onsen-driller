@@ -156,7 +156,10 @@ export function dispatch(s: GameState, input: unknown): ActionResult {
       s.run.boost = boost;
       applyManualRateChange(s, 0); // 長押し中のまま転生したら、新しい周回の端数も 0.5 から
       events.push({ type: 'PrestigeDone', gained: toStr(gain) }); // Decimal はイベントでも "<仮数>e<指数>"（arch §6-3。レビュー N-1）
-      gainTickets(s, 'prestige', PARAMS.tickets.prestige, events); // 転生のたびに 2 枚（上限を超えた分のコインは新しい周回の収入で計算）
+      // 転生のたびに 2 枚。上限を超えた分はコインに替えず捨てる（確認の画面で前もって伝える。Q-47 (d)）
+      gainTickets(s, 'prestige', PARAMS.tickets.prestige, events, { overflowToCoins: false });
+      // M1 の機会: 演出（BL-041）が入るまでは確定の直後（Q-47 (m)）。広告は app の ad-flow（BL-059）が受ける。保存は PrestigeDone で先に済む
+      if (PARAMS.ads.midgame.onPrestige) events.push({ type: 'BreakOpportunity', placement: 'M1' });
       return { ok: true, events };
     }
     case 'useBoost': {

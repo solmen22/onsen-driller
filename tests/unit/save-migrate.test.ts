@@ -4,7 +4,7 @@
 import fc from 'fast-check';
 import LZString from 'lz-string';
 import { describe, expect, it } from 'vitest';
-import { checksumOf, dispatch, num, stateHash, toSaveGame, type GameState } from '../../src/core/index.ts';
+import { checksumOf, dispatch, num, prestigeView, stateHash, toSaveGame, type GameState } from '../../src/core/index.ts';
 import { decodeSave, encodeSave, importString } from '../../src/save/codec.ts';
 import { gameSchemaOf, migrateGame } from '../../src/save/migrate.ts';
 import { SAVE_SCHEMA_VERSION } from '../../src/save/schema.ts';
@@ -33,7 +33,7 @@ describe('BL-021 セーブの版 1 → 2 の移行', () => {
     expect(SAVE_SCHEMA_VERSION).toBe(2);
   });
 
-  it('v1 のセーブを読める: lastPrestigeGain は 0、移行で足した値は「補正」に数えない。ほかの値は同じ', () => {
+  it('TS-021-27 v1 のセーブを読める: lastPrestigeGain は 0、移行で足した値は「補正」に数えない。ほかの値は同じ', () => {
     const s = stateWith({ depth: 220, coins: 12345 });
     s.meta.prestiges = 3;
     s.meta.yunohana.lifetime = num(57);
@@ -48,7 +48,7 @@ describe('BL-021 セーブの版 1 → 2 の移行', () => {
     expect(stateHash(r.state)).toBe(stateHash(s)); // s の lastPrestigeGain は初期値 0
   });
 
-  it('v1 を読んで保存し直すと、schema 2 で lastPrestigeGain が入る（次の読み込みも同じ）', () => {
+  it('TS-021-27 v1 を読んで保存し直すと、schema 2 で lastPrestigeGain が入る（次の読み込みも同じ）', () => {
     const r = decodeSave(v1Envelope(stateWith({ depth: 160 })));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -59,7 +59,7 @@ describe('BL-021 セーブの版 1 → 2 の移行', () => {
     expect(again.ok && stateHash(again.state)).toBe(stateHash(r.state));
   });
 
-  it('v1 の書き出し文字列も読める（移行してから検証）', () => {
+  it('TS-021-31 v1 の書き出し文字列も読める（移行してから検証）', () => {
     const g = v1Game(stateWith({ depth: 90, coins: 7 }));
     const str = `ODR1:${LZString.compressToEncodedURIComponent(JSON.stringify(g))}.${checksumOf(g)}`;
     const r = importString(str);
@@ -68,7 +68,7 @@ describe('BL-021 セーブの版 1 → 2 の移行', () => {
     expect(r.ok && r.state.meta.lastPrestigeGain.toNumber()).toBe(0);
   });
 
-  it('v2 のセーブは lastPrestigeGain を保つ（転生した後の値）', () => {
+  it('TS-021-24・11 v2 のセーブは lastPrestigeGain を保つ（転生した後の値）', () => {
     const s = stateWith({ depth: 400 });
     expect(dispatch(s, { type: 'prestige' }).ok).toBe(true);
     expect(s.meta.lastPrestigeGain.toNumber()).toBe(64);
@@ -77,8 +77,8 @@ describe('BL-021 セーブの版 1 → 2 の移行', () => {
     expect(r.ok && r.corrected).toEqual([]);
   });
 
-  it('v2 の lastPrestigeGain が壊れていたら 0 に補正する（補正として数える）', () => {
-    for (const bad of ['abc', -5, null, { x: 1 }]) {
+  it('TS-021-28 v2 の lastPrestigeGain が壊れていたら 0 に補正する（補正として数える）: 負・NaN・"abc"・Infinity・null・オブジェクト・配列', () => {
+    for (const bad of ['abc', -5, '-1e5', 'NaN', null, { x: 1 }, [3]]) {
       const g = toSaveGame(stateWith({})) as unknown as Rec & { meta: Rec };
       g.meta.lastPrestigeGain = bad;
       const raw = JSON.stringify({ schema: 2, seq: 1, savedAt: 1, appVersion: APP, checksum: checksumOf(g), game: g });
@@ -87,9 +87,31 @@ describe('BL-021 セーブの版 1 → 2 の移行', () => {
       expect(r.ok && r.state.meta.lastPrestigeGain.toNumber(), JSON.stringify(bad)).toBe(0);
       expect(r.ok && r.corrected, JSON.stringify(bad)).toContain('meta.lastPrestigeGain');
     }
+    // "Infinity"・1e999 は、ほかの Decimal の欄と同じく上限（NUM_MAX）に補正する。推奨は出ない側に倒れる（TS-021-10）
+    for (const big of ['Infinity', '1e999']) {
+      const g = toSaveGame(stateWith({ depth: 2000 })) as unknown as Rec & { meta: Rec };
+      g.meta.lastPrestigeGain = big;
+      const r = decodeSave(JSON.stringify({ schema: 2, seq: 1, savedAt: 1, appVersion: APP, checksum: checksumOf(g), game: g }));
+      expect(r.ok, big).toBe(true);
+      if (!r.ok) return;
+      expect(r.state.meta.lastPrestigeGain.gt('1e300'), big).toBe(true);
+      expect(prestigeView(r.state).recommended, big).toBe(false);
+      expect(Number.isNaN(prestigeView(r.state).recommendAt)).toBe(false);
+    }
+    // 欄なし（版 2 なのに欠けている）: 初期値 0。ほかの欄は読める。__proto__ などのキーは今までどおり捨てる
+    const s = stateWith({ depth: 120, coins: 99 });
+    const g = toSaveGame(s) as unknown as Rec & { meta: Rec };
+    delete g.meta.lastPrestigeGain;
+    const raw = JSON.stringify({ schema: 2, seq: 1, savedAt: 1, appVersion: APP, checksum: checksumOf(g), game: g }).replace('"meta":{', '"meta":{"__proto__":{"polluted":1},');
+    const r = decodeSave(raw);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.state.meta.lastPrestigeGain.toNumber()).toBe(0);
+    expect([r.state.run.depth, r.state.run.coins.toNumber()]).toEqual([120, 99]);
+    expect(({} as Rec).polluted).toBeUndefined();
   });
 
-  it('任意の状態（fast-check）: v1 に戻して読むと、lastPrestigeGain が 0 になるだけで、ほかは同じ', () => {
+  it('TS-021-27 任意の状態（fast-check）: v1 に戻して読むと、lastPrestigeGain が 0 になるだけで、ほかは同じ', () => {
     fc.assert(
       fc.property(gameStateArb, (s) => {
         s.meta.lastPrestigeGain = num(0);
@@ -103,7 +125,7 @@ describe('BL-021 セーブの版 1 → 2 の移行', () => {
     );
   });
 
-  it('migrateGame: 入力を書き換えない。今の版はそのまま。schema がない・読めないものは 1 とみなす', () => {
+  it('TS-021-27 migrateGame: 入力を書き換えない。今の版はそのまま。schema がない・読めないものは 1 とみなす', () => {
     const g = v1Game(stateWith({}));
     const before = JSON.stringify(g);
     const m = migrateGame(g);

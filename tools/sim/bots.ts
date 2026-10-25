@@ -14,6 +14,7 @@ import {
   modifiers,
   num,
   nextTool,
+  recommendThreshold,
   seedSfc32,
   sfc32Int,
   yunohanaGain,
@@ -70,7 +71,6 @@ export const BOTS: Readonly<Record<BotId, BotDef>> = {
 const BOT_RNG_SALT = 0x626f7473;
 
 export interface BotMemory {
-  lastGain: number;
   lastMaxDepth: number;
   lastDepthChangeMs: number;
   /** タップの端数（taps と autoDig の最初の強化の前） */
@@ -80,7 +80,6 @@ export interface BotMemory {
 }
 
 export const newBotMemory = (seed = 0): BotMemory => ({
-  lastGain: 0,
   lastMaxDepth: 0,
   lastDepthChangeMs: 0,
   tapAcc: 0,
@@ -229,11 +228,11 @@ export function botTap(s: GameState, bot: BotDef, mem: BotMemory, stepMs: number
 function maybePrestige(s: GameState, mem: BotMemory, out?: GameEvent[]): boolean {
   const gain = yunohanaGain(s).toNumber();
   if (!(gain > 0)) return false;
-  const target = Math.max(PARAMS.prestige.recommendGain, mem.lastGain * PARAMS.prestige.recommendGrowth); // T4 の推奨と同じ規則（ボットは ceil しないが、湯の華は整数なので同じ判定）
+  const target = recommendThreshold(s); // T4 の推奨と同じ関数（Q-47 (c)。前回の獲得はセーブの meta.lastPrestigeGain。版 1 から移したセーブは 0 → 30）
   const stalled = s.clock.playedMs - mem.lastDepthChangeMs >= 120_000;
-  if (!(gain >= target || (stalled && gain >= Math.max(9, mem.lastGain)))) return false;
+  const last = s.meta.lastPrestigeGain.toNumber(); // 前回の獲得はボットの記憶ではなく状態から読む（読む先を 1 つに。TS-021-12）
+  if (!(gain >= target || (stalled && gain >= Math.max(9, last)))) return false;
   act(s, { type: 'prestige' }, out);
-  mem.lastGain = gain;
   mem.lastMaxDepth = 0;
   mem.lastDepthChangeMs = s.clock.playedMs;
   return true;
