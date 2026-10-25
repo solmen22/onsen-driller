@@ -8,7 +8,7 @@ import { ZERO, type Num } from './num.ts';
 import { normalizeSeed, seedSfc32, sfc32Next, type Sfc32State } from './rng.ts';
 
 /** 保存データの版（save/schema.ts が再輸出する。形を変えたら上げて移行関数を足す） */
-export const SAVE_SCHEMA_VERSION = 1;
+export const SAVE_SCHEMA_VERSION = 2; // 2: meta.lastPrestigeGain を足した（BL-021。移行は save/migrate.ts）
 
 export type { OreId } from '../content/ores.ts';
 /** 改良の ID（content/upgrades.ts。BL-018）。湯の華の木・実績の ID は S3 以降で定義する */
@@ -80,6 +80,8 @@ export interface MetaState {
   yunohana: { lifetime: Num; spent: Num };
   perks: PerkId[];
   prestiges: number;
+  /** 前回の転生で得た湯の華（2 周目以降の「転生の推奨」の基準＝この 1.5 倍、最低 PARAMS.prestige.recommendGain。BL-021。schema 2） */
+  lastPrestigeGain: Num;
   terrainsUnlocked: TerrainId[];
   endingSeen: boolean;
   /** 温泉チケット（0〜10） */
@@ -152,6 +154,7 @@ export function createInitialState(seed: number): GameState {
       yunohana: { lifetime: ZERO, spent: ZERO },
       perks: [],
       prestiges: 0,
+      lastPrestigeGain: ZERO,
       terrainsUnlocked: [INITIAL_TERRAIN],
       endingSeen: false,
       tickets: PARAMS.tickets.initial,

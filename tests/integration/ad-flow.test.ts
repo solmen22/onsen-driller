@@ -3,10 +3,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createAdFlow, type AdFlowDeps } from '../../src/app/ad-flow.ts';
 import { createLifecycle } from '../../src/app/lifecycle.ts';
+import { subscribeSaveThenAds, wireVisibility } from '../../src/app/pause-wiring.ts';
 import { GameStore } from '../../src/app/store.ts';
 import { PARAMS } from '../../src/content/params.ts';
 import { blockHp, interludeLeftMs, type GameState } from '../../src/core/index.ts';
 import type { BreakPlacement, LateReward, Platform, RewardPlacement, RewardResult } from '../../src/platform/types.ts';
+import { dismissPrestigeConfirm, isPrestigeConfirmOpen, onPrestigeConfirmChange, openPrestigeConfirm } from '../../src/ui/overlay/prestige-confirm.ts';
 import { stateWith } from '../support/states.ts';
 
 /** 手で動かす偽の広告（結果・onPlaying を好きな順で出せる。壊れたアダプタも模せる） */
@@ -49,8 +51,8 @@ function fakeAds() {
   };
 }
 
-/** 広告の流れの部品をすべて記録する偽物 */
-function rig(over: Partial<AdFlowDeps> = {}) {
+/** 広告の流れの部品をすべて記録する偽物（signalHidden: false は CrazyGames〔非表示を合図にしない〕） */
+function rig(over: Partial<AdFlowDeps> = {}, opts: { signalHidden?: boolean } = {}) {
   const a = fakeAds();
   const log: string[] = [];
   const signals: string[] = [];
@@ -59,7 +61,7 @@ function rig(over: Partial<AdFlowDeps> = {}) {
     loadingStop: () => signals.push('loadingStop'),
     gameplayStart: () => signals.push('gameplayStart'),
     gameplayStop: () => signals.push('gameplayStop'),
-  });
+  }, opts);
   life.loadingStart();
   life.loadingStop();
   life.firstInput();
@@ -468,5 +470,167 @@ describe('遅れた報酬（Q-45。決定 0010 の 5: 開始の時間切れの�
     r.a.late(2, 'R2');
     expect(r.st.grants).toEqual(['R3', 'R2']);
     expect(told).toEqual([]); // 購読をやめた後は知らせない
+  });
+});
+
+describe('転生の確認の画面（BL-021。Q-47 (j)・決定 0010 の 14 (b)・15）: 止める理由 prestige を ad-flow の判定に入れる', () => {
+  /** main.ts と同じ配線の関数（app/pause-wiring.ts の wireVisibility。PR #75 のレビュー S-2 (a)）で、本物の確認の画面の口とつなぐ */
+  const wire = (opts: { signalHidden?: boolean } = {}) => {
+    const r = rig({}, opts);
+    const vis = wireVisibility({
+      life: r.life,
+      ads: r.flow,
+      isHidden: () => r.st.hidden,
+      prestigeConfirm: { onChange: onPrestigeConfirmChange, dismiss: dismissPrestigeConfirm },
+    });
+    const setHidden = (hidden: boolean): void => {
+      r.st.hidden = hidden;
+      vis.onVisibilityChange();
+    };
+    return { ...r, off: vis.dispose, setHidden };
+  };
+  let offs: (() => void)[] = [];
+  afterEach(() => {
+    dismissPrestigeConfirm();
+    for (const off of offs) off();
+    offs = [];
+  });
+  const wired = (opts: { signalHidden?: boolean } = {}) => {
+    const w = wire(opts);
+    offs.push(w.off);
+    return w;
+  };
+
+  it('TS-021-22（止める口）: 開いている間はループと gameplay を止め、閉じたら戻す。合図は 1 往復だけ・入力の ad は立てない（モーダルが止める）', () => {
+    const w = wired();
+    const close = openPrestigeConfirm();
+    expect(w.st.loopRunning).toBe(false);
+    expect(w.signals).toEqual(['gameplayStop']);
+    expect(w.st.inputBlocked).toBe(false);
+    close();
+    expect(w.st.loopRunning).toBe(true);
+    expect(w.signals).toEqual(['gameplayStop', 'gameplayStart']);
+  });
+
+  it('PR #68 の QA の申し送り: 確認の画面を開いている間に（遅れた）広告が終わっても、ループは動き出さない。閉じたら動く', () => {
+    const w = wired();
+    w.a.emit(true); // 時間切れの後に遅れて始まった広告など
+    const close = openPrestigeConfirm();
+    w.a.emit(false);
+    expect(w.st.loopRunning).toBe(false);
+    expect(w.life.playing).toBe(false);
+    close();
+    expect(w.st.loopRunning).toBe(true);
+    expect(w.signals).toEqual(['gameplayStop', 'gameplayStart']);
+  });
+
+  it('確認の画面を開いている間にミッドゲームの機会が終わっても、ループは動き出さない', async () => {
+    const w = wired();
+    w.flow.onEvents([{ type: 'BreakOpportunity', placement: 'M2', band: 3 }]);
+    const close = openPrestigeConfirm();
+    w.a.endBreak();
+    await flush();
+    expect(w.flow.breaking).toBe(false);
+    expect(w.st.loopRunning).toBe(false);
+    close();
+    expect(w.st.loopRunning).toBe(true);
+  });
+
+  it('確認の画面を閉じても、広告の再生中ならループは止まったまま（理由は重なってよい）', () => {
+    const w = wired();
+    const close = openPrestigeConfirm();
+    w.a.emit(true);
+    close();
+    expect(w.st.loopRunning).toBe(false);
+    w.a.emit(false);
+    expect(w.st.loopRunning).toBe(true);
+  });
+
+  for (const [name, signalHidden] of [
+    ['web・Poki（非表示を合図にする）', true],
+    ['CrazyGames（非表示を合図にしない）', false],
+  ] as const) {
+    it(`TS-021-44・決定 0010 の 14 (b)・15 ${name}: タブが隠れたら確認の画面を閉じ、隠れている間は gameplayStart を出さない。見えたら 1 回だけ出す`, () => {
+      const w = wired({ signalHidden });
+      const dismissed: number[] = [];
+      openPrestigeConfirm(() => dismissed.push(1));
+      expect(w.signals).toEqual(['gameplayStop']);
+      w.setHidden(true);
+      expect(dismissed).toEqual([1]);
+      expect(isPrestigeConfirmOpen()).toBe(false);
+      expect(w.signals).toEqual(['gameplayStop']); // 隠れている間は出さない
+      expect(w.life.playing).toBe(false);
+      expect(w.st.loopRunning).toBe(false);
+      w.setHidden(false);
+      expect(w.signals).toEqual(['gameplayStop', 'gameplayStart']);
+      expect(w.st.loopRunning).toBe(true);
+      // 開き直すと、また 1 往復（隠れて閉じた分の理由は残っていない）
+      openPrestigeConfirm()();
+      expect(w.signals).toEqual(['gameplayStop', 'gameplayStart', 'gameplayStop', 'gameplayStart']);
+    });
+
+    it(`決定 0010 の 15 ${name}: 隠れて閉じた後、見える前に広告が始まって終わっても gameplayStart は見えてからの 1 回だけ`, () => {
+      const w = wired({ signalHidden });
+      openPrestigeConfirm();
+      w.setHidden(true);
+      w.a.emit(true);
+      w.a.emit(false);
+      expect(w.signals).toEqual(['gameplayStop']);
+      w.setHidden(false);
+      expect(w.signals).toEqual(['gameplayStop', 'gameplayStart']);
+    });
+  }
+
+  it('確認の画面を開いていないときにタブを隠して戻しても、prestige の理由は立たない（CrazyGames は合図なし）', () => {
+    const w = wired({ signalHidden: false });
+    w.setHidden(true);
+    w.setHidden(false);
+    expect(w.signals).toEqual([]);
+    expect(w.st.loopRunning).toBe(true);
+  });
+
+  describe('本物のストア・core とつないだ確定（TS-021-45。演出 BL-041 の前）', () => {
+    const onPrestige = PARAMS.ads.midgame.onPrestige;
+    afterEach(() => {
+      (PARAMS.ads.midgame as { onPrestige: boolean }).onPrestige = onPrestige;
+    });
+
+    /** main.ts と同じ配線の関数（app/pause-wiring.ts の subscribeSaveThenAds）で、転生の保存 → ad-flow の順に購読する */
+    const wireStore = () => {
+      const w = wired();
+      const store = new GameStore(stateWith({ seed: 1, depth: 160 }));
+      offs.push(subscribeSaveThenAds(store, { saveNow: (reason) => (w.log.push(`save:${reason}`), true) }, w.flow));
+      return { ...w, store };
+    };
+
+    it('TS-021-45: gameplayStop（開く）→ 確定 → 転生の保存 → breakOpportunity(M1) → 広告の後に gameplayStart。確定から M1 の間に gameplayStart が出ない', async () => {
+      const w = wireStore();
+      const close = openPrestigeConfirm();
+      expect(w.signals).toEqual(['gameplayStop']);
+      // 確定は「dispatch → 閉じる関数」の順（prestige-confirm.ts の約束。break が先に立つので合図が往復しない）
+      expect(w.store.dispatch({ type: 'prestige' }).ok).toBe(true);
+      close();
+      expect(w.log).toEqual(['save:prestige', 'input:true']);
+      expect(w.a.calls).toEqual(['breakOpportunity:M1']);
+      expect(w.signals).toEqual(['gameplayStop']);
+      expect(w.st.loopRunning).toBe(false);
+      w.a.emit(true);
+      w.a.emit(false);
+      w.a.endBreak();
+      await flush();
+      expect(w.signals).toEqual(['gameplayStop', 'gameplayStart']);
+      expect(w.st.loopRunning).toBe(true);
+    });
+
+    it('TS-021-36（演出の前）: ads.midgame.onPrestige が false なら M1 を呼ばず、閉じたらすぐ gameplayStart', () => {
+      (PARAMS.ads.midgame as { onPrestige: boolean }).onPrestige = false;
+      const w = wireStore();
+      const close = openPrestigeConfirm();
+      w.store.dispatch({ type: 'prestige' });
+      close();
+      expect(w.a.calls).toEqual([]);
+      expect(w.signals).toEqual(['gameplayStop', 'gameplayStart']);
+      expect(w.st.loopRunning).toBe(true);
+    });
   });
 });

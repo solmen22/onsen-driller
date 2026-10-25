@@ -39,6 +39,8 @@ export interface SaveGame {
     yunohana: { lifetime: string; spent: string };
     perks: PerkId[];
     prestiges: number;
+    /** schema 2（BL-021）。Decimal の文字列 */
+    lastPrestigeGain: string;
     terrainsUnlocked: TerrainId[];
     endingSeen: boolean;
     tickets: number;
@@ -87,6 +89,7 @@ export function toSaveGame(s: GameState): SaveGame {
       yunohana: { lifetime: toStr(s.meta.yunohana.lifetime), spent: toStr(s.meta.yunohana.spent) },
       perks: [...s.meta.perks],
       prestiges: s.meta.prestiges,
+      lastPrestigeGain: toStr(s.meta.lastPrestigeGain),
       terrainsUnlocked: [...s.meta.terrainsUnlocked],
       endingSeen: s.meta.endingSeen,
       tickets: s.meta.tickets,
@@ -124,7 +127,11 @@ export function fromSaveGameTrusted(g: SaveGame): GameState {
       blockDmg: num(clone.run.blockDmg),
       pendingOffline: clone.run.pendingOffline ? { coins: num(clone.run.pendingOffline.coins), ms: clone.run.pendingOffline.ms } : null,
     },
-    meta: { ...clone.meta, yunohana: { lifetime: num(clone.meta.yunohana.lifetime), spent: num(clone.meta.yunohana.spent) } },
+    meta: {
+      ...clone.meta,
+      yunohana: { lifetime: num(clone.meta.yunohana.lifetime), spent: num(clone.meta.yunohana.spent) },
+      lastPrestigeGain: num(clone.meta.lastPrestigeGain),
+    },
     stats: { ...clone.stats, totalCoins: num(clone.stats.totalCoins) },
     input: createInput(),
   };

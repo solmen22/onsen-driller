@@ -15,7 +15,7 @@ const STUCK_LIMIT_MS = 10 * 60_000;
  * runBot がシードをボットの乱数（newBotMemory(seed)）に渡していることを見張る（渡さないと 8 シードの選び方が同じ列になる）。
  * ボット・core・content を意図して変えて結果が変わったときは、この値を更新し、理由を PR の説明に書く
  */
-const RANDOM_1H_SEED1_HASH = '30483b85'; // BL-018（改良 12 項目と案 c の数値）で更新。前は a7b9b847
+const RANDOM_1H_SEED1_HASH = 'fa97db8d'; // BL-021（セーブの版 2・meta.lastPrestigeGain。状態の形だけ。進み方は同じ）で更新。前は 30483b85（BL-018）、その前は a7b9b847
 
 describe('BL-032 安い順・ランダムの 20 時間（1 秒刻み）', () => {
   it.each([

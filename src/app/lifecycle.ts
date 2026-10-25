@@ -13,10 +13,10 @@
 import type { Platform, Target } from '../platform/types.ts';
 
 /**
- * gameplay を止める理由（prestige は S3 の転生の演出〔BL-021〕で結線する）。
+ * gameplay を止める理由。prestige は転生の確認の画面を開いている間（BL-021。Q-47 (j)。演出 BL-041 も同じ理由を使う）。
  * break はミッドゲームの機会（M1・M2）を渡している間（BL-059。PR #16 のレビュー Nit 2）。ad（onPlaying）と分けるのは、
  * onPlaying(false) が breakOpportunity の Promise より先に来ても gameplayStart を出さないため（取り合わない）。
- * **1 つの理由の書き手は 1 か所**: hidden・interlude は main.ts、ad・break は app/ad-flow.ts
+ * **1 つの理由の書き手は 1 か所**: hidden は app/pause-wiring.ts、interlude は main.ts、ad・break・prestige は app/ad-flow.ts
  */
 export type PauseReason = 'hidden' | 'ad' | 'interlude' | 'prestige' | 'break';
 

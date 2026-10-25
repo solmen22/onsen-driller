@@ -12,7 +12,7 @@
 // - Q-11: 最初の保存は a・seq 1、以後「今の正」と反対の枠に「有効な枠の最大の seq＋1」。壊れた X から復元した後の保存は X に Y.seq＋1（TS-E5-10）。
 //   両方壊れていたら新しいゲーム・save:broken に 1 つ退避・a から書く（TS-E5-11）。hidden への visibilitychange と pagehide は
 //   それぞれ 1 回書く（TS-E5-03 は、再読み込みで実際に来た契機の数だけ seq が増えることを見る）。
-// - Q-10 の 4・Q-22（S1 コードレビュー M-1）: 新しい版（schema 2）の枠は、v1 から見て形・checksum が壊れていても newer で、
+// - Q-10 の 4・Q-22（S1 コードレビュー M-1）: 新しい版（今の版＋1。今は schema 3）の枠は、今の版から見て形・checksum が壊れていても newer で、
 //   そのセッションは一切書かない（TS-E5-16）。
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -93,7 +93,7 @@ test.describe('E5 保存と再開', () => {
     expect(w).toHaveLength(1);
     const env = after[w[0]!].env!;
     expect(env.seq).toBe(maxSeq(base) + 1);
-    expect(env.schema).toBe(1);
+    expect(env.schema).toBe(2); // セーブの版 2（BL-021）
     expect(env.savedAt).toBeGreaterThanOrEqual(now0);
     expect(env.savedAt).toBeLessThanOrEqual(now1);
     expect(env.appVersion).toBe(await g.version());
@@ -226,20 +226,20 @@ test.describe('E5 保存と再開', () => {
     expect(after.a.env!.game).toEqual(await g2.getState());
   });
 
-  test('TS-E5-16 ロールバックの再現: v1 から見て壊れた新しい版（schema 2）の枠があるセッションは、どの枠も書き換えない（M-1）', async ({ page, harness }) => {
+  test('TS-E5-16 ロールバックの再現: v1 から見て壊れた新しい版（今の版＋1）の枠があるセッションは、どの枠も書き換えない（M-1）', async ({ page, harness }) => {
     // 本体は integration の TS-027-22（4 通り）。E2E は代表 1 件。案内の表示とストレージ全体の比較は S2 の TS-E5-13（BL-046）
     const { g } = await prepare(page, harness);
     await threeSaves(page, harness, g);
     const slots = await readSlots(page.context(), harness.origin);
     const { newer: x, older: y } = newerOlder(slots);
-    // 将来の版を模した封筒: schema 2、seq のキーを消し、checksum を別の 8 桁の 16 進に、知らないキー checksumV2 を足す
+    // 将来の版を模した封筒: schema 3（今の版＋1）、seq のキーを消し、checksum を別の 8 桁の 16 進に、知らないキー checksumV2 を足す
     // （先頭のキーは schema のまま。arch §11「封筒の約束」）
     const env = JSON.parse(slots[x].raw!) as Record<string, unknown>;
     const rest: Record<string, unknown> = { ...env };
     delete rest.seq;
     delete rest.schema;
     const otherChecksum = env.checksum === '00000000' ? '11111111' : '00000000';
-    const futureRaw = JSON.stringify({ schema: 2, ...rest, checksum: otherChecksum, checksumV2: 'deadbeef' });
+    const futureRaw = JSON.stringify({ schema: 3, ...rest, checksum: otherChecksum, checksumV2: 'deadbeef' }); // 今の版は 2（BL-021）
     const reopened = await reopenWithStorage(harness, page.context(), (ls) => ls.set(SLOT_KEYS[x], futureRaw));
     const before = await readLocalStorage(reopened.context, harness.origin);
     expect(before.get(SLOT_KEYS[x])).toBe(futureRaw);
@@ -265,14 +265,14 @@ test.describe('E5 保存と再開', () => {
     page,
     harness,
   }) => {
-    // 正しい v2 を模した封筒: X の封筒の schema だけを 2 にする（game はそのままなので checksum も合う）
+    // 正しい新しい版（v3）を模した封筒: X の封筒の schema だけを 3 にする（game はそのままなので checksum も合う。今の版は 2）
     const { g } = await prepare(page, harness);
     await threeSaves(page, harness, g);
     const slots = await readSlots(page.context(), harness.origin);
     const { newer: x } = newerOlder(slots);
     const env = JSON.parse(slots[x].raw!) as Record<string, unknown>;
-    expect(env.checksum, '封筒の checksum は game の正規化 JSON の FNV-1a（v2 を模した封筒でも合う）').toBe(stateHashOracle(env.game));
-    const futureRaw = JSON.stringify({ ...env, schema: 2 });
+    expect(env.checksum, '封筒の checksum は game の正規化 JSON の FNV-1a（v3 を模した封筒でも合う）').toBe(stateHashOracle(env.game));
+    const futureRaw = JSON.stringify({ ...env, schema: 3 });
     // ja-JP の context で開き直す（reopenWithStorage は locale を変えられないので、同じ手順をここで行う）
     const st = await page.context().storageState();
     const o = st.origins.find((e) => e.origin === harness.origin)!;

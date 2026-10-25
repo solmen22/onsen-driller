@@ -7,6 +7,7 @@ import { localStore } from '../../src/platform/storage.ts';
 import type { KeyValueStore } from '../../src/platform/types.ts';
 import { encodeSave } from '../../src/save/codec.ts';
 import { BROKEN_KEY, SAVE_KEYS, SaveSlots } from '../../src/save/slots.ts';
+import { SAVE_SCHEMA_VERSION } from '../../src/save/schema.ts';
 
 const APP = '0.0.1';
 
@@ -177,12 +178,12 @@ describe('TS-027-06 両方の枠が壊れている → 例外なしで新しい�
   });
 });
 
-describe('新しい版のセーブ（schema 2）→ 読み取り専用（そのセッションは書かない）', () => {
+describe('新しい版のセーブ（今の版＋1）→ 読み取り専用（そのセッションは書かない）', () => {
   it('新しい版の枠は読まず、もう一方の有効な枠を使い、保存しない', () => {
     const store = new FakeStore();
     put(store, 'a', stateAt(10), 1);
     const newer = JSON.parse(encodeSave(stateAt(99), 2, now, APP)) as { schema: number };
-    newer.schema = 2;
+    newer.schema = SAVE_SCHEMA_VERSION + 1;
     store.map.set(SAVE_KEYS.b, JSON.stringify(newer));
     const slots = slotsFor(store);
     const r = slots.load();
@@ -193,10 +194,10 @@ describe('新しい版のセーブ（schema 2）→ 読み取り専用（その�
 });
 
 describe('TS-027-22 ロールバック: v1 から見て壊れている新しい版の枠も上書きしない（読み取り専用。レビュー M-1）', () => {
-  /** schema 2 の封筒（中身は v1 の game）を change で崩したもの */
+  /** 新しい版（今の版＋1）の封筒（中身は今の版の game）を change で崩したもの */
   const future = (change: (e: Record<string, unknown>) => void = () => undefined): string => {
     const e = JSON.parse(encodeSave(stateAt(99), 5, now, APP)) as Record<string, unknown>;
-    e.schema = 2;
+    e.schema = SAVE_SCHEMA_VERSION + 1;
     change(e);
     return JSON.stringify(e);
   };
@@ -211,7 +212,7 @@ describe('TS-027-22 ロールバック: v1 から見て壊れている新しい�
     ['② b: seq がない', (st) => (put(st, 'a', stateAt(40), 4), st.map.set(SAVE_KEYS.b, future(noSeq))), 'a'],
     ['③ b: game が文字列', (st) => (put(st, 'a', stateAt(40), 4), st.map.set(SAVE_KEYS.b, future((e) => (e.game = '{"run":{}}')))), 'a'],
     ['④ b: 知らないキーの追加', (st) => (put(st, 'a', stateAt(40), 4), st.map.set(SAVE_KEYS.b, future((e) => (e.checksumV2 = 'x')))), 'a'],
-    ['⑤ b: 正しい v2（checksum も合う）', (st) => (put(st, 'a', stateAt(40), 4), st.map.set(SAVE_KEYS.b, future())), 'a'],
+    ['⑤ b: 正しい新しい版（checksum も合う）', (st) => (put(st, 'a', stateAt(40), 4), st.map.set(SAVE_KEYS.b, future())), 'a'],
     ['⑥ b だけ（a は空）', (st) => st.map.set(SAVE_KEYS.b, future(badSum)), null],
     ['⑦ a が途中で切れた文字列・b が ②', (st) => (st.map.set(SAVE_KEYS.a, '{"schema":1,"seq":4,"sa'), st.map.set(SAVE_KEYS.b, future(noSeq))), null],
     ['⑧ a・b とも ①', (st) => (st.map.set(SAVE_KEYS.a, future(badSum)), st.map.set(SAVE_KEYS.b, future(badSum))), null],

@@ -32,12 +32,14 @@ function addCoins(s: GameState, c: Num): void {
  * 温泉チケットを n 枚得る（n は出来事ごとの固定の値。params.tickets）。上限（10）を超えた分は「今の毎秒の収入 × 60 秒 × 枚数」のコイン
  * （収入 0 なら 0）。TicketGained を必ず 1 つ出す（n・overflow のどちらが 0 でも）
  */
-export function gainTickets(s: GameState, source: TicketSource, n: number, out: GameEvent[]): void {
+export function gainTickets(s: GameState, source: TicketSource, n: number, out: GameEvent[], opts: { overflowToCoins?: boolean } = {}): void {
   const want = Math.max(0, Math.floor(n));
   const added = Math.min(Math.max(0, T.max - s.meta.tickets), want);
   const overflow = want - added;
   s.meta.tickets += added;
-  const coins = overflow > 0 ? mul(incomePerSec(s), T.overflowIncomeSec * overflow) : ZERO;
+  // 転生では上限を超えた分をコインに替えない（新しい周回の収入ではほぼ 0 で、替えたように見せると誤解を招く。Q-47 (d)。CEO 決定 10/18）
+  const toCoins = opts.overflowToCoins ?? true;
+  const coins = toCoins && overflow > 0 ? mul(incomePerSec(s), T.overflowIncomeSec * overflow) : ZERO;
   addCoins(s, coins);
   out.push({ type: 'TicketGained', source, n: added, overflow, coins: toStr(coins) });
 }
