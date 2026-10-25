@@ -1,8 +1,9 @@
 // セーブの見本（gdd §10・arch §11。BL-028）: 版ごとに 序盤・転生前・転生後・最大状態 の 4 種を tests/fixtures/saves/v{N}/ に置き、永久に残す。
 // - 見本は「その版のビルドが書く封筒の文字列」そのもの（ストレージの値と同じ。1 行の JSON）
 // - 状態は標準ボットで遊んで作る（決定的。シード 1）。最大状態は、どの欄も上限・すべての ID・最長の ID で作る
-// - 版 1 の見本は、同じ状態から版 2 で足した欄（meta.lastPrestigeGain・run.startDepth）を除き、schema を 1 にして checksum を付け直す
-//   （版 1 と版 2 の違いはこの 2 つの欄と schema だけ。arch §11 の版の履歴）
+// - 版 1 の見本は**合成**: 同じ状態から版 2 で足した欄（meta.lastPrestigeGain・run.startDepth）を除き、schema を 1 にして checksum を付け直す
+//   （版 1 と版 2 の違いはこの 2 つの欄と schema だけ。arch §11 の版の履歴）。版 1 のビルド（main `9b16498`。SAVE_SCHEMA_VERSION = 1）で
+//   4 本とも補正なしに読めることを確かめた（2026-10-26。PR #87 のレビュー N-1）
 // - どの見本にも run.pendingOffline の欄がある（BL-058 が版 1 のまま足した欄）。転生後の見本は受け取り待ちのオフラインの報酬を持つ
 // 書くのは tools/fixtures/make-save-fixtures.ts（ない見本だけを書く。見本は消さない・上書きしない）
 import { GUESTS } from '../../src/content/guests.ts';

@@ -4,7 +4,7 @@
 //    seq の大きいほうが壊れていたら有効なほうから復元し、次は壊れていた枠に書く（1. の規則でそうなる）
 // 3. 書いた直後に読み戻し、合わなければその枠は無効のまま・正は元の枠。次の保存も同じ枠に同じ seq でやり直す
 // 4. 両方の枠が壊れていたら新しいゲーム。壊れていた生の文字列を 1 つだけ save:broken に退避してから、a から書く
-// 5. どちらかの枠が新しい版（newer）なら読み取り専用（そのセッションは書かない）
+// 5. どちらかの枠が新しい版（newer）か、移行のコードが失敗した（migrateFailed。BL-028）なら読み取り専用（そのセッションは書かない）
 // 6. 読めない枠（get が例外）が 1 つでもあれば、そのセッションは**どの枠にも書かない**（状態 unavailable。読み直さない）。
 //    読めない枠を「空」とみなして新しいゲームで上書きしないため（レビュー S-1・Q-23）。有効なほうがあればそこから始める
 // 保存の状態: ok ／ failing（書き込みか読み戻しの失敗。次の保存で再試行。起動時の試し書きが失敗した環境は起動時から）／
@@ -56,7 +56,7 @@ function looseSeq(raw: string | null): number {
 }
 
 /** 読めたが検証に落ちた枠（空・有効・読めない・新しい版は含めない） */
-const isBroken = (r: SlotReport): boolean => r !== 'empty' && r !== 'ok' && r !== 'unreadable' && r !== 'newer';
+const isBroken = (r: SlotReport): boolean => r !== 'empty' && r !== 'ok' && r !== 'unreadable' && r !== 'newer' && r !== 'migrateFailed';
 
 export class SaveSlots {
   private readonly storage: KeyValueStore;
@@ -126,7 +126,7 @@ export class SaveSlots {
         found.push({ slot, state: r.state, seq: r.env.seq, savedAt: r.env.savedAt, corrected: r.corrected });
       } else {
         report[slot] = r.reason;
-        if (r.reason === 'newer') this.readOnlyValue = true;
+        if (r.reason === 'newer' || r.reason === 'migrateFailed') this.readOnlyValue = true; // 移行の失敗もこちらの誤り。直したビルドで読めるよう上書きしない（PR #87 のレビュー S-1）
       }
     }
     // 読めない枠がある: そのセッションはどの枠にも書かない（seq の大小が分からず、新しい控えかもしれない。Q-23）

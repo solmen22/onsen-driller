@@ -1,6 +1,8 @@
 // BL-028: セーブの見本（tests/fixtures/saves/v{N}/。序盤・転生前・転生後・最大状態）を今の版で読む・移行の連鎖・新しい版のセーブの保護・大きさ。
 // 見本は tools/fixtures/make-save-fixtures.ts が書き、消さない（gdd §10）。TS-ID は BL-021 のシナリオ（TS-021-27・29・30・32）と、BL-028 のシナリオが出たら付ける
-import { readdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PERK_BY_ID } from '../../src/content/perks.ts';
@@ -12,6 +14,7 @@ import { migrateGame, STEPS, type MigrationStep } from '../../src/save/migrate.t
 import { SAVE_SCHEMA_VERSION } from '../../src/save/schema.ts';
 import { SAVE_KEYS, SaveSlots } from '../../src/save/slots.ts';
 import { FIXTURE_KINDS } from '../../tools/fixtures/save-fixtures.ts';
+import { writeFixtures } from '../../tools/fixtures/make-save-fixtures.ts';
 
 const ROOT = join('tests', 'fixtures', 'saves');
 const read = (...p: string[]): string => readFileSync(join(ROOT, ...p), 'utf8').trim();
@@ -55,6 +58,47 @@ describe('BL-028 見本の置き場所（見本は消さない）', () => {
         const env = JSON.parse(read(`v${v}`, `${k}.json`)) as { schema: number; game: { schema: number } };
         expect([env.schema, env.game.schema], `v${v}/${k}`).toEqual([v, v]);
       }
+  });
+});
+
+describe('BL-028 見本は上書きしない（PR #87 のレビュー S-2）', () => {
+  /**
+   * 見本ごとの内容のハッシュ（sha256 の先頭 16 桁。前後の空白を除いた文字列）。**行を足すのはよいが、既存の行を変えてはいけない**
+   * （見本が今のコードの出力に黙って置き換わると、古いセーブを読めることの網が消える。gdd §10）
+   */
+  const PINNED: readonly (readonly [string, string])[] = [
+    ['v1/early.json', '6bea38ab8b07d482'],
+    ['v1/max.json', '90bb6e327b313865'],
+    ['v1/post-prestige.json', '1f422df8fed9e759'],
+    ['v1/pre-prestige.json', 'e6be8938b48d1381'],
+    ['v2/early.json', 'a861803e7af4c8bd'],
+    ['v2/max.json', 'a8fbe2bb7995c0a1'],
+    ['v2/post-prestige.json', 'ba06b1a31398efda'],
+    ['v2/pre-prestige.json', 'a6e2fd4f25e50123'],
+    ['newer/schema-3.json', 'dd064f91bfbaff0e'],
+  ];
+  const sha = (t: string): string => createHash('sha256').update(t).digest('hex').slice(0, 16);
+
+  it('どの見本も、固定したハッシュのとおり（置き場所にある見本はすべて表にある）', () => {
+    const files = ['newer', ...versions.map((v) => `v${v}`)].flatMap((d) => readdirSync(join(ROOT, d)).map((f) => `${d}/${f}`)).sort();
+    expect(files).toEqual(PINNED.map(([f]) => f).sort());
+    for (const [f, h] of PINNED) expect(sha(read(...f.split('/'))), f).toBe(h);
+  });
+
+  it('道具（writeFixtures）は、ある見本に触れず、ない見本だけを書く', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'odr-fixtures-'));
+    try {
+      mkdirSync(join(dir, 'v1'), { recursive: true });
+      writeFileSync(join(dir, 'v1', 'early.json'), 'SENTINEL');
+      const wrote = writeFixtures(dir);
+      expect(readFileSync(join(dir, 'v1', 'early.json'), 'utf8')).toBe('SENTINEL');
+      expect(wrote.length).toBe(versions.length * FIXTURE_KINDS.length); // v1/early 以外の見本 ＋ newer の 1 つ
+      expect(writeFixtures(dir)).toEqual([]); // 2 回目は何も書かない
+      // 書いた見本は、置き場所の見本と同じ（道具の出力が今のコードで変わっていない。変わったら新しい版の見本として足すこと）
+      for (const v of versions) for (const k of FIXTURE_KINDS) if (!(v === 1 && k === 'early')) expect(readFileSync(join(dir, `v${v}`, `${k}.json`), 'utf8').trim(), `v${v}/${k}`).toBe(read(`v${v}`, `${k}.json`));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -135,7 +179,7 @@ describe('BL-028 移行の連鎖（版ごとの関数を順に当て、各段階
     expect(calls).toEqual([3]);
   });
 
-  it('段階の確かめ: 次の版の番号にならない・run や meta を壊す・例外を出す・途中の関数がない → null（読み込みは invalidGame）', () => {
+  it('段階の確かめ: 次の版の番号にならない・run や meta を壊す・例外を出す・途中の関数がない → null（読み込みは migrateFailed で読み取り専用。tests/unit/save-migrate-fail.test.ts）', () => {
     const broken: Record<string, Record<number, MigrationStep>> = {
       wrongVersion: { ...STEPS, 2: (g) => ({ ...g, schema: 2 }) },
       dropsRun: { ...STEPS, 2: (g) => ({ ...g, schema: 3, run: null }) },

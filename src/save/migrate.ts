@@ -43,7 +43,8 @@ export interface MigrateOptions {
 /**
  * 古い版の game を今の版の形に移す（今の版ならそのまま返す。入力は書き換えない）。
  * 1 版ずつ順に当て、**各段階の後に形を確かめる**（BL-028）: 結果がオブジェクトで、run・meta がオブジェクトで、schema がちょうど次の版。
- * 確かめに落ちた・途中の版の関数がない・関数が例外を出したら null（読み込みはその枠を invalidGame にする。値の検証・補正は移行の後のスキーマ）
+ * 確かめに落ちた・途中の版の関数がない・関数が例外を出したら null（読み込みはその枠を migrateFailed にし、読み取り専用で起動する〔壊れた枠と
+ * 分け、上書きしない。PR #87 のレビュー S-1〕。値の検証・補正は移行の後のスキーマ）
  */
 export function migrateGame(game: Rec, opts: MigrateOptions = {}): Rec | null {
   const steps = opts.steps ?? STEPS;
