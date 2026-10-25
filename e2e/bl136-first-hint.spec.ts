@@ -16,8 +16,22 @@ import { bootGame } from './support/boot.ts';
 const settle = (page: Page) => page.clock.runFor(250);
 
 interface Shot {
-  /** split: 句（.hint-phrase）が 2 行にまたがったか */
-  hint: null | { w: number; lines: number; bottom: number; split: boolean; phrases: number };
+  /**
+   * split: 句（.hint-phrase）が 2 行にまたがったか。
+   * overflow: 文字の矩形が案内の中（padding の内側）から左右にはみ出した量の大きいほう（px。0 以下ならはみ出しなし）。
+   * gap: 案内の右端から自動掘りのボタンの左端まで（px。負なら重なる。同じ行のときだけ意味がある）。
+   * outside: 案内の箱が .stage-actions の中（padding の内側）から左右にはみ出した量（px）
+   */
+  hint: null | {
+    w: number;
+    lines: number;
+    bottom: number;
+    split: boolean;
+    phrases: number;
+    overflow: number;
+    gap: number;
+    outside: number;
+  };
   auto: { x: number; y: number };
   boost: { x: number; y: number; top: number };
   /** .stage-actions の中の幅（padding を除く） */
@@ -40,7 +54,22 @@ const measure = (page: Page): Promise<Shot> =>
         return new Set([...range.getClientRects()].filter((x) => x.width > 0 && x.height > 0).map((x) => Math.round(x.top))).size;
       };
       const phrases = [...h.querySelectorAll<HTMLElement>('.hint-phrase')];
+      // はみ出し（PR #76 のレビュー S-1。<wbr> がないと句の間で折れず、1 行のまま箱から出てボタンに重なった）
+      const hs = getComputedStyle(h);
+      const innerL = r.left + parseFloat(hs.paddingLeft);
+      const innerR = r.right - parseFloat(hs.paddingRight);
+      const range = document.createRange();
+      range.selectNodeContents(h);
+      const text = [...range.getClientRects()].filter((x) => x.width > 0 && x.height > 0);
+      const overflow = Math.max(...text.map((x) => Math.max(x.right - innerR, innerL - x.left)));
+      const sa = document.querySelector<HTMLElement>('.stage-actions')!;
+      const sr = sa.getBoundingClientRect();
+      const ss = getComputedStyle(sa);
+      const outside = Math.max(r.right - (sr.right - parseFloat(ss.paddingRight)), sr.left + parseFloat(ss.paddingLeft) - r.left);
       hint = {
+        overflow: Math.round(overflow * 10) / 10,
+        gap: Math.round((a.left - r.right) * 10) / 10,
+        outside: Math.round(outside * 10) / 10,
         w: Math.round(r.width),
         lines: tops(h),
         bottom: Math.round(r.bottom),
@@ -98,6 +127,10 @@ for (const locale of ['ja-JP', 'en-US'] as const) {
         expect(hint.lines, '案内は 2 行まで（PR #69 のレビュー N-1）').toBeLessThanOrEqual(2);
         expect(hint.phrases, '句ごとの span（ja 3 つ・en 2 つ）').toBe(locale === 'ja-JP' ? 3 : 2);
         expect(hint.split, '句の途中で折れない（「長／押し」など）').toBe(false);
+        // はみ出さない（PR #76 のレビュー S-1）: 文字は案内の中、案内は行の中。同じ行なら自動掘りのボタンに重ならない
+        expect(hint.overflow, '案内の文字が箱からはみ出さない').toBeLessThanOrEqual(0.5);
+        expect(hint.outside, '案内の箱が行（.stage-actions の中）からはみ出さない').toBeLessThanOrEqual(0.5);
+        if (!vp.narrow) expect(hint.gap, '案内が自動掘りのボタンに重ならない').toBeGreaterThanOrEqual(0);
         expect(after.auto, '自動掘りのボタンが跳ねない').toEqual(before.auto);
         expect({ x: after.boost.x, y: after.boost.y }, 'btn-boost が跳ねない').toEqual({ x: before.boost.x, y: before.boost.y });
       });
