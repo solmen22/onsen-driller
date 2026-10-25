@@ -8,9 +8,23 @@ export interface PokiSdk {
   gameLoadingFinished(): void;
   gameplayStart(): void;
   gameplayStop(): void;
+  /**
+   * 引数はコールバックの形（広告の開始で呼ばれる。音を止める所）。Promise は値なしで決まる（BL-060。2026-10-26 に公式の文書で確認:
+   * https://developers.poki.com/guide/sdk-html5 の `PokiSDK.commercialBreak(() => { ... }).then(() => { ... })`）
+   */
   commercialBreak(onStart?: () => void): Promise<void>;
+  /**
+   * 引数はコールバックの形。Promise は success（true なら動画が出たので報酬を付ける、false なら付けない）で決まる
+   * （2026-10-26 に公式の文書で確認: 同じページの `PokiSDK.rewardedBreak(() => { ... }).then((success) => { ... })`）。
+   * `{ size, onStart }` のようなオブジェクトの形は、公式の文書（HTML5・SDK の概要・エンジン別のページ）には載っていない。
+   * 文書に版ごとの違いの記載はなく、版は script の URL の v2 だけ
+   */
   rewardedBreak(onStart?: () => void): Promise<boolean>;
-  /** 公式の HTML5 ページには記載がない（2026-09-28 確認）。あれば使い、なければ window.open */
+  /**
+   * 外部へのリンクは、URL を直接開かずにこれを通す（2026-10-26 に公式の文書で確認: https://developers.poki.com/guide/requirements-quality
+   * の `PokiSDK.openExternalLink('URL')`。前は HTML5 のページだけを見て「記載がない」としていた〔2026-09-28〕）。
+   * 型は省略可のままにし、ない SDK では window.open にする
+   */
   openExternalLink?(url: string): void;
 }
 
