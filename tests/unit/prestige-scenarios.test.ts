@@ -88,7 +88,7 @@ describe('TS-021-03・04 累計 N の倍率 ×(1＋0.02N)', () => {
 
   it('TS-021-04: N＝1e6・1e300 でも倍率・威力・入湯料が NaN・Infinity・負にならず、保存して読み直しても値が変わらない', () => {
     for (const n of ['1e6', '1e300']) {
-      const s = rich(n, n);
+      const s = rich(n); // 使った分は木のコストの合計で決まる（BL-022）ので、ここでは 0
       const vals = [prestigeView(s).multNow, prestigeView(s).multAfter, drillPower(s), bathIncomePerSec(s)];
       for (const v of vals) {
         expect(Number.isFinite(v.mantissa) && Number.isFinite(v.exponent), `${n} ${v.toString()}`).toBe(true);

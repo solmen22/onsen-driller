@@ -5,6 +5,7 @@ import fc from 'fast-check';
 import Decimal from 'break_infinity.js';
 import { GUESTS } from '../../src/content/guests.ts';
 import { ORE_IDS } from '../../src/content/ores.ts';
+import { PERK_BY_ID, PERK_IDS, PERKS, type PerkId } from '../../src/content/perks.ts';
 import type { SpringId } from '../../src/content/springs.ts';
 import { PARAMS } from '../../src/content/params.ts';
 import { INITIAL_TERRAIN, TERRAIN_IDS } from '../../src/content/terrains.ts';
@@ -43,6 +44,7 @@ export const gameStateArb: fc.Arbitrary<GameState> = fc
     blockDmg: decimalArb,
     depth: count(2000),
     extraMax: count(500),
+    startPick: fc.oneof(fc.constant(0), fc.nat()),
     drill: levelArb(5000),
     tool: fc.integer({ min: 0, max: 7 }),
     digger: levelArb(500),
@@ -55,7 +57,6 @@ export const gameStateArb: fc.Arbitrary<GameState> = fc
     tickets: fc.integer({ min: 0, max: 10 }),
     prestiges: count(1000),
     yunohana: decimalArb,
-    spent: decimalArb,
     ores: fc.dictionary(fc.constantFrom(...ORE_IDS), count()),
     boostLeft: ms,
     boostReady: ms,
@@ -71,7 +72,8 @@ export const gameStateArb: fc.Arbitrary<GameState> = fc
     // 転生で残るもの（TS-021-16。レビュー PR #75 S-1）: 実績・図鑑の来訪・木・解放済みの地形・前回の転生の獲得
     achievements: fc.uniqueArray(shapedIdArb, { maxLength: 6 }),
     guestsSeen: fc.dictionary(fc.constantFrom(...GUESTS.map((g) => g.id)), fc.integer({ min: 0, max: 2 ** 45 })),
-    perks: fc.uniqueArray(shapedIdArb, { maxLength: 6 }),
+    // 湯の華の木（BL-022）: 選んだうち前提を満たすものだけ（定義の順）。使った分はそのコストの合計、累計は使った分以上（読み込みの補正がかからない形）
+    perks: fc.subarray([...PERK_IDS]),
     terrains: fc.subarray(TERRAIN_IDS.filter((t) => t !== INITIAL_TERRAIN)),
     terrainPick: fc.nat(),
     lastPrestigeGain: decimalArb,
@@ -84,6 +86,7 @@ export const gameStateArb: fc.Arbitrary<GameState> = fc
     r.blockDmg = g.blockDmg;
     r.depth = g.depth;
     r.maxDepth = g.depth + g.extraMax;
+    r.startDepth = g.startPick % (r.maxDepth + 1); // 近道の坑道の始めの深さ（BL-022）。周回の最深以下
     r.drill = { level: g.drill, tool: g.tool };
     r.autoDig = { level: g.digger, on: g.autoOn && g.tool >= 1 };
     g.pumps.forEach((lv, i) => {
@@ -104,9 +107,12 @@ export const gameStateArb: fc.Arbitrary<GameState> = fc
     s.clock.playedMs = g.playedMs;
     s.meta.tickets = g.tickets;
     s.meta.prestiges = g.prestiges;
-    s.meta.yunohana = { lifetime: g.yunohana, spent: g.spent };
+    const perks: PerkId[] = [];
+    for (const p of PERKS) if (g.perks.includes(p.id) && (p.requiresAny.length === 0 || p.requiresAny.some((r) => perks.includes(r)))) perks.push(p.id);
+    const spent = perks.reduce((a, id) => a + PERK_BY_ID[id].cost, 0);
+    s.meta.yunohana = { lifetime: num(g.yunohana.add(spent)), spent: num(spent) };
     s.meta.endingSeen = g.endingSeen;
-    s.meta.perks = g.perks;
+    s.meta.perks = perks;
     s.meta.terrainsUnlocked = [INITIAL_TERRAIN, ...g.terrains];
     r.terrain = s.meta.terrainsUnlocked[g.terrainPick % s.meta.terrainsUnlocked.length] ?? INITIAL_TERRAIN;
     s.meta.lastPrestigeGain = g.lastPrestigeGain;

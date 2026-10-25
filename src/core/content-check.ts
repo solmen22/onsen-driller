@@ -5,6 +5,7 @@ import type { Effect } from '../content/effects.ts';
 import { GUESTS } from '../content/guests.ts';
 import { PARAMS } from '../content/params.ts';
 import { ORE_BY_ID, ORES } from '../content/ores.ts';
+import { PERKS } from '../content/perks.ts';
 import { SPRING_BY_ID, SPRINGS } from '../content/springs.ts';
 import { STRATA } from '../content/strata.ts';
 import { TOOLS } from '../content/tools.ts';
@@ -91,7 +92,21 @@ export function contentProblems(): string[] {
   });
   if (!(PARAMS.bath.c0 > 0 && PARAMS.bath.r > 1 && PARAMS.bath.bonusPerLv > 0)) p.push('params: bath のコスト・成長率・倍率が正でない');
   if (!(PARAMS.offline.eff > 0 && PARAMS.offline.eff <= PARAMS.offline.maxEff)) p.push('params: offline.eff が 0〜maxEff にない');
+  if (!(PARAMS.offline.capMs > 0)) p.push('params: offline.capMs が正でない');
   // 改良（BL-018。TS-018-02）
   p.push(...upgradeProblems());
+  // 湯の華の木（BL-022）: ID の重複なし、コストは正の整数、前提は先に定義したノード、名前のキーは perk.<id>、効果の値は健全
+  for (const id of dupes(PERKS.map((x) => x.id))) p.push(`perks: ID ${id} が重複`);
+  PERKS.forEach((k, i) => {
+    if (!(Number.isSafeInteger(k.cost) && k.cost > 0)) p.push(`perks: ${k.id} のコストが正の整数でない`);
+    if (k.nameKey !== `perk.${k.id}`) p.push(`perks: ${k.id} の名前のキーが perk.${k.id} でない`);
+    for (const r of k.requiresAny) if (!PERKS.slice(0, i).some((x) => x.id === r)) p.push(`perks: ${k.id} の前提 ${r} が先に定義されていない`);
+    for (const e of k.effects) {
+      if ('mult' in e && !(Number.isFinite(e.mult) && e.mult > 0)) p.push(`perks: ${k.id} の効果 ${e.kind} の倍率が正の有限の数でない`);
+      if ('add' in e && !Number.isFinite(e.add)) p.push(`perks: ${k.id} の効果 ${e.kind} の値が有限の数でない`);
+      if (e.kind === 'startTool' && !(Number.isInteger(e.tool) && e.tool >= 0 && e.tool < TOOLS.length)) p.push(`perks: ${k.id} の道具 ${e.tool} がない`);
+      if (e.kind === 'startDepth' && !(e.frac > 0 && e.frac < 1)) p.push(`perks: ${k.id} の始めの深さの割合が 0〜1 にない`);
+    }
+  });
   return p;
 }

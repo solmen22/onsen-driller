@@ -19,6 +19,7 @@ export interface SaveGame {
     coins: string;
     depth: number;
     maxDepth: number;
+    startDepth: number;
     blockDmg: string;
     digCarry: number;
     diggerCarry: number;
@@ -70,6 +71,7 @@ export function toSaveGame(s: GameState): SaveGame {
       coins: toStr(r.coins),
       depth: r.depth,
       maxDepth: r.maxDepth,
+      startDepth: r.startDepth,
       blockDmg: toStr(r.blockDmg),
       digCarry: r.digCarry,
       diggerCarry: r.diggerCarry,
@@ -125,6 +127,7 @@ export function fromSaveGameTrusted(g: SaveGame): GameState {
       ...clone.run,
       coins: num(clone.run.coins),
       blockDmg: num(clone.run.blockDmg),
+      startDepth: clone.run.startDepth ?? 0, // v1 の形（テスト用フック）には欄がない
       pendingOffline: clone.run.pendingOffline ? { coins: num(clone.run.pendingOffline.coins), ms: clone.run.pendingOffline.ms } : null,
     },
     meta: {

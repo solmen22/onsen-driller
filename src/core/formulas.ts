@@ -1,6 +1,7 @@
 // 式と派生値（gdd §5・§7-1）。状態を読むだけで、書き換えない
 import type { Effect } from '../content/effects.ts';
 import { UPGRADE_BY_ID } from '../content/upgrades.ts';
+import { PERK_BY_ID, type PerkEffect } from '../content/perks.ts';
 import { PARAMS } from '../content/params.ts';
 import { SPRINGS, SPRING_BY_ID, type SpringId } from '../content/springs.ts';
 import { GUEST_BY_ID, GUESTS, type GuestDef, type GuestId } from '../content/guests.ts';
@@ -106,6 +107,89 @@ export function upgradeEffect(id: UpgradeId): Effect | undefined {
   return Object.hasOwn(UPGRADE_BY_ID, id) ? UPGRADE_BY_ID[id]?.effect : undefined;
 }
 
+/**
+ * 湯の華の木（BL-022）: 取ったノードの効果のうち、共通の語彙（Effect）でないものの合計。
+ * 倍率は掛け算、足し算は足し合わせる（同じ種類のノードは今は 1 つずつだが、増えても順番によらない）
+ */
+export interface PerkTotals {
+  /** ポンプと湯船のコスト ×（大工の顔なじみ 0.9） */
+  pumpBathCost: number;
+  /** 鉱石の出現の確率に足す（目利きのルーペ +0.04） */
+  oreChanceAdd: number;
+  /** お客さんの効果の上乗せの部分 ×（常連さん 1.5） */
+  guestBonus: number;
+  /** 湯の華の獲得 ×（湯の華の目利き 1.5） */
+  yunohanaGain: number;
+  /** オフラインの上限に足す ms（留守番の番頭 +4 時間。BL-030 の早送りが使う） */
+  offlineCapAddMs: number;
+  /** 周回の始めの道具（TOOLS の index。形見のツルハシ 2＝手掘りやぐら。0 なら初期のまま） */
+  startTool: number;
+  /** 周回の始めの深さ＝前回の最深 × frac（近道の坑道 0.25） */
+  startDepthFrac: number;
+  /** 周回の始めのコイン（旅の支度金 500） */
+  startCoins: number;
+}
+
+const isCommonEffect = (e: PerkEffect): e is Effect =>
+  e.kind === 'incomeAll' ||
+  e.kind === 'springIncome' ||
+  e.kind === 'drillPower' ||
+  e.kind === 'autoDig' ||
+  e.kind === 'oreValue' ||
+  e.kind === 'hardness' ||
+  e.kind === 'digCoins' ||
+  e.kind === 'offlineEff';
+
+/** 取った木のノードの効果を、定義の順に 1 つずつ渡す（知らない ID は効果なし） */
+function forEachPerkEffect(s: Readonly<GameState>, fn: (e: PerkEffect) => void): void {
+  for (const id of s.meta.perks) {
+    const d = Object.hasOwn(PERK_BY_ID, id) ? PERK_BY_ID[id] : undefined;
+    if (d) for (const e of d.effects) fn(e);
+  }
+}
+
+/** 木の効果のうち、共通の語彙でないものの合計（BL-022） */
+export function perkTotals(s: Readonly<GameState>): PerkTotals {
+  const t: PerkTotals = { pumpBathCost: 1, oreChanceAdd: 0, guestBonus: 1, yunohanaGain: 1, offlineCapAddMs: 0, startTool: 0, startDepthFrac: 0, startCoins: 0 };
+  forEachPerkEffect(s, (e) => {
+    switch (e.kind) {
+      case 'pumpBathCost':
+        t.pumpBathCost *= e.mult;
+        return;
+      case 'oreChance':
+        t.oreChanceAdd += e.add;
+        return;
+      case 'guestBonus':
+        t.guestBonus *= e.mult;
+        return;
+      case 'yunohanaGain':
+        t.yunohanaGain *= e.mult;
+        return;
+      case 'offlineCap':
+        t.offlineCapAddMs += e.addMs;
+        return;
+      case 'startTool':
+        t.startTool = Math.max(t.startTool, e.tool);
+        return;
+      case 'startDepth':
+        t.startDepthFrac = Math.max(t.startDepthFrac, e.frac);
+        return;
+      case 'startCoins':
+        t.startCoins += e.coins;
+        return;
+      default:
+        return; // 共通の語彙は modifiers で掛ける
+    }
+  });
+  return t;
+}
+
+/** お客さんの効果の上乗せの部分を k 倍にする（×1.5 のお客さんは k＝1.5 で ×1.75。常連さん。BL-022） */
+function scaleGuestEffect(e: Effect, k: number): Effect {
+  if (k === 1 || e.kind === 'offlineEff') return e;
+  return { ...e, mult: 1 + (e.mult - 1) * k };
+}
+
 /** 倍率の初期値（どの効果もない状態） */
 export const baseModifiers = (): Modifiers => ({
   incomeAll: 1,
@@ -118,15 +202,23 @@ export const baseModifiers = (): Modifiers => ({
   offlineEff: 0,
 });
 
-/** 今の状態の倍率: 買った改良 → 枠につないだ源泉 → 来ているお客さん → 掘削ブースト（step ごとに呼ぶので、配列を作らずに 1 回ずつ走査する） */
+/**
+ * 今の状態の倍率: 湯の華の木 → 買った改良 → 枠につないだ源泉 → 来ているお客さん（常連さんで上乗せを強める）→ 掘削ブースト
+ * （step ごとに呼ぶので、配列を作らずに 1 回ずつ走査する）
+ */
 export function modifiers(s: GameState): Modifiers {
   const m = baseModifiers();
+  let guestBonus = 1;
+  forEachPerkEffect(s, (e) => {
+    if (isCommonEffect(e)) applyEffect(m, e);
+    else if (e.kind === 'guestBonus') guestBonus *= e.mult;
+  });
   for (const id of s.run.upgrades) {
     const e = upgradeEffect(id);
     if (e) applyEffect(m, e);
   }
   for (const id of s.run.bath.slots) if (id !== null) applyEffect(m, SPRING_BY_ID[id].effect);
-  for (const gid of s.run.guests) applyEffect(m, GUEST_BY_ID[gid].effect);
+  for (const gid of s.run.guests) applyEffect(m, scaleGuestEffect(GUEST_BY_ID[gid].effect, guestBonus));
   // 掘削ブースト（R2。BL-058）: 効果の途中はドリル威力と自動掘削機の打数 ×2（自動掘りの基本・手動の上限は変えない。Q-31 (d)）
   if (s.run.boost.remainingMs > 0) {
     m.drillPower *= PARAMS.boost.mult;
@@ -141,6 +233,9 @@ export function offlineEfficiency(s: GameState, m: Modifiers = modifiers(s)): nu
   return Number.isFinite(eff) ? Math.min(PARAMS.offline.maxEff, Math.max(0, eff)) : PARAMS.offline.eff;
 }
 
+/** オフラインの上限（gdd §9: 8 時間。湯の華の木「留守番の番頭」で +4 時間。改良「番台」の +2 時間は BL-020。BL-030 の早送りが使う） */
+export const offlineCapMs = (s: Readonly<GameState>): number => PARAMS.offline.capMs + perkTotals(s).offlineCapAddMs;
+
 /** 累計の湯の華 1 つにつき全生産 +2%（gdd §5-8） */
 export const yunohanaMult = (s: GameState): Num => add(ONE, mul(s.meta.yunohana.lifetime, PARAMS.prestige.bonusPerYunohana));
 
@@ -151,7 +246,16 @@ export const blockHp = (s: GameState, depth: number, m: Modifiers = modifiers(s)
  * 鉱石の配置は「周回のシード × 深さ」のハッシュ（打つ順番・刻み幅・オフラインで変わらない）。
  * 深さ 0〜4m（最初の 5 ブロック）は鉱石にしない（最初の強化までの時間をシードによらず一定にする。Q-02）
  */
-export const isOre = (s: Readonly<GameState>, depth: number): boolean => depth >= B.oreFreeDepth && hash01(s.run.seed, depth) < B.oreChance;
+export const isOre = (s: Readonly<GameState>, depth: number): boolean => depth >= B.oreFreeDepth && hash01(s.run.seed, depth) < oreChanceOf(s);
+
+/** 鉱石の出現の確率（6%。湯の華の木「目利きのルーペ」で +4%。BL-022）。1 を超えない */
+export function oreChanceOf(s: Readonly<GameState>): number {
+  let p = B.oreChance;
+  forEachPerkEffect(s, (e) => {
+    if (e.kind === 'oreChance') p += e.add;
+  });
+  return Math.min(1, Math.max(0, p));
+}
 
 /** 帯の 1 種目を選ぶ割合（Q-07。content/ores.ts の weight） */
 const firstOreShare = (band: number): number => ORE_BY_ID[STRATA[band]?.ores[0] ?? 'quartz'].weight;
@@ -293,9 +397,21 @@ export function nextTool(s: GameState): ToolDef | null {
   return t;
 }
 
-export function yunohanaGain(s: GameState): Num {
-  if (s.run.maxDepth < PARAMS.prestige.unlockDepth) return num(0);
-  return num(Math.floor((s.run.maxDepth / PARAMS.prestige.divisor) ** 2));
+/**
+ * 湯の華の基本の量: floor((周回の最深 ÷ 50)²)。解放の深さ（150m）の前は 0。
+ * **近道の坑道で始めた周回は、始めの深さより 1m 以上掘り進めるまで 0**（始めの深さだけで転生できない。二重の転生も防ぐ。BL-022）
+ */
+export function yunohanaGainBase(s: Readonly<GameState>): number {
+  const r = s.run;
+  if (r.maxDepth < PARAMS.prestige.unlockDepth || r.maxDepth <= r.startDepth) return 0;
+  return Math.floor((r.maxDepth / PARAMS.prestige.divisor) ** 2);
+}
+
+/** 今転生すると得られる湯の華: floor(基本 × 目利きの倍率)（基本を先に切り捨て、掛けた後にもう一度切り捨てる。Q-47 (h)） */
+export function yunohanaGain(s: Readonly<GameState>): Num {
+  const base = yunohanaGainBase(s);
+  if (base <= 0) return num(0);
+  return num(Math.floor(base * perkTotals(s).yunohanaGain));
 }
 
 export const springAtDepth = (depth: number): SpringId | null => SPRINGS.find((sp) => sp.depth === depth)?.id ?? null;
