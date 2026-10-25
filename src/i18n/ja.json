@@ -2,7 +2,7 @@
   "hud.coins": "コイン",
   "hud.perSec": "毎秒",
   "hud.depth": "深さ",
-  "hud.tapHint": "タップで掘る（長押しで掘り続ける）",
+  "hud.tapHint": "タップで掘る\u200b（長押しで\u200b掘り続ける）",
   "tab.dig": "掘る",
   "tab.onsen": "湯宿",
   "tab.upgrades": "改良",
