@@ -36,6 +36,29 @@ export interface PokiOptions {
 export function createPokiPlatform(opts: PokiOptions): Platform {
   const log = new CallLog();
   const playingL = new Listeners<boolean>();
+  const mutedL = new Listeners<boolean>();
+  /**
+   * SDK の広告の呼び出しが決まるまで（busy の間）ずっと消音する（BL-146。決定 0012 の追記 Q-56 (a)。Poki の要件「広告の間は音を止める」）。
+   * onStart は呼ばれないことがある（公式の文書）ので、30 秒の待ちの間・開始の時間切れで画面の側が戻った後も、動画が出ているかもしれない間は
+   * 鳴らさない。SDK が決まらないときは、要求から AD_END_TIMEOUT_MS で解き、calls() に muteHold: timeout を残す（Q-56 (b)）。
+   * 再生中（onPlaying が true の間）も消音として知らせる（main.ts の onMutedChange が、再生中の広告の上で音を戻さないため）
+   */
+  let muteHeld = false;
+  let mutedSent = false;
+  const isMutedNow = (): boolean => muteHeld || playingCount > 0;
+  const syncMuted = (): void => {
+    const m = isMutedNow();
+    if (m === mutedSent) return;
+    mutedSent = m;
+    mutedL.emit(m);
+  };
+  const setMuteHeld = (on: boolean, why: 'on' | 'off' | 'timeout' = on ? 'on' : 'off'): void => {
+    if (muteHeld === on) return;
+    muteHeld = on;
+    log.push('muteHold', why);
+    syncMuted();
+  };
+  let muteTimer: ReturnType<typeof setTimeout> | undefined;
   const lateL = new Listeners<LateReward>();
   /** 遅れた報酬の id（要求ごとに 1 つ。Q-45） */
   let lateSeq = 0;
@@ -43,8 +66,14 @@ export function createPokiPlatform(opts: PokiOptions): Platform {
   let playingCount = 0;
   const setPlaying = (on: boolean): void => {
     if (on) {
-      if (playingCount++ === 0) playingL.emit(true);
-    } else if (playingCount > 0 && --playingCount === 0) playingL.emit(false);
+      if (playingCount++ === 0) {
+        syncMuted();
+        playingL.emit(true);
+      }
+    } else if (playingCount > 0 && --playingCount === 0) {
+      syncMuted();
+      playingL.emit(false);
+    }
   };
   let sdk: PokiSdk | null = null;
   let inFlight: Promise<RewardResult> | null = null;
@@ -75,6 +104,8 @@ export function createPokiPlatform(opts: PokiOptions): Platform {
   /** SDK の広告の呼び出しが決まった（busy を外し、保留していた合図を送る） */
   const release = (): void => {
     busy = false;
+    clearTimeout(muteTimer);
+    setMuteHeld(false);
     sendGameplay();
   };
 
@@ -82,7 +113,9 @@ export function createPokiPlatform(opts: PokiOptions): Platform {
    * 広告を 1 回流す（BL-060。CrazyGames の request と同じ形。Q-35 (d)・Q-45）。結果はちょうど 1 回返し、onPlaying は true の後に必ず false。
    * - 開始（onStart）が AD_START_TIMEOUT_MS 来なければ failed を返す。その後に遅れて始まったら、再生の間だけ止める
    * - 開始の後に SDK の Promise が AD_END_TIMEOUT_MS 決まらなければ、failed を返して onPlaying(false)（後から来た結果は無視）
-   * - 開始の時間切れの後に遅れて始まったリワードが最後まで見られたら（rewardedBreak が true）、onLateReward を 1 回出す
+   * - 開始の時間切れの後にリワードが最後まで見られたら（rewardedBreak が true）、onLateReward を 1 回出す。onStart が来なくても
+   *   出す（onStart は呼ばれないことがある。true は動画が出て見終えたという意味。BL-146）
+   * - SDK が決まるまで消音する（要求から最長 AD_END_TIMEOUT_MS。BL-146・Q-56。setMuteHeld）
    * - SDK の例外・reject は failed。rewardedBreak の false も failed（報酬なし）
    */
   function runBreak(call: (onStart: () => void) => Promise<boolean | void>, rewarded: boolean, placement?: RewardPlacement): Promise<RewardResult> {
@@ -102,7 +135,7 @@ export function createPokiPlatform(opts: PokiOptions): Platform {
         const wasPlaying = phase === 'playing';
         phase = 'over';
         if (wasPlaying) setPlaying(false);
-        if (startTimedOut && wasPlaying && r === 'rewarded' && placement) {
+        if (startTimedOut && r === 'rewarded' && placement) {
           log.push('lateReward', placement);
           lateL.emit({ id: ++lateSeq, placement });
         }
@@ -125,6 +158,9 @@ export function createPokiPlatform(opts: PokiOptions): Platform {
         settle('failed'); // 遅れて onStart が来たら、その再生の間は止める（phase は waiting のまま）
       }, AD_START_TIMEOUT_MS);
       busy = true;
+      setMuteHeld(true);
+      clearTimeout(muteTimer);
+      muteTimer = setTimeout(() => setMuteHeld(false, 'timeout'), AD_END_TIMEOUT_MS); // SDK が決まらなくても消音のままにしない（Q-56 (b)）
       let pr: Promise<boolean | void>;
       try {
         pr = call(onStart);
@@ -210,8 +246,8 @@ export function createPokiPlatform(opts: PokiOptions): Platform {
     },
     storage,
     locale: browserLocale,
-    isMuted: () => false,
-    onMutedChange: () => {},
+    isMuted: isMutedNow,
+    onMutedChange: (cb) => mutedL.add(cb),
     openExternalLink: (url) => {
       log.push('openExternalLink', url);
       if (sdk?.openExternalLink) sdk.openExternalLink(url);
