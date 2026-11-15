@@ -31,7 +31,7 @@ const flush = async (): Promise<void> => {
  * main.ts と同じ形の結線（アダプタ → 広告の流れ → ライフサイクル。消音は platform.isMuted・onMutedChange → setMuted、
  * ad-flow の isMuted も platform から）。st.muted は効果音の出口（src/audio/sfx.ts の muted）に当たる
  */
-async function wired() {
+async function wired(audio?: (muted: boolean) => void) {
   const sdk = pokiMock();
   sdk.manual = true;
   const p = createPokiPlatform({ getSdk: () => sdk });
@@ -41,7 +41,10 @@ async function wired() {
   life.loadingStop();
   life.firstInput();
   const st = { muted: p.isMuted(), grants: [] as RewardPlacement[], late: [] as RewardPlacement[], loop: true, input: false, playing: [] as boolean[] };
-  p.onMutedChange((m) => void (st.muted = m));
+  p.onMutedChange((m) => {
+    st.muted = m;
+    audio?.(m);
+  });
   p.ads.onPlaying((x) => void st.playing.push(x));
   const flow = createAdFlow({
     ads: p.ads,
@@ -50,7 +53,10 @@ async function wired() {
     input: { setBlocked: (_r, on) => void (st.input = on) },
     loop: { pause: () => void (st.loop = false), resume: () => void (st.loop = true) },
     isHidden: () => false,
-    setMuted: (m) => void (st.muted = m),
+    setMuted: (m) => {
+      st.muted = m;
+      audio?.(m);
+    },
     resumeAudio: () => {},
     saveBeforeAd: () => {},
     grant: (x) => (st.grants.push(x), { ok: true }),
@@ -204,9 +210,66 @@ describe('BL-146 SDK が決まるまでの消音（決定 0012 の追記 Q-56）
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it.todo(
-    'TS-146-06 ゲームの効果音の設定（オフ・途中で切り替え）を消音の解除が上書きしない — 設定の sfx はまだ音に結線されていない（src/app/settings.ts の sfx を読むコードがない）。結線するチケットで入れる',
-  );
+  it('TS-146-06 ゲームの効果音の設定（オフ・途中で切り替え）を消音の解除が上書きしない（main.ts と同じく消音は sfx の setMuted へ。設定は setSfxEnabled。BL-045 の 2 本目）', async () => {
+    // 本物の src/audio/sfx.ts（ZzFX と AudioContext は偽物。鳴った回数を数える）
+    vi.resetModules();
+    let played = 0;
+    vi.doMock('zzfx', () => ({
+      zzfx: () => {
+        played++;
+      },
+      ZZFX: { volume: 0.3, audioContext: { state: 'running', resume: () => Promise.resolve() } },
+    }));
+    vi.stubGlobal('AudioContext', class {});
+    try {
+      const sfx = await import('../../src/audio/sfx.ts');
+      await sfx.unlockAudio();
+      sfx.playBreak();
+      expect(played, '前提: 鳴る').toBe(1);
+      // (a) 設定がオフのまま広告 → 時間切れ → 決まって消音が解けても、鳴らない
+      sfx.setSfxEnabled(false);
+      {
+        const { sdk, flow } = await wired(sfx.setMuted);
+        void flow.requestReward('R2');
+        await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+        sdk.finish();
+        await flush();
+      }
+      sfx.playBreak();
+      expect(played, '消音の解除で設定のオフが上書きされない').toBe(1);
+      // (b) 広告の間（消音中）に設定をオンにする → 決まるまでは鳴らない、決まったら鳴る
+      {
+        const { sdk, flow } = await wired(sfx.setMuted);
+        void flow.requestReward('R2');
+        await flush();
+        sfx.setSfxEnabled(true);
+        sfx.playBreak();
+        expect(played, '消音中は設定をオンにしても鳴らない').toBe(1);
+        await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+        sfx.playBreak();
+        expect(played, '時間切れの後も決まるまでは鳴らない').toBe(1);
+        sdk.finish();
+        await flush();
+      }
+      sfx.playBreak();
+      expect(played, '決まったら設定どおり鳴る').toBe(2);
+      // (c) 広告の間に設定をオフにする → 決まって消音が解けても鳴らない
+      {
+        const { sdk, flow } = await wired(sfx.setMuted);
+        void flow.requestReward('R2');
+        await flush();
+        sfx.setSfxEnabled(false);
+        sdk.start();
+        sdk.finish();
+        await flush();
+      }
+      sfx.playBreak();
+      expect(played).toBe(2);
+    } finally {
+      vi.doUnmock('zzfx');
+      vi.unstubAllGlobals();
+    }
+  });
 
   it('TS-146-07 SDK の Promise がいつまでも決まらない: 消音は要求から AD_END_TIMEOUT_MS で解き（手前では消音）、calls() に muteHold: timeout。gameplayStart は送らないまま（#88）。例外なし・遊べる', async () => {
     const { sdk, flow, st, p } = await wired();

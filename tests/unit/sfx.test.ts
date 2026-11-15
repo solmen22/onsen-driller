@@ -311,6 +311,16 @@ describe('unlockAudio — AudioContext がある環境（今までどおり。iO
     sfx.setMuted(false);
     sfx.playBreak();
     expect(calls.played).toBe(3);
+    // 効果音の設定（T5。BL-045）: オフの間は鳴らさない。消音とは別に持つ（消音を外しても設定がオフなら鳴らない）
+    sfx.setSfxEnabled(false);
+    sfx.playHit(3_000);
+    sfx.playBreak();
+    sfx.setMuted(false);
+    sfx.playBreak();
+    expect(calls.played, '効果音の設定がオフの間は鳴らさない').toBe(3);
+    sfx.setSfxEnabled(true);
+    sfx.playBreak();
+    expect(calls.played).toBe(4);
     await settle();
     expect(failures).toEqual([]);
     expect(rejections).toEqual([]);

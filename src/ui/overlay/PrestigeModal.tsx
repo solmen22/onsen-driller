@@ -1,5 +1,6 @@
 // 転生の確認の画面（M3。gdd §5-8・§11-2。BL-045。Q-47 (d)(h)(j)(k)。TL-A の約束〔BL-021〕）
-// - 2 段階: 1 段目は「得られるもの・なくなるもの・残るもの」と木の振り直し → 「次へ」（prestige-confirm-1）、2 段目は念押し →
+// - 2 段階: 1 段目は「得られるもの・なくなるもの・残るもの」・次の地形の選択（BL-024 の terrainChoices。初期は今の地形。testid は prestige-terrain・terrain-<id>〔data-state selected・selectable・locked〕、
+//   選べない理由は文字で。新しく選べる地形の知らせは出さない。決定 0012 の追記 Q-54）・木の振り直し → 「次へ」（prestige-confirm-1）、2 段目は念押し →
 //   「転生する」（prestige-confirm-2）。どちらの段でも「やめる」（prestige-cancel）・×・Esc・背景で取り消す（転生しない）
 // - 開いている間は止める（ループ・gameplay。理由 'prestige'）: 開く側（PrestigePanel）が押したその場で openPrestigeConfirm を呼び、
 //   返された閉じる関数を close で渡す。ここは閉じるときにそれを呼ぶ（unmount のときも念のため呼ぶ。2 回呼んでも 1 回と数える）
@@ -11,10 +12,11 @@
 // - 開いている間は modal-state にも数える（Dialog。掘削の入力と 1〜5・Shift を止める）
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { PerkId } from '../../content/perks.ts';
+import type { TerrainId } from '../../content/terrains.ts';
 import { t, type Lang } from '../../i18n/index.ts';
 import { useGame, useUi } from '../hooks/use-game.ts';
 import { PerkTree } from '../panels/PerkTree.tsx';
-import { perkTreeRows, prestigeConfirmView, togglePlan, type PerkTreeRows } from '../panels/prestige-view.ts';
+import { perkTreeRows, prestigeConfirmView, terrainRows, togglePlan, type PerkTreeRows, type TerrainRow } from '../panels/prestige-view.ts';
 import { Dialog } from './Dialog.tsx';
 
 export interface PrestigeModalProps {
@@ -26,6 +28,7 @@ export interface PrestigeModalProps {
 }
 
 const sameRows = (a: PerkTreeRows | null, b: PerkTreeRows | null): boolean => a?.sig === b?.sig;
+const sameTerrains = (a: TerrainRow[], b: TerrainRow[]): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 export function PrestigeModal({ lang, close, onClosed }: PrestigeModalProps) {
   const { store } = useUi();
@@ -33,6 +36,9 @@ export function PrestigeModal({ lang, close, onClosed }: PrestigeModalProps) {
   const [respec, setRespec] = useState(false);
   // 振り直しの途中の木（開いたときの木から始める）。変えていなければ転生の perks は渡さない（今の木のまま）
   const [plan, setPlan] = useState<readonly PerkId[]>(() => [...store.state.meta.perks]);
+  // 次の周回の地形（開いたときの地形から始める。変えていなければ転生の terrain は渡さない）
+  const [terrain, setTerrain] = useState<TerrainId>(() => store.state.run.terrain);
+  const terrains = useGame((s) => terrainRows(s), sameTerrains);
   const done = useRef(false);
   const closeRef = useRef(close);
   closeRef.current = close;
@@ -55,7 +61,8 @@ export function PrestigeModal({ lang, close, onClosed }: PrestigeModalProps) {
     done.current = true;
     // 集合で比べる（外して取り直すと並びが定義の順に変わるが、同じ集合なら今の木のまま。PR #91 のレビュー N-3）
     const changed = respec && [...plan].sort().join() !== [...store.state.meta.perks].sort().join();
-    store.dispatch(changed ? { type: 'prestige', perks: plan } : { type: 'prestige' }); // dispatch → 閉じる（TS-021-45）
+    const moved = terrain !== store.state.run.terrain;
+    store.dispatch({ type: 'prestige', ...(changed ? { perks: plan } : {}), ...(moved ? { terrain } : {}) }); // dispatch → 閉じる（TS-021-45）
     finish();
   };
 
@@ -96,6 +103,30 @@ export function PrestigeModal({ lang, close, onClosed }: PrestigeModalProps) {
             <p class="sheet-desc" data-testid="prestige-keep">
               {t('prestige.confirm.keepList')}
             </p>
+            <h3 class="inn-head">{t('terrain.head')}</h3>
+            <div class="terrain-list" data-testid="prestige-terrain" data-value={terrain} role="group" aria-label={t('terrain.head')}>
+              {terrains.map((x) => (
+                <button
+                  key={x.id}
+                  type="button"
+                  class={`row terrain-row${terrain === x.id ? ' inn-pick' : ''}`}
+                  data-testid={`terrain-${x.id}`}
+                  data-state={terrain === x.id ? 'selected' : x.selectable ? 'selectable' : 'locked'}
+                  aria-pressed={terrain === x.id ? 'true' : 'false'}
+                  disabled={!x.selectable}
+                  onClick={() => setTerrain(x.id)}
+                >
+                  <span class="buy-main">
+                    <span class="row-name">
+                      {x.name}
+                      {x.current && <small> {t('terrain.current')}</small>}
+                    </span>
+                    <span class="buy-effect">{x.traits}</span>
+                    {x.lockText && <span class="buy-lock">{x.lockText}</span>}
+                  </span>
+                </button>
+              ))}
+            </div>
             <button
               type="button"
               class="sheet-btn"

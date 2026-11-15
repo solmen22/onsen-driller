@@ -9,8 +9,10 @@
 //   - 倍率は「全生産 +18% → +90%」（湯の華 1 つで +2% の上乗せの部分を % で。大きい数は数の表記の設定に従う）
 //   - 目利きの上乗せは「湯の華 +13（目利き +4）」のように分けて出す（Q-47 (h)）
 import { PERK_BY_ID, PERKS, type PerkBranch, type PerkEffect, type PerkId } from '../../content/perks.ts';
+import { SPRINGS } from '../../content/springs.ts';
+import type { TerrainId } from '../../content/terrains.ts';
 import { TOOLS } from '../../content/tools.ts';
-import { mul, num, perkTreeView, prestigeView, runStartPreview, sub, type GameState, type Num, type PerkNodeState } from '../../core/index.ts';
+import { mul, num, perkTreeView, prestigeView, runStartPreview, springDepthIn, sub, terrainChoices, type GameState, type Num, type PerkNodeState } from '../../core/index.ts';
 import { t, type Lang, type TextKey } from '../../i18n/index.ts';
 import { formatNum } from '../format.ts';
 import { effectText } from './inn-view.ts';
@@ -206,4 +208,34 @@ export function togglePlan(s: Readonly<GameState>, plan: readonly PerkId[], id: 
   }
   const next = PERKS.filter((p) => p.id === id || plan.includes(p.id)).map((p) => p.id);
   return perkTreeView(s, next) ? next : [...plan];
+}
+
+export interface TerrainRow {
+  id: TerrainId;
+  name: string;
+  /** 行き先に選べるか（この転生で解放されるものを含む） */
+  selectable: boolean;
+  /** 今の周回の地形 */
+  current: boolean;
+  /** 特徴の文（効果と、山あいより浅い源泉）。山あいは「標準」 */
+  traits: string;
+  /** 選べないときの「あと 〇 回の転生で解放」 */
+  lockText: string;
+}
+
+/** 転生の確認の画面の地形の選択（BL-024 の terrainChoices。gdd §5-8 の表）。定義の順 */
+export function terrainRows(s: Readonly<GameState>): TerrainRow[] {
+  return terrainChoices(s).map((c) => {
+    const shallow = SPRINGS.filter((sp) => c.springDepths[sp.id] < springDepthIn('mountain', sp.id)).map((sp) => t(`spring.${sp.id}` as TextKey));
+    const parts = c.effects.map((e) => effectText(e));
+    if (shallow.length > 0) parts.unshift(t('terrain.shallow', { springs: shallow.join(t('terrain.and')) }));
+    return {
+      id: c.id,
+      name: t(`terrain.${c.id}` as TextKey),
+      selectable: c.selectable,
+      current: c.current,
+      traits: parts.length > 0 ? parts.join(t('effect.sep')) : t('terrain.standard'),
+      lockText: c.selectable ? '' : t('terrain.locked', { n: c.prestigesLeft }),
+    };
+  });
 }
