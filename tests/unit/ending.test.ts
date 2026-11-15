@@ -8,6 +8,7 @@ import { saveReasonForEvents } from '../../src/app/autosave.ts';
 import { isHappyMoment } from '../../src/app/happy-time.ts';
 import { applyGrant, createInitialState, dispatch, num, step, type GameEvent, type GameState } from '../../src/core/index.ts';
 import { decodeSave, encodeSave } from '../../src/save/codec.ts';
+import { parseGame } from '../../src/save/schema.ts';
 import { MilestoneRecorder } from '../../tools/sim/milestones.ts';
 import { stateWith } from '../support/states.ts';
 
@@ -40,7 +41,7 @@ function digTo(s: GameState, target: number): GameEvent[] {
 const endings = (evs: readonly GameEvent[]) => evs.filter((e) => e.type === 'EndingReached');
 
 describe('BL-023 掘って 500m に届いたらエンディング（セーブ全体で 1 回）', () => {
-  it('伝説の源泉の深さはどの地形でも 500m', () => {
+  it('TS-023-01 伝説の源泉の深さはどの地形でも 500m', () => {
     expect(E).toBe(500);
     for (const t of TERRAIN_IDS) {
       const s = digger(495, t);
@@ -50,7 +51,7 @@ describe('BL-023 掘って 500m に届いたらエンディング（セーブ全
     }
   });
 
-  it('499m では出ない。500m に届いた（500 番目のブロックを壊した）ときに出る', () => {
+  it('TS-023-02 (a)(b) 499m では出ない。500m に届いた（500 番目のブロックを壊した）ときに出る', () => {
     // 1 打で何ブロックも進むので、出来事の並びで見る: EndingReached の直前に壊したブロックは 499m（壊すと深さ 500）
     const s = digger(490);
     const evs = digTo(s, E + 5);
@@ -65,7 +66,7 @@ describe('BL-023 掘って 500m に届いたらエンディング（セーブ全
     expect(t.meta.endingSeen).toBe(false);
   });
 
-  it('2 回目以降（エンディング済み）は、500m を越えても、次の周回で届いても出ない', () => {
+  it('TS-023-04 2 回目以降（エンディング済み）は、500m を越えても、次の周回で届いても出ない', () => {
     const s = digger(495);
     digTo(s, 510);
     expect(endings(digTo(s, 530))).toEqual([]);
@@ -77,14 +78,14 @@ describe('BL-023 掘って 500m に届いたらエンディング（セーブ全
     expect(s.meta.endingSeen).toBe(true);
   });
 
-  it('エンディングの後も掘り続けられる（500m 以降も深さが進み、転生できる）', () => {
+  it('TS-023-08 エンディングの後も掘り続けられる（500m 以降も深さが進み、転生できる）', () => {
     const s = digger(495);
     digTo(s, 520);
     expect(s.run.depth).toBeGreaterThanOrEqual(520);
     expect(dispatch(s, { type: 'prestige' }).ok).toBe(true);
   });
 
-  it('伝説の源泉はポンプの源泉ではない（源泉・枠・入湯料を変えない。D3）', () => {
+  it('TS-023-07 伝説の源泉はポンプの源泉ではない（源泉・枠・入湯料を変えない。D3）', () => {
     const s = digger(495);
     const springs = JSON.stringify(s.run.springs);
     const slots = JSON.stringify(s.run.bath.slots);
@@ -105,7 +106,7 @@ describe('BL-023 近道の坑道で 500m 以上から始まる周回（D1）', (
     return { ...dispatch(s, { type: 'prestige' }), s };
   }
 
-  it('まだ見ていなければ、周回の始めに 1 回だけ出す（始めの深さで。M1 の機会の前＝UI は M1 の後にカード）', () => {
+  it('TS-023-03 (b) まだ見ていなければ、周回の始めに 1 回だけ出す（始めの深さで。M1 の機会の前＝UI は M1 の後にカード）', () => {
     const { ok, events, s } = shortcutPrestige(2400, false); // 2400 × 25% = 600m から
     expect(ok).toBe(true);
     expect(s.run.depth).toBe(600);
@@ -118,13 +119,19 @@ describe('BL-023 近道の坑道で 500m 以上から始まる周回（D1）', (
     expect(saveReasonForEvents(events)).toBe('prestige'); // 転生と同じ保存で印も残る
   });
 
-  it('見ていれば出さない（ほかの源泉と同じく黙って届いた扱い）', () => {
+  it('TS-023-03 (a) 始めの深さがちょうど 500m（前の最深 2000m）でも出す', () => {
+    const { events, s } = shortcutPrestige(2000, false);
+    expect(s.run.depth).toBe(500);
+    expect(endings(events)).toEqual([{ type: 'EndingReached', depth: 500 }]);
+  });
+
+  it('TS-023-04 見ていれば出さない（ほかの源泉と同じく黙って届いた扱い）', () => {
     const { ok, events } = shortcutPrestige(2400, true);
     expect(ok).toBe(true);
     expect(endings(events)).toEqual([]);
   });
 
-  it('始めの深さが 499m（前の最深 1996m）なら出さず、500m に届いたときに出す', () => {
+  it('TS-023-03 (c) 始めの深さが 499m（前の最深 1996m）なら出さず、500m に届いたときに出す', () => {
     const { events, s } = shortcutPrestige(1996, false);
     expect(s.run.depth).toBe(499);
     expect(endings(events)).toEqual([]);
@@ -134,7 +141,7 @@ describe('BL-023 近道の坑道で 500m 以上から始まる周回（D1）', (
 });
 
 describe('BL-023 読み込み・テスト用フックでは出さない（D2・D4）', () => {
-  it('最深 500m 以上でエンディング未見のセーブ（BL-023 より前）: 補正なしで読め、印は立てない。次に周回で届いたときに出る', () => {
+  it('TS-023-05 (a) 最深 500m 以上でエンディング未見のセーブ（BL-023 より前）: 補正なしで読め、印は立てない。次に周回で届いたときに出る', () => {
     const s = createInitialState(4);
     s.stats.bestDepth = 640;
     const r = decodeSave(encodeSave(s, 1, 1_790_000_000_000, 'test'));
@@ -144,7 +151,36 @@ describe('BL-023 読み込み・テスト用フックでは出さない（D2・D
     expect(r.state.meta.endingSeen).toBe(false);
   });
 
-  it('applyGrant で 600m にしても出さない。次の 1 ブロックを壊したときに出る（E2E は「付与して 1 打」で出せる）', () => {
+  it('TS-023-05 (b) 周回の途中で 500m を越えている（520m）未見のセーブ: 読み込みでは出さず、次の 1 ブロックで出す（Q-55 (b)）', () => {
+    const s = createInitialState(4);
+    s.run.depth = 520;
+    s.run.maxDepth = 520;
+    s.stats.bestDepth = 520;
+    const r = decodeSave(encodeSave(s, 1, 1_790_000_000_000, 'test'));
+    expect(r.ok && r.corrected).toEqual([]);
+    if (!r.ok) return;
+    expect(r.state.meta.endingSeen).toBe(false);
+    strong(r.state);
+    expect(endings(digTo(r.state, 521))).toEqual([{ type: 'EndingReached', depth: 521 }]);
+  });
+
+  it('TS-023-18 セーブの endingSeen が型違い・欄なしなら false。true と浅い最深の組は、そのまま読む（例外なし）', () => {
+    for (const v of ['yes', 1, null, undefined]) {
+      const s = createInitialState(4);
+      const raw = JSON.parse(encodeSave(s, 1, 1_790_000_000_000, 'test')) as { game: { meta: Record<string, unknown> } };
+      if (v === undefined) delete raw.game.meta.endingSeen;
+      else raw.game.meta.endingSeen = v;
+      const r = parseGame(raw.game); // 書き換えた game を検証・補正で読む（封筒の checksum は見ない）
+      expect(r.ok && r.state.meta.endingSeen, String(v)).toBe(false);
+    }
+    const s = createInitialState(4);
+    s.meta.endingSeen = true;
+    s.stats.bestDepth = 120;
+    const r = decodeSave(encodeSave(s, 1, 1_790_000_000_000, 'test'));
+    expect(r.ok && [r.corrected, r.state.meta.endingSeen]).toEqual([[], true]);
+  });
+
+  it('TS-023-06 applyGrant で 600m にしても出さない。次の 1 ブロックを壊したときに出る（E2E は「付与して 1 打」で出せる）', () => {
     const s = createInitialState(9);
     const out = applyGrant(s, { depth: 600 });
     expect(endings(out)).toEqual([]);
@@ -156,17 +192,17 @@ describe('BL-023 読み込み・テスト用フックでは出さない（D2・D
 });
 
 describe('BL-023 app 側: すぐ保存・祝いの合図・シミュレーターの #13', () => {
-  it('EndingReached はすぐ保存する（理由 ending）。転生と一緒なら prestige', () => {
+  it('TS-023-13 (a) EndingReached はすぐ保存する（理由 ending）。転生と一緒なら prestige', () => {
     expect(saveReasonForEvents([{ type: 'EndingReached', depth: 500 }])).toBe('ending');
     expect(saveReasonForEvents([{ type: 'PrestigeDone', gained: '9e0' }, { type: 'EndingReached', depth: 600 }])).toBe('prestige');
     expect(saveReasonForEvents([{ type: 'BlockBroken', depth: 499, ore: null, coins: '1e0' }])).toBeNull();
   });
 
-  it('EndingReached は祝いの合図（happytime）を送る場面', () => {
+  it('TS-023-15 (a) EndingReached は祝いの合図（happytime）を送る場面', () => {
     expect(isHappyMoment({ type: 'EndingReached', depth: 500 }, createInitialState(1))).toBe(true);
   });
 
-  it('#13 はエンディングの出来事の時刻（最深 500m の状態ではなく）', () => {
+  it('TS-023-17 #13 はエンディングの出来事の時刻（最深 500m の状態ではなく）', () => {
     const rec = new MilestoneRecorder();
     const s = createInitialState(1);
     s.stats.bestDepth = 600; // 状態だけでは記録しない
