@@ -101,15 +101,24 @@ jobs:
       # - restore-keys を置かない（package-lock.json を戻したときに、古い〔汚れうる〕キャッシュに戻らない）
       # - dist-web の保存はこの step より前（キャッシュから戻したブラウザの実行ファイルが動く前に、デプロイするものを確定する）
       # - 汚染を疑ったら runbook §8 の手順で消す（gh cache list / gh cache delete）
+      # - キーに OS の版（/etc/os-release の ID と VERSION_ID。例 ubuntu26.04）を入れる: WebKit は Ubuntu の版ごとに別のビルド
+      #   （webkit-ubuntu-24.04.zip・webkit-ubuntu-26.04.zip）だが、置き場所（~/.cache/ms-playwright/webkit-<版>）は同じなので、
+      #   ubuntu-latest の版が変わった後に前の版のキャッシュを戻すと、合わない WebKit をそのまま使ってしまう（Ubuntu 26 への移行。2026-11）
+      # - キーに入れるブラウザ（chromium-webkit）は下の install と合わせる（前のキーのキャッシュに WebKit は入っていない）
+      - name: OS の版（Playwright のブラウザのキャッシュのキー）
+        id: os
+        run: echo "id=$(. /etc/os-release && echo "$ID$VERSION_ID")" >> "$GITHUB_OUTPUT"
       - name: Playwright のブラウザのキャッシュ（A3。版は package-lock.json の @playwright/test で決まる）
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - name: Playwright の Chromium（キャッシュがあればブラウザの取得は飛ばし、OS の部品だけ入れる）
-        run: npx playwright install --with-deps chromium
+          key: playwright-${{ runner.os }}-${{ steps.os.outputs.id }}-chromium-webkit-${{ hashFiles('package-lock.json') }}
+      # WebKit は test:e2e の webkit-layout（レイアウトの spec だけ。決定 0011 追記 Q-52 (a)）が使う
+      - name: Playwright の Chromium と WebKit（キャッシュがあればブラウザの取得は飛ばし、OS の部品だけ入れる）
+        run: npx playwright install --with-deps chromium webkit
       - name: test:e2e
-        # --project=chromium と prod-builds（PoC の道具と @nightly の印のテストは playwright.config.ts で除外）。配信は e2e/support/serve.mjs が
+        # --project=chromium・webkit-layout（レイアウトの 5 つの spec〔playwright.config.ts の LAYOUT_SPECS〕を WebKit で。Q-52 (a)）・
+        # prod-builds（PoC の道具と @nightly の印のテストは playwright.config.ts で除外）。配信は e2e/support/serve.mjs が
         # mode（既定 e2e）の outDir（dist/e2e-web）を使う。配信先の上書きの環境変数はここでは渡さない（S2 の mode の切り替えを上書きするため）。
         # 本番の起動の E2E（BL-097）は、手元と同じ dist/web・crazygames・itch・poki を読む前提で test:e2e に含める（step を増やさない）。
         # 別の project・スクリプトにする場合は、ここに 1 行足して注記を直す（実行・修復エンジニアと合わせる。BL-095）
