@@ -2,7 +2,7 @@
 // PR: TS-E1-01〜06・08〜13・17（S1。03・04 と TS-071-17 は S2 の BL-056 で有効にした）。毎晩: TS-E1-07・15（BL-089）。
 // シナリオの「実装のまとめ方」は 1 つの流れを勧めているが、ここでは ID ごとにテストを分けた（起動は 1 回 約 0.5 秒で、
 // 分けても PR は 1 分未満。いまのビルドに無いフック・機能による保留を ID ごとに付けられ、失敗の場所も分かる）。
-// S2: TS-E1-16（e2e-crazygames。同じ起動で TS-007-08。BL-074）。保留: TS-E1-14（BL-049 で有効にする）。
+// S2: TS-E1-16（e2e-crazygames。同じ起動で TS-007-08。BL-074）。TS-E1-14（BL-049 で有効にした）。
 // いまのビルドに無いフック・機能を使うテストは needs() で保留になる（e2e/support/gaps.ts）。
 // 技術リードの回答（traceability.md §5-2）に合わせた前提
 // - Q-02: 0〜4m は鉱石にしない → 最初の強化はどのシードでも 14.5 秒。TS-E1-07 も #2 の範囲（5〜15 秒）で判定する（記録のみをやめた）。
@@ -12,7 +12,7 @@ import { resolve } from 'node:path';
 import { test, expect } from './support/fixtures.ts';
 import { BOOT_TIMEOUT_MS, bootGame, centerOf, setHidden, T0, tapUnderground, triggerAutosave } from './support/boot.ts';
 import { bootCrazyGames, CG_BASE_URL, cgMockState } from './support/crazygames.ts';
-import { later, needs } from './support/gaps.ts';
+import { needs } from './support/gaps.ts';
 import { coinsOf, hitsOf, type Hooks } from './support/hooks.ts';
 import { recordedKeydowns } from './support/privacy.ts';
 import { fullscreenButtons, startScreenElements } from './support/dom.ts';
@@ -320,7 +320,6 @@ test.describe('E1 初回起動 → 最初の強化', () => {
   });
 
   test('TS-E1-14 起動直後にチュートリアルの指アイコンが出る', async ({ page }) => {
-    later('BL-049:tutorial');
     await bootGame(page);
     await expect(page.getByTestId('tutorial-finger')).toBeVisible();
   });

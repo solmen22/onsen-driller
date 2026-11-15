@@ -281,5 +281,14 @@
   "terrain.standard": "Standard",
   "terrain.shallow": "{springs} are shallower",
   "terrain.and": " and ",
-  "terrain.locked": "Unlocks after {n} more prestige(s)"
+  "terrain.locked": "Unlocks after {n} more prestige(s)",
+  "tutorial.2": "You have coins! Buy the Pickaxe to dig harder.",
+  "tutorial.3": "Turn on Auto dig. It keeps digging on its own.",
+  "tutorial.4": "Past 25°C underground, hot springs start to appear.",
+  "tutorial.5": "You found a hot spring! Raise its pump in the Inn tab to get more water.",
+  "tutorial.6": "Your bath has a new slot. You can swap springs between slots.",
+  "tutorial.7": "A new guest arrived! See the guest list in the Inn tab.",
+  "tutorial.8": "Travel is unlocked! Prestige to earn Yunohana, which raises all production for good. Coins and equipment reset, and you choose when.",
+  "tutorial.ok": "OK",
+  "menu.tutorial": "Tutorial tips"
 }
