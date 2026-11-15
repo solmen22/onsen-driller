@@ -10,6 +10,7 @@ import { detectLang } from '../../src/i18n/index.ts';
 import { loadSettings, saveSettings, SETTINGS_KEY, DEFAULT_SETTINGS } from '../../src/app/settings.ts';
 import { createCrazyGamesPlatform } from '../../src/platform/crazygames.ts';
 import { AD_END_TIMEOUT_MS, AD_START_TIMEOUT_MS, type Platform, type RewardResult } from '../../src/platform/types.ts';
+import { encodeSave } from '../../src/save/codec.ts';
 import { moveLegacySlots } from '../../src/save/legacy.ts';
 import { SAVE_KEYS, SaveSlots } from '../../src/save/slots.ts';
 import { createCrazyMock, type CgAdBehavior, type CrazyMock, type CrazyMockConfig } from '../../e2e/mocks/crazygames.ts';
@@ -444,22 +445,40 @@ describe('TS-057-09 localStorage → data モジュールの移行', () => {
     expect(sdk.calls.filter((c) => c.startsWith('data.setItem:')).length, '2 回目は書かない').toBe(writes);
   });
 
-  it('data モジュールに枠が 1 つでもあれば移さない（kept）。書けなければ取り消して localStorage の枠を残す（failed）。どちらも例外を投げない（BL-127）', async () => {
+  it('data モジュールの枠のほうが新しければ移さず、localStorage の枠を消す（kept。BL-115）。書けなければ取り消して localStorage の枠を残す（failed）。どちらも例外を投げない（BL-127）', async () => {
     const ls = fakeLocalStorage();
     vi.stubGlobal('localStorage', ls);
     await legacyBoot(ls);
     const before = new Map(ls.map);
-    // kept: data モジュールにもう枠がある
-    const kept = await started();
-    kept.sdk.store.set(SAVE_KEYS.b, 'current');
-    expect(moveLegacySlots(kept.p.legacyStorage!, kept.p.storage)).toBe('kept');
-    expect(kept.sdk.store.get(SAVE_KEYS.b), '今の保存先のセーブを上書きしない').toBe('current');
-    expect(kept.sdk.store.has(SAVE_KEYS.a)).toBe(false);
-    expect(ls.map).toEqual(before);
     // failed: data モジュールの上限で書けない
     const failed = await started({ dataLimitBytes: 10, dataLimitBehavior: 'throw' });
     expect(moveLegacySlots(failed.p.legacyStorage!, failed.p.storage)).toBe('failed');
     expect([SAVE_KEYS.a, SAVE_KEYS.b].filter((k) => failed.sdk.store.has(k)), '書いた分は取り消す').toEqual([]);
     expect(ls.map, 'localStorage の枠は消さない（次の起動でやり直す）').toEqual(before);
+    // kept: data モジュールにもっと新しい枠がある（localStorage は seq 1・2）
+    const kept = await started();
+    const s = createInitialState(9);
+    applyGrant(s, { coins: '777' });
+    const current = encodeSave(s, 50, 5_000, '0.0.1');
+    kept.sdk.store.set(SAVE_KEYS.b, current);
+    expect(moveLegacySlots(kept.p.legacyStorage!, kept.p.storage)).toBe('kept');
+    expect(kept.sdk.store.get(SAVE_KEYS.b), '今の保存先のセーブを上書きしない').toBe(current);
+    expect(kept.sdk.store.has(SAVE_KEYS.a)).toBe(false);
+    expect([...ls.map.keys()], 'localStorage の枠は消え、設定は残る（後で古い枠が戻らない）').toEqual([SETTINGS_KEY]);
+  });
+
+  it('data モジュールの枠が古い・壊れていれば、localStorage の枠を写す（replaced。BL-115）', async () => {
+    const ls = fakeLocalStorage();
+    vi.stubGlobal('localStorage', ls);
+    const s = await legacyBoot(ls);
+    const raw = { a: ls.map.get(SAVE_KEYS.a), b: ls.map.get(SAVE_KEYS.b) };
+    const { sdk, p } = await started();
+    sdk.store.set(SAVE_KEYS.b, 'current');
+    expect(moveLegacySlots(p.legacyStorage!, p.storage)).toBe('replaced');
+    expect(sdk.store.get(SAVE_KEYS.a)).toBe(raw.a);
+    expect(sdk.store.get(SAVE_KEYS.b)).toBe(raw.b);
+    expect([...ls.map.keys()]).toEqual([SETTINGS_KEY]);
+    const loaded = new SaveSlots(p.storage, { appVersion: '0.0.1', now: () => 2_000 }).load();
+    expect(stateHash(loaded.state!), '同じ進行で再開').toBe(stateHash(s));
   });
 });
