@@ -733,3 +733,84 @@ body {
 .upgrades-next-cond {
   font-size: 12px;
 }
+
+/* 転生タブ T4・確認の画面（BL-045）: 今得られる湯の華・次の深さ・推奨・転生のボタン・湯の華の木 */
+.prestige-line {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.prestige-bonus {
+  font-size: 12px;
+  color: #bfe3cb;
+}
+
+.prestige-locked {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px dashed var(--muted);
+  border-radius: 6px;
+}
+
+.prestige-recommended {
+  color: var(--gold);
+}
+
+.prestige-btn {
+  justify-content: center;
+}
+
+.perk-tree,
+.perk-columns,
+.perk-branch {
+  display: grid;
+  gap: 6px;
+}
+
+.perk-columns {
+  gap: 10px;
+}
+
+.perk-branch-head {
+  margin: 0;
+  font-size: 13px;
+  font-weight: normal;
+  color: var(--gold);
+}
+
+.row.perk-node {
+  min-height: 44px;
+}
+
+.row.perk-owned {
+  border-color: #6fbf85;
+}
+
+.row.perk-available {
+  border-color: var(--gold);
+}
+
+.perk-when {
+  font-size: 12px;
+  color: var(--gold);
+}
+
+.perk-node .buy-main span,
+.prestige-confirm .sheet-desc {
+  overflow-wrap: anywhere;
+}
+
+/* 転生の推奨の印（Q-47 (g)）: 「！」と別の色の点（文字は aria-label） */
+.tab-dot {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #7fd3e6;
+  box-shadow: 0 0 0 2px var(--ink);
+}

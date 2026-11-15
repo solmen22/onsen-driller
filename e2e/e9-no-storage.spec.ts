@@ -4,7 +4,7 @@
 //     QA 判定書 sprint-01 §4・決定 0006-5: 気づけないセーブの消失の唯一の守りが案内で、毎晩のジョブは Chromium を流さないため）。
 //     S2: TS-046-18（BL-046 の保存のトースト。V5。BL-103）。S2: TS-E9-12（e2e-crazygames。BL-103）。
 // 毎晩: TS-E9-05・06（BL-089）。TS-E9-07・08 の 04 の操作（V2・V3 の 60 秒の自動保存。PR の e2e の時間のため。QA の記録は
-//     org/30_quality/qa-lead/2026-10-18_e2e-time-trigger.md §3-1 の 1-1・1-2。V1 の 04 は PR に残す）。保留: TS-E9-11（S3）。
+//     org/30_quality/qa-lead/2026-10-18_e2e-time-trigger.md §3-1 の 1-1・1-2。V1 の 04 は PR に残す）。保留: TS-E9-11（BL-029 で有効にする）。
 // 保存できない状態は context.addInitScript でページのスクリプトより先に入れる（e2e/support/storage.ts の V1〜V7）。
 // 文言は S1 では data-testid（save-warning）で存在だけを見る。文言の一致は S2（BL-052）から。
 // 技術リードの回答（traceability.md §5-2）に合わせた期待
@@ -423,7 +423,7 @@ test.describe('E9 保存できない環境', () => {
   });
 
   test('TS-E9-11 保存できない環境でも書き出しが使え、普通の環境で読み込める', () => {
-    later('S3:export');
+    later('BL-029:export');
   });
 
   test.describe('e2e-crazygames', () => {

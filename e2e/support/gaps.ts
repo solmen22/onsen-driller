@@ -42,13 +42,16 @@ export type Requirement = keyof typeof REQUIREMENTS;
 /** いまのビルド（main 71247a2 の S1）に無いもの。実装が入ったら消す（S1 の本体ですべて入ったので空） */
 export const KNOWN_GAPS: readonly Requirement[] = [];
 
-/** 後のスプリントで有効にするもの（CEO 決定・traceability.md の「S1 で動かすもの」の外） */
+/**
+ * 後のチケットで有効にするもの（CEO 決定・traceability.md の「S1 で動かすもの」の外）。
+ * キーと理由はチケットで書く（スプリントの番号は付け直しで変わるので書かない。決定 0012。BL-045 の PR で S3:tutorial・S3:export を直した）
+ */
 const LATER = {
   'S2:lifecycle':
     'S2 で有効にする（CEO 決定 Q-01）: ライフサイクル（loadingStop → 最初の入力で gameplayStart）は BL-056 の後に BL-074 と一緒に確認する',
-  'S3:tutorial': 'S3 で有効にする（BL-049）: チュートリアルの指アイコン（tutorial-finger）の後',
-  'S3:export': 'S3 で有効にする（BL-029）: 書き出し・読み込みの後',
-  'S4:externalLinks': 'S4 で有効にする（BL-078。T5 は S3 の BL-045）: 設定画面の外部リンクの後',
+  'BL-049:tutorial': 'BL-049（チュートリアル）で有効にする: チュートリアルの指アイコン（tutorial-finger）の後',
+  'BL-029:export': 'BL-029（書き出し・読み込み・初めから）で有効にする: T5 の書き出し・読み込みの後',
+  'S4:externalLinks': 'S4 で有効にする（BL-078。T5 は BL-045）: 設定画面の外部リンクの後',
   'S4:smoke': 'S4 で有効にする（BL-085）: 本番スモーク（test:smoke）で行う',
 } as const;
 export type Later = keyof typeof LATER;

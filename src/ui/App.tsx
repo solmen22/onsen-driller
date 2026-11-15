@@ -1,14 +1,17 @@
 // UI（Preact・DOM。arch §15・gdd §11-1）: HUD の帯・キャンバスの下端のボタン（BL-042）、タブと一覧（BL-043）
 // - 縦・横の配置は styles/global.css（#app の data-layout。判定は ui/layout.ts の layoutOf）
-// - タブは 5 つ（tab-1〜tab-5。クリックか 1〜5 キー）。中身があるのは T1・T2・T3（BL-044）で、T4・T5 は「準備中」（panel-placeholder。Q-09）
+// - タブは 5 つ（tab-1〜tab-5。クリックか 1〜5 キー）。中身があるのは T1・T2・T3（BL-044）・T4（BL-045）で、T5 は「準備中」（panel-placeholder。Q-09）
 // - 湯宿の「！」（BL-044。Q-38 (b)）: SpringFound のたびに（T2 を開いていないとき）立て、T2 を開いたら消す。保存しない（メモリだけ）
 // - 改良の「！」（BL-044 の T3。CEO 2026-10-18）: 新しい改良が解放されたとき（T3 を開いていないとき）に立て、T3 を開いたら消す。T2 と同じく保存しない。
 //   core にイベントがないので（core は変えない。TS-044-18）、解放済みの改良の集合（upgradeViews）が前の通知より増えたことで決める。
 //   起動・読み込みの直後の集合は「前」として覚えるだけで、立てない。転生で戻った後にまた解放されたら立てる
+// - 転生の印（BL-045。Q-47 (g)）: その周回で初めて転生の推奨に届いたら（T4 を開いていないとき）tab-4 に「！」と別の色の点を出し、
+//   T4 を開いたら消す。保存しない（メモリだけ）。起動・読み込みの直後に推奨のままなら出す（読み直したら出し直す）。
+//   セーブ全体で初めて 150m に届いたときの「！」は BL-049・050
 // - 購入数（×1 → ×10 → 最大）は切り替えボタン（qty-toggle）か Shift。タブをまたいで共通で、保存しない（再読み込みで ×1）
 // - ご褒美のシート（R2: ブーストのボタン、R3: 鉱脈のチップ）とトースト（BL-046）。モーダル・シートの表示中は 1〜5・Shift を使わない
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { offlineClaimView, upgradeViews, type Qty } from '../core/index.ts';
+import { offlineClaimView, prestigeView, upgradeViews, type Qty } from '../core/index.ts';
 import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
 import { formatNum } from './format.ts';
 import { useGame, useUi } from './hooks/use-game.ts';
@@ -21,6 +24,7 @@ import { Toasts } from './overlay/Toasts.tsx';
 import { WelcomeModal, type WelcomeChoice } from './overlay/WelcomeModal.tsx';
 import { DigPanel } from './panels/DigPanel.tsx';
 import { InnPanel } from './panels/InnPanel.tsx';
+import { PrestigePanel } from './panels/PrestigePanel.tsx';
 import { UpgradesPanel } from './panels/UpgradesPanel.tsx';
 
 export type { TabNo } from './keys.ts';
@@ -37,7 +41,7 @@ export const TABS: readonly { no: TabNo; key: TextKey; icon: string }[] = [
 /** 購入の一覧があるタブ（購入数の切り替えを出す。T3 には出さない。Q-38 (e)） */
 const BUY_TABS: readonly TabNo[] = [1, 2];
 
-/** 中身のないタブ（T4・T5）の仮の表示（Q-09）。T5 だけ言語の切り替えと版を残す（設定の本体は S3 の BL-045） */
+/** 中身のないタブ（T5）の仮の表示（Q-09）。言語の切り替えと版を残す（設定の本体は BL-045 の T5） */
 function Placeholder({ tab, lang, onLang }: { tab: TabNo; lang: Lang; onLang: (l: Lang) => void }) {
   const { platform, version } = useUi();
   return (
@@ -75,12 +79,14 @@ export function App() {
   const [tab, setTabState] = useState<TabNo>(1);
   const [innAlert, setInnAlert] = useState(false);
   const [upgradeAlert, setUpgradeAlert] = useState(false);
+  const [prestigeDot, setPrestigeDot] = useState(false);
   const tabRef = useRef<TabNo>(1);
   const setTab = (n: TabNo): void => {
     tabRef.current = n;
     setTabState(n);
     if (n === 2) setInnAlert(false); // T2 を開いたら消す
     if (n === 3) setUpgradeAlert(false); // T3 を開いたら消す
+    if (n === 4) setPrestigeDot(false); // T4 を開いたら消す
   };
   const [qty, setQty] = useState<Qty>(1);
   const [lang, setLangState] = useState<Lang>(getLang());
@@ -136,6 +142,15 @@ export function App() {
     if (tabRef.current !== 3 && ids.some((id) => !prev.has(id))) setUpgradeAlert(true);
   }, [unlockedUpgrades]);
 
+  // 転生の推奨に届いたら tab-4 に点（その周回で 1 回。周回は転生の回数で見分ける。Q-47 (g)）
+  const recommendedRun = useGame((s) => (prestigeView(s).recommended ? s.meta.prestiges : -1));
+  const dotRun = useRef(-1);
+  useEffect(() => {
+    if (recommendedRun < 0 || dotRun.current === recommendedRun) return;
+    dotRun.current = recommendedRun;
+    if (tabRef.current !== 4) setPrestigeDot(true);
+  }, [recommendedRun]);
+
   // 源泉の発見で湯宿のタブに「！」（T2 を開いていないとき）
   useEffect(
     () =>
@@ -170,6 +185,7 @@ export function App() {
                   {t('ui.tabAlertMark')}
                 </span>
               )}
+              {x.no === 4 && prestigeDot && <span class="tab-dot" data-testid="tab-4-dot" role="img" aria-label={t('prestige.dot')} />}
             </button>
           ))}
         </nav>
@@ -181,6 +197,8 @@ export function App() {
             <InnPanel qty={qty} lang={lang} />
           ) : tab === 3 ? (
             <UpgradesPanel lang={lang} />
+          ) : tab === 4 ? (
+            <PrestigePanel lang={lang} />
           ) : (
             <Placeholder tab={tab} lang={lang} onLang={onLang} />
           )}
