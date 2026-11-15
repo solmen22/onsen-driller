@@ -53,7 +53,8 @@ export function PrestigeModal({ lang, close, onClosed }: PrestigeModalProps) {
   const confirm = (): void => {
     if (done.current) return;
     done.current = true;
-    const changed = respec && plan.join() !== store.state.meta.perks.join();
+    // 集合で比べる（外して取り直すと並びが定義の順に変わるが、同じ集合なら今の木のまま。PR #91 のレビュー N-3）
+    const changed = respec && [...plan].sort().join() !== [...store.state.meta.perks].sort().join();
     store.dispatch(changed ? { type: 'prestige', perks: plan } : { type: 'prestige' }); // dispatch → 閉じる（TS-021-45）
     finish();
   };

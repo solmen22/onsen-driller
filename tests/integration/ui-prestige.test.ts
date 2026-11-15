@@ -249,6 +249,26 @@ describe('転生の確認の画面（TS-021-14・21・22・23。Q-47 (d)(j)）',
     expect(m!.get('prestige-confirm-gain').dataset['value']).toBe(String(prestigeView(m!.store.state).gain.toNumber()));
   });
 
+  it('PR #91 のレビュー N-1: 確認の画面が開いたまま T4 が外れても（アンマウント）、止める理由が残らない', () => {
+    openT4(at(200));
+    m!.click('btn-prestige');
+    expect(isPrestigeConfirmOpen()).toBe(true);
+    m!.unmount();
+    m = null;
+    expect(isPrestigeConfirmOpen()).toBe(false);
+  });
+
+  it('PR #91 のレビュー N-2: 開いたまま状態が変わると、確認の画面の値が prestigeView に追従する（保持した値を見せない）', () => {
+    openT4(at(200));
+    m!.click('btn-prestige');
+    m!.run((st) => {
+      st.state.run.depth = 300;
+      st.state.run.maxDepth = 300;
+      st.notify();
+    });
+    expect(m!.get('prestige-confirm-gain').dataset['value']).toBe(String(prestigeView(m!.store.state).gain.toNumber()));
+  });
+
   it('TS-021-23: 得られるもの（湯の華・累計・全生産の倍率・チケット）・なくなるもの・残るものを出し、数字は prestigeView のまま。確定した後の状態と一致する（ja・en）', () => {
     for (const lang of ['ja', 'en'] as const) {
       const dict = lang === 'ja' ? ja : en;
