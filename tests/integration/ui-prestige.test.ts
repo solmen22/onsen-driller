@@ -328,6 +328,41 @@ describe('転生の確認の画面（TS-021-14・21・22・23。Q-47 (d)(j)）',
   });
 });
 
+describe('確認の画面の地形の選択（BL-024 の terrainChoices。gdd §5-8）', () => {
+  it('初期は今の地形。1 回目の転生では火山のふもとが選べ、海辺は「あと 1 回の転生で解放」で押せない。選んだ地形で転生する', () => {
+    openT4(at(200));
+    const spy = vi.spyOn(m!.store, 'dispatch');
+    m!.click('btn-prestige');
+    expect(m!.get('terrain-mountain').getAttribute('aria-pressed')).toBe('true');
+    expect(m!.get('terrain-mountain').dataset['state']).toBe('selected');
+    expect(m!.get('prestige-terrain').dataset['value']).toBe('mountain');
+    expect(m!.get('terrain-volcano').dataset['state']).toBe('selectable');
+    const sea = m!.get('terrain-seaside') as HTMLButtonElement;
+    expect(sea.dataset['state']).toBe('locked');
+    expect(sea.disabled).toBe(true);
+    expect(sea.textContent).toContain(en['terrain.locked'].replace('{n}', '1'));
+    expect(m!.get('terrain-volcano').textContent).toContain(en['terrain.shallow'].split('{springs}')[1]!.trim());
+    m!.click('terrain-volcano');
+    expect(m!.get('terrain-volcano').getAttribute('aria-pressed')).toBe('true');
+    expect(m!.get('terrain-volcano').dataset['state']).toBe('selected');
+    expect(m!.get('terrain-mountain').dataset['state']).toBe('selectable');
+    m!.click('prestige-confirm-1');
+    m!.click('prestige-confirm-2');
+    expect(spy.mock.calls.map(([a]) => a)).toContainEqual({ type: 'prestige', terrain: 'volcano' });
+    expect(m!.store.state.run.terrain).toBe('volcano');
+  });
+
+  it('地形を変えなければ terrain を渡さない（今の地形のまま）', () => {
+    openT4(at(200));
+    const spy = vi.spyOn(m!.store, 'dispatch');
+    m!.click('btn-prestige');
+    m!.click('prestige-confirm-1');
+    m!.click('prestige-confirm-2');
+    expect(spy.mock.calls.map(([a]) => a)).toContainEqual({ type: 'prestige' });
+    expect(m!.store.state.run.terrain).toBe('mountain');
+  });
+});
+
 describe('確認の画面の木の振り直し（BL-022 の受け入れ基準「振り直すと使った湯の華が全部戻り、費用はかからない」）', () => {
   it('「全部戻す」で使った分が全部戻り、選び直した木で転生する。前提を外すと、それを前提にするノードも戻る', () => {
     const s = at(200, (x) => {

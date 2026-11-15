@@ -269,5 +269,14 @@
   "menu.copyFailed": "Could not copy. Select the text below and copy it.",
   "credits.font": "Font: DotGothic16 by Fontworks (SIL Open Font License 1.1)",
   "credits.libs": "Libraries:",
-  "credits.art": "Pixel art and sound effects were made for this game (drawn and generated in code)."
+  "credits.art": "Pixel art and sound effects were made for this game (drawn and generated in code).",
+  "terrain.mountain": "Mountain Valley",
+  "terrain.volcano": "Volcano Foothills",
+  "terrain.seaside": "Seaside",
+  "terrain.head": "Next onsen town",
+  "terrain.current": "(now)",
+  "terrain.standard": "Standard",
+  "terrain.shallow": "{springs} are shallower",
+  "terrain.and": " and ",
+  "terrain.locked": "Unlocks after {n} more prestige(s)"
 }

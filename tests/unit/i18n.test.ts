@@ -13,6 +13,7 @@ import { ORES } from '../../src/content/ores.ts';
 import { PERKS } from '../../src/content/perks.ts';
 import { SPRINGS } from '../../src/content/springs.ts';
 import { STRATA } from '../../src/content/strata.ts';
+import { TERRAINS } from '../../src/content/terrains.ts';
 import { TOOLS } from '../../src/content/tools.ts';
 import { buyQuote, createInitialState, num } from '../../src/core/index.ts';
 import en from '../../src/i18n/en.json';
@@ -240,6 +241,7 @@ describe('BL-052 受け入れ基準 3: 文章は en.json・ja.json にあり、�
     ...SPRINGS.map((x) => `spring.${x.id}`),
     ...GUESTS.map((x) => `guest.${x.id}`),
     ...PERKS.map((x) => x.nameKey), // 湯の華の木（BL-022 の定義・BL-045 の画面）
+    ...TERRAINS.map((x) => x.nameKey), // 地形（BL-024 の定義・BL-045 の転生の確認の画面）
   ];
 
   it('TS-052-07 内容定義（地層・鉱石・道具・源泉・お客さん）が参照するキーが英日の両方にある', () => {

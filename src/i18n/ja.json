@@ -269,5 +269,14 @@
   "menu.copyFailed": "コピーできませんでした。下の文字を選んでコピーしてください",
   "credits.font": "フォント: DotGothic16（フォントワークス。SIL Open Font License 1.1）",
   "credits.libs": "ライブラリ:",
-  "credits.art": "絵と効果音は、このゲームのために作りました（コードで描画・生成）"
+  "credits.art": "絵と効果音は、このゲームのために作りました（コードで描画・生成）",
+  "terrain.mountain": "山あい",
+  "terrain.volcano": "火山のふもと",
+  "terrain.seaside": "海辺",
+  "terrain.head": "次の湯の里",
+  "terrain.current": "（今）",
+  "terrain.standard": "標準",
+  "terrain.shallow": "{springs}が浅い",
+  "terrain.and": "と",
+  "terrain.locked": "あと {n} 回の転生で解放"
 }

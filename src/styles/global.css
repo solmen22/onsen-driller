@@ -839,3 +839,9 @@ body {
   padding: 6px;
   resize: vertical;
 }
+
+/* 転生の確認の画面の地形の選択（BL-045・BL-024） */
+.terrain-list {
+  display: grid;
+  gap: 6px;
+}
