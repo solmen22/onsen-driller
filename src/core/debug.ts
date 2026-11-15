@@ -4,6 +4,7 @@ import { PARAMS } from '../content/params.ts';
 import { SPRINGS } from '../content/springs.ts';
 import { STRATA } from '../content/strata.ts';
 import type { GameEvent } from './events.ts';
+import { springDepth } from './formulas.ts';
 import { add, num, ZERO } from './num.ts';
 import type { GameState } from './state.ts';
 import { discoverSpring, markStratumSeen } from './step.ts';
@@ -51,7 +52,7 @@ export function applyGrant(s: GameState, p: GrantInput): GameEvent[] {
       if (b.start <= depth) markStratumSeen(s, i);
     });
     // depth 以下の源泉は発見済みにする（ポンプ Lv1・空いている枠。SpringFound は出さない）
-    for (const sp of SPRINGS) if (sp.depth <= depth) discoverSpring(s, sp.id, false, out);
+    for (const sp of SPRINGS) if (springDepth(s, sp.id) <= depth) discoverSpring(s, sp.id, false, out); // 今の地形の深さ（BL-024）
   }
   return out;
 }

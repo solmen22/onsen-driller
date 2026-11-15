@@ -8,6 +8,7 @@ import { GUEST_BY_ID, GUESTS, type GuestDef, type GuestId } from '../content/gue
 import { TOOLS, type ToolDef } from '../content/tools.ts';
 import { ORE_BY_ID, type OreId } from '../content/ores.ts';
 import { STRATA } from '../content/strata.ts';
+import { TERRAIN_BY_ID, TERRAINS, type TerrainId } from '../content/terrains.ts';
 import { add, mul, num, ONE, pow, sumGeometric, type Num } from './num.ts';
 import { hash01, hash01Kind } from './rng.ts';
 import type { GameState, UpgradeId } from './state.ts';
@@ -23,6 +24,17 @@ export function bandOfDepth(depth: number): number {
   for (let i = 0; i < STRATA.length; i++) if (depth >= (STRATA[i]?.start ?? 0)) band = i;
   return band;
 }
+
+/** 地形ごとの源泉の発見の深さ（山あいの深さ × 地形の倍率を四捨五入した整数 m。BL-024）。読み込みの時に 1 回だけ作る */
+const SPRING_DEPTHS: Readonly<Record<TerrainId, Readonly<Record<SpringId, number>>>> = Object.fromEntries(
+  TERRAINS.map((t) => [t.id, Object.fromEntries(SPRINGS.map((sp) => [sp.id, Math.round(sp.depth * (t.springDepthMult[sp.id] ?? 1))]))]),
+) as Record<TerrainId, Record<SpringId, number>>;
+
+/** 地形 terrain での源泉 id の発見の深さ（m）。源泉の深さを読むところはすべてこれか springDepth を通す（PR #10 のレビューの連絡 4。BL-024） */
+export const springDepthIn = (terrain: TerrainId, id: SpringId): number => SPRING_DEPTHS[terrain][id];
+
+/** 今の周回の地形での源泉 id の発見の深さ（m） */
+export const springDepth = (s: Readonly<GameState>, id: SpringId): number => springDepthIn(s.run.terrain, id);
 
 export function slotted(s: GameState): SpringId[] {
   const out: SpringId[] = [];
@@ -203,11 +215,12 @@ export const baseModifiers = (): Modifiers => ({
 });
 
 /**
- * 今の状態の倍率: 湯の華の木 → 買った改良 → 枠につないだ源泉 → 来ているお客さん（常連さんで上乗せを強める）→ 掘削ブースト
+ * 今の状態の倍率: 地形（BL-024）→ 湯の華の木 → 買った改良 → 枠につないだ源泉 → 来ているお客さん（常連さんで上乗せを強める）→ 掘削ブースト
  * （step ごとに呼ぶので、配列を作らずに 1 回ずつ走査する）
  */
 export function modifiers(s: GameState): Modifiers {
   const m = baseModifiers();
+  for (const e of TERRAIN_BY_ID[s.run.terrain].effects) applyEffect(m, e);
   let guestBonus = 1;
   forEachPerkEffect(s, (e) => {
     if (isCommonEffect(e)) applyEffect(m, e);
@@ -414,4 +427,5 @@ export function yunohanaGain(s: Readonly<GameState>): Num {
   return num(Math.floor(base * perkTotals(s).yunohanaGain));
 }
 
-export const springAtDepth = (depth: number): SpringId | null => SPRINGS.find((sp) => sp.depth === depth)?.id ?? null;
+/** 地形 terrain で、深さ depth ちょうどに発見の深さがある源泉（表示用。なければ null） */
+export const springAtDepth = (terrain: TerrainId, depth: number): SpringId | null => SPRINGS.find((sp) => springDepthIn(terrain, sp.id) === depth)?.id ?? null;

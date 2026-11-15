@@ -5,9 +5,8 @@
 // - 未解放の改良は行を出さず、「次の改良」を 1 行だけ出す（名前・効果・解放の条件と今の進み）。どれを出すかは、条件の進み（今 ÷ 目標）が
 //   いちばん大きいもの（同じなら内容定義の順）。何が来て何をするのかが先に分かると、掘る・ポンプを上げる目標になる
 // - core は変えない（TS-044-18）。足りない表示の値はここで作る
-import { SPRING_BY_ID } from '../../content/springs.ts';
 import { UPGRADES, type UpgradeDef, type UpgradeId } from '../../content/upgrades.ts';
-import { upgradeBought, upgradeUnlocked, upgradeViews, type GameState } from '../../core/index.ts';
+import { springDepth, upgradeBought, upgradeUnlocked, upgradeViews, type GameState } from '../../core/index.ts';
 import { t, type TextKey } from '../../i18n/index.ts';
 import { effectText } from './inn-view.ts';
 
@@ -57,12 +56,12 @@ function nextOf(s: Readonly<GameState>): NextUpgrade | null {
   if (!best) return null;
   const { def, current, target } = best;
   const u = def.unlock;
-  // 源泉が未発見なら「Lv 0/25」は上げられない目標に見えるので、見つける深さを先に出す（S-1。深さは content の SPRINGS）
+  // 源泉が未発見なら「Lv 0/25」は上げられない目標に見えるので、見つける深さを先に出す（S-1。深さは今の地形の springDepth。BL-024）
   const unfound = u.kind === 'pump' && s.run.springs[u.spring] === undefined;
   let condition: string;
   if (u.kind === 'depth') condition = t('upgrades.condDepth', { n: target, left: Math.max(0, target - current) });
   else if (unfound) {
-    const depth = SPRING_BY_ID[u.spring].depth;
+    const depth = springDepth(s, u.spring); // 今の周回の地形の深さ（BL-024）
     condition = t('upgrades.condPumpUnfound', { depth, spring: springName(u.spring), n: target, left: Math.max(0, depth - s.run.maxDepth) });
   } else condition = t('upgrades.condPump', { spring: springName(u.spring), cur: current, n: target });
   return { id: def.id, name: nameOf(def.id), effect: effectText(def.effect), kind: u.kind, target, current, unfound, condition };
