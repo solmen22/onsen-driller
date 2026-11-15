@@ -1638,14 +1638,19 @@ describe('nightly-gate.mjs（公開中は毎日・非公開の間は月・木。
     const gateOnly = Array.from({ length: 250 }, (_, i) => run(1000 - i, H));
     // 新しい順: 別の SHA の成功（新）→ gate だけの回 250 件 → この SHA の成功 → この SHA の失敗の run → 別の SHA の成功（いちばん古い）
     const runs = [run(2000, OLD), ...gateOnly, run(5, H), run(4, H, 'failure'), run(3, OLD)];
-    const jobs = { 2000: JOBS.green, 5: JOBS.green, 4: JOBS.gateOnly, 3: JOBS.green, ...Object.fromEntries(gateOnly.map((r) => [r.id, JOBS.gateOnly])) };
+    // run 4 は「E2E のジョブは緑だが run は失敗」（PR #73 のレビューの Nit 1）。結論の確かめを外すと、r2 の判定（run=false）で赤になる
+    const jobs = { 2000: JOBS.green, 5: JOBS.green, 4: JOBS.green, 3: JOBS.green, ...Object.fromEntries(gateOnly.map((r) => [r.id, JOBS.gateOnly])) };
     const r = await runGate({ schedule: OD, runs, jobs, ignoreFilter: true });
     assert.equal(r.run, 'run=false', `この SHA の成功を見落とした（または別の SHA の成功を取り違えた）:\n${r.log}`);
     const jobReqs = r.requests.filter((q) => q.path.endsWith('/jobs')).map((q) => q.path.split('/').at(-2));
     assert.deepEqual(jobReqs, ['5'], `jobs を読んだ run: ${jobReqs.join(', ')}（別の SHA・失敗の run の jobs を読んでいる）`);
-    // この SHA の成功がなく、別の SHA の成功だけがある → 流す
+    // この SHA の成功がなければ流す（Nit 2）。jobs を読むのはこの SHA の success の run（gate だけの回）だけで、別の SHA（2000・3）・
+    // 失敗の run（4）は読まない
     const r2 = await runGate({ schedule: OD, runs: runs.filter((x) => x.id !== 5), jobs, ignoreFilter: true });
     assert.equal(r2.run, 'run=true', r2.log);
+    const jobReqs2 = r2.requests.filter((q) => q.path.endsWith('/jobs')).map((q) => q.path.split('/').at(-2));
+    assert.ok(!jobReqs2.some((id) => ['2000', '3', '4'].includes(id)), `r2 で別の SHA・失敗の run の jobs を読んだ: ${jobReqs2.join(', ')}`);
+    assert.equal(jobReqs2.length, gateOnly.length, `r2 で読んだ jobs の数: ${jobReqs2.length}`);
   });
 
   test('偽の API: この回の SHA が読めない（空・40 桁の 16 進でない）→ API を読まずに流す', async () => {
