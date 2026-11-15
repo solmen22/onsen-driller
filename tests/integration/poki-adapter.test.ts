@@ -258,11 +258,12 @@ describe('Q-45: 開始の時間切れの後に遅れて始まり、最後まで�
     expect(late).toEqual([{ id: 1, placement: 'R3' }]);
   });
 
-  it('出さない場合: 遅れて始まって false・reject、開始なしで終わる、ミッドゲーム', async () => {
+  it('出さない場合: 遅れて始まって false・reject、開始なしで false・reject、ミッドゲーム（開始なしの true は BL-146 で出す。bl146-poki-late-reward.test.ts）', async () => {
     const cases: { name: string; run: (sdk: PokiMock) => void; mid?: boolean }[] = [
       { name: 'false', run: (s) => ((s.rewarded = false), s.start(), s.finish()) },
       { name: 'reject', run: (s) => (s.start(), s.finish(true)) },
-      { name: '開始なし', run: (s) => s.finish() },
+      { name: '開始なしで false', run: (s) => ((s.rewarded = false), s.finish()) },
+      { name: '開始なしで reject', run: (s) => s.finish(true) },
       { name: 'ミッドゲーム', run: (s) => (s.start(), s.finish()), mid: true },
     ];
     for (const c of cases) {
@@ -580,3 +581,4 @@ describe('決定 0012 の D-2（PR #84 のレビュー N-2 の案 A）: SDK の�
     expect(p.calls().map((c) => c.name).filter((n) => n.startsWith('gameplay')), '最初の入力の start の後').toEqual(['gameplayStart', 'gameplayStop', 'gameplayStart']);
   });
 });
+
