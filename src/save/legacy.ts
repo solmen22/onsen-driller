@@ -120,6 +120,8 @@ export function moveLegacySlots(from: KeyValueStore, to: KeyValueStore): LegacyM
     let result: LegacyMove;
     let copy: Raws;
     let loser: Side | null = null;
+    /** 勝った側の枠の生の文字列（負けた側の最良の枠と同じなら、もう控えがあるので退避しない） */
+    let winnerRaws = new Set<string>();
     if (cur.length === 0) {
       result = 'moved';
       copy = old; // 今までどおり、検証せずにそのまま写す（読み込みの検証は slots.ts）
@@ -134,15 +136,20 @@ export function moveLegacySlots(from: KeyValueStore, to: KeyValueStore): LegacyM
         result = 'replaced';
         copy = legacy.valid.map((v): [string, string] => [v.key, v.raw]); // 壊れた枠は写さない
         loser = current;
+        winnerRaws = new Set(legacy.raws.map(([, v]) => v));
       } else {
         result = 'kept';
         copy = [];
         loser = legacy;
+        winnerRaws = new Set(current.raws.map(([, v]) => v));
       }
     }
     // 退避を先に行う。できなければ元の枠を変えない（replaced は failed で次の起動にやり直す。kept は以前の枠を残す。
     // kept で残すと症状 (b) は残りうるが、進行が消えるよりよい。PR #89 のレビュー S-2）
-    if (loser) {
+    // 以前の保存先の remove が黙って失敗した次の起動では、同じ中身どうしの kept になる。そのときに前の起動で退避した本当の
+    // 負けた側を上書きしない（PR #89 の再レビューの Nit）
+    const dup = !!loser?.valid[0] && winnerRaws.has(loser.valid[0].raw);
+    if (loser && !dup) {
       const b = backUp(to, loser);
       if (b === false) return result === 'replaced' ? 'failed' : 'held';
       if (b) before.set(b.key, b.prev); // 後で写しに失敗したら、退避も元に戻す
