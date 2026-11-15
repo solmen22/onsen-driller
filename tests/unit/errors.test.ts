@@ -1,6 +1,8 @@
 // BL-071: 直近のエラーの記録（app/errors.ts。フックの errors()）。ブラウザの代わりに Node の EventTarget で確かめる（TS-071-19 の Node 版）
 import { describe, expect, it } from 'vitest';
-import { captureErrors, createErrorLog, describeError, ERROR_TEXT_MAX, ERRORS_KEEP } from '../../src/app/errors.ts';
+import { GameStore } from '../../src/app/store.ts';
+import { captureErrors, createErrorLog, describeError, ERROR_TEXT_MAX, ERRORS_KEEP, storeErrorHandler } from '../../src/app/errors.ts';
+import { createInitialState } from '../../src/core/index.ts';
 
 /** window の error・unhandledrejection に似たイベント */
 function errorEvent(error: unknown, message = ''): Event {
@@ -57,5 +59,24 @@ describe('captureErrors', () => {
     off();
     win.dispatchEvent(errorEvent(new Error('x3')));
     expect(log.list()).toHaveLength(3);
+  });
+});
+
+describe('storeErrorHandler（BL-092 の Q-29。TS-010-11）', () => {
+  it('購読者が投げた例外を errors() に 1 件残し、console 側（out）にも出す。ほかの購読者には通知が届く', () => {
+    const log = createErrorLog();
+    const out: unknown[] = [];
+    const store = new GameStore(createInitialState(1), { onError: storeErrorHandler(log, (e) => out.push(e)) });
+    let other = 0;
+    store.subscribe(() => {
+      throw new Error('boom');
+    });
+    store.subscribe(() => {
+      other++;
+    });
+    store.notify();
+    expect(log.list()).toEqual(['Error: boom']);
+    expect(out).toHaveLength(1);
+    expect(other).toBe(1);
   });
 });

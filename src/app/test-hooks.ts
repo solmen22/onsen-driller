@@ -140,16 +140,27 @@ export function createHooks(d: HookDeps): TestHooks {
   };
 }
 
-export interface InstallDeps extends HookDeps {
-  view: View;
+export interface InstallDeps extends Omit<HookDeps, 'view'> {
+  /** 描画（Phaser）。起動に失敗したときは null（仮の view でフックを置く。BL-092） */
+  view: View | null;
   perf: PerfMonitor | null;
   contextEvents: string[];
   slots?: SaveSlots;
 }
 
 /** window.__game を置く。PoC の計測用の補助（perf・view・広告の直接の呼び出し）も残す（e2e/perf.spec.ts・screens.spec.ts・smoke.spec.ts） */
+/**
+ * 描画の起動に失敗したときの仮の view（BL-092）: rect() は null、renderStats() は 0 の値。ほかの API（getState・saveNow・errors など）は
+ * そのまま使える（入力・保存は描画より前に結線されている。S1 のレビュー S-3）
+ */
+export const NO_VIEW: HookView = {
+  rectOf: () => null,
+  renderStats: () => ({ zoom: 0, tileSprites: 0, particles: 0, popups: 0, layout: document.getElementById('app')?.dataset['layout'] === 'portrait' ? 'portrait' : 'landscape' }),
+};
+
 export function install(d: InstallDeps, win: object = window): TestHooks {
-  const hooks = createHooks(d);
+  const v = d.view;
+  const hooks = createHooks({ ...d, view: v ?? NO_VIEW });
   const full = {
     ...hooks,
     platform: {
@@ -160,16 +171,17 @@ export function install(d: InstallDeps, win: object = window): TestHooks {
     },
     perf: { reset: () => d.perf?.reset(), stats: () => d.perf?.stats() ?? null },
     view: {
-      renderer: () => d.view.rendererName(),
-      particles: () => d.view.aliveParticles(),
-      loseContext: () => d.view.loseContext(),
-      restoreContext: () => d.view.restoreContext(),
+      renderer: () => v?.rendererName() ?? 'none',
+      particles: () => v?.aliveParticles() ?? 0,
+      loseContext: () => v?.loseContext() ?? false,
+      restoreContext: () => v?.restoreContext() ?? false,
       contextEvents: () => [...d.contextEvents],
-      frame: () => d.view.game.loop.frame,
+      frame: () => v?.game.loop.frame ?? 0,
       /** 描画結果の色の種類の数（真っ黒・真っ白なら 1〜2）。コンテキスト喪失からの復帰の確認用 */
       snapshotColors: () =>
         new Promise<number>((resolve) => {
-          d.view.game.renderer.snapshot((img) => {
+          if (!v) return resolve(-1);
+          v.game.renderer.snapshot((img) => {
             if (!(img instanceof HTMLImageElement)) return resolve(-1);
             const c = document.createElement('canvas');
             c.width = img.width;

@@ -64,3 +64,14 @@ export function captureErrors(win: EventTarget, log: ErrorLog): () => void {
     win.removeEventListener('unhandledrejection', onRejection);
   };
 }
+
+/**
+ * ストアの購読者（UI の部品）の例外の受け取り（BL-092 の Q-29）: errors() に 1 件残し（「エラー情報をコピー」の元）、
+ * console.error にも今までどおり出す（E2E の共通の検査で気づけるように）
+ */
+export function storeErrorHandler(log: Pick<ErrorLog, 'push'>, out: (e: unknown) => void = (e) => console.error(e)): (e: unknown) => void {
+  return (e) => {
+    log.push(e);
+    out(e);
+  };
+}
