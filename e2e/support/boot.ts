@@ -251,6 +251,27 @@ export async function setHidden(page: Page, hidden: boolean): Promise<void> {
   }, hidden);
 }
 
+/** awayTab が進めた app の壁時計とページの Date.now() の差（ページごと。app の単調時計と Date.now は同じ Clock API で進む） */
+const appWallAhead = new WeakMap<Page, number>();
+
+/**
+ * タブを ms だけ離れて戻る（BL-030 のタブの復帰。E7。CEO 決定 2026-11-15 の案 0: 製品にフックを足さず、本物の経路を通す）。
+ * 1. setHidden(true): visibilitychange で、wireVisibility が隠れた時刻（app の壁時計）を覚え、保存・ループの停止・gameplayStop が動く
+ * 2. __game.setClock で app の壁時計だけを ms 進める（単調時計は動かないので、隠れている間にロジックは進まない）
+ * 3. setHidden(false): wireVisibility が、離れていた時間で GameStore.resume を呼ぶ（60 秒未満はオンラインの規則、以上はオフラインとおかえり）。
+ *    見えるとループが動き出す（arch §7）ので、値を比べるテストは戻った直後に __game.pause() する
+ * 同じページで続けて呼んでよい（前に進めた分を覚えている）。テストが自分で setClock したページでは使わない。Clock API の時計は止めておくこと
+ */
+export async function awayTab(page: Page, g: Hooks, ms: number): Promise<void> {
+  if (!(Number.isFinite(ms) && ms >= 0)) throw new TypeError(`awayTab: 0 以上の有限の ms: ${String(ms)}`);
+  const pageNowMs = await page.evaluate(() => Date.now());
+  const wall = pageNowMs + (appWallAhead.get(page) ?? 0);
+  await setHidden(page, true);
+  await g.setClock(wall + ms);
+  appWallAhead.set(page, wall + ms - pageNowMs);
+  await setHidden(page, false);
+}
+
 /** 自動保存の間隔（arch §11「15 秒ごと」） */
 export const AUTOSAVE_MS = 15_000;
 
