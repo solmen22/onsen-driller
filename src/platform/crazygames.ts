@@ -177,7 +177,12 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
     });
   }
 
-  /** SDK を待って使える状態にする（init が呼ぶ。失敗・タイムアウト・disabled では何もしない＝web と同じ動作） */
+  /**
+   * SDK を待って使える状態にする（init が呼ぶ。失敗・タイムアウト・disabled では何もしない＝web と同じ動作）。
+   * 投げうる同期の処理（environment・data・settings の読み出し・リスナーの登録・hasAdblock.bind）を先に済ませ、
+   * 済んでから SDK を使う状態にして init の前の loading の合図を送る。途中で投げても SDK には何も送らない
+   * （loadingStart だけ届いて loadingStop が届かない形を作らない。PR #106 のレビュー S-1）
+   */
   async function initSdk(): Promise<void> {
     const s = opts.getSdk();
     if (!s) return;
@@ -186,50 +191,58 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
       log.push('initFailed', r);
       return;
     }
-    if (s.environment === 'disabled') {
+    const env = s.environment;
+    if (env === 'disabled') {
       log.push('environment', 'disabled'); // CrazyGames 以外のドメイン: web と同じ動作にする
       return;
     }
-    log.push('environment', s.environment);
-    sdk = s;
-    // init の前に来た loading の合図を、起きた順に SDK へ送る（loadingStart が SDK に届かなかった。レビュー S-2）
-    for (const name of early.splice(0)) call(s, (x) => x.game[name]());
-    if (s.data) {
-      const d = s.data;
-      storage = {
-        kind: 'sdk',
-        // 読めないときは例外をそのまま投げる（「ない」＝null と区別する。KeyValueStore.get の約束。レビュー S-1）。
-        // 「ない」を undefined で返す実装もあるので、文字列以外は null にそろえる（S1 再レビュー A-N1）
-        get: (k) => {
-          const v: unknown = d.getItem(k);
-          return typeof v === 'string' ? v : null;
-        },
-        set: (k, v) => {
-          try {
-            d.setItem(k, v);
-            return true;
-          } catch {
-            return false;
-          }
-        },
-        remove: (k) => {
-          try {
-            d.removeItem(k);
-          } catch {
-            /* 無視 */
-          }
-        },
-      };
-      // SDK が読めなかった起動で localStorage に保存した枠を、main.ts が最初に移す（メモリに落ちていたら移すものはない）
-      if (local.kind === 'local') legacy = local;
-    }
-    muted = !!s.game.settings?.muteAudio;
+    // --- 準備（ここまでに投げたら SDK は外したまま。状態は何も変えない） ---
+    const d = s.data;
+    const sdkStore: KeyValueStore | null = d
+      ? {
+          kind: 'sdk',
+          // 読めないときは例外をそのまま投げる（「ない」＝null と区別する。KeyValueStore.get の約束。レビュー S-1）。
+          // 「ない」を undefined で返す実装もあるので、文字列以外は null にそろえる（S1 再レビュー A-N1）
+          get: (k) => {
+            const v: unknown = d.getItem(k);
+            return typeof v === 'string' ? v : null;
+          },
+          set: (k, v) => {
+            try {
+              d.setItem(k, v);
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          remove: (k) => {
+            try {
+              d.removeItem(k);
+            } catch {
+              /* 無視 */
+            }
+          },
+        }
+      : null;
+    const mutedAtInit = !!s.game.settings?.muteAudio;
     s.game.addSettingsChangeListener?.((st) => {
-      if (sdk !== s) return; // init の途中の例外で SDK を外した後は受けない（BL-116）
+      if (sdk !== s) return; // 使う状態にする前・init の途中の例外で SDK を外した後は受けない（BL-116）
       muted = !!st.muteAudio;
       mutedL.emit(muted);
     });
-    if (opts.adsEnabled && s.ad.hasAdblock) await checkAdblock(s.ad.hasAdblock.bind(s.ad));
+    const hasAdblock = opts.adsEnabled && s.ad.hasAdblock ? s.ad.hasAdblock.bind(s.ad) : null;
+    // --- 使う状態にする（この後は同期で投げない） ---
+    log.push('environment', env);
+    sdk = s;
+    if (sdkStore) {
+      storage = sdkStore;
+      // SDK が読めなかった起動で localStorage に保存した枠を、main.ts が最初に移す（メモリに落ちていたら移すものはない）
+      if (local.kind === 'local') legacy = local;
+    }
+    muted = mutedAtInit;
+    // init の前に来た loading の合図を、起きた順に SDK へ送る（loadingStart が SDK に届かなかった。レビュー S-2）
+    for (const name of early.splice(0)) call(s, (x) => x.game[name]());
+    if (hasAdblock) await checkAdblock(hasAdblock);
   }
 
   /**
