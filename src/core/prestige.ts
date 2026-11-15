@@ -1,7 +1,10 @@
 // 転生「新しい湯の里へ」の表示に使う値（gdd §5-8。BL-021）。転生タブ（T4。BL-045）と確認の画面が、何が得られて何が残るかを
 // 1 か所の計算で出せるようにする（UI で式を持たない。数値の調整は content/params.ts の prestige だけ）
 import { PARAMS } from '../content/params.ts';
-import { yunohanaGain, yunohanaGainBase } from './formulas.ts';
+import type { SpringId } from '../content/springs.ts';
+import { SPRINGS } from '../content/springs.ts';
+import { TERRAIN_BY_ID, TERRAINS, type TerrainEffect, type TerrainId } from '../content/terrains.ts';
+import { springDepthIn, yunohanaGain, yunohanaGainBase } from './formulas.ts';
 import { add, mul, ONE, type Num } from './num.ts';
 import type { GameState } from './state.ts';
 
@@ -117,4 +120,51 @@ export function prestigeView(s: Readonly<GameState>): PrestigeView {
     ticketsAdded,
     ticketsOverflow: T.prestige - ticketsAdded,
   };
+}
+
+// ---- 地形（gdd §5-8。BL-024） ----
+
+/**
+ * 転生 prestiges 回の後に、地形 t が解放されているか: 保存された解放済みの一覧にあるか、転生の回数が解放の回数以上。
+ * 解放の条件は転生の回数だけ（減らない）なので、回数からも決める（版 2 までのセーブは一覧に足していない。読み込みで補正しない
+ * ＝凍結の見本〔BL-028〕も補正なしで読める）。転生のたびに一覧にも書く
+ */
+export function terrainUnlocked(s: Readonly<GameState>, t: TerrainId, prestiges: number = s.meta.prestiges): boolean {
+  return s.meta.terrainsUnlocked.includes(t) || prestiges >= TERRAIN_BY_ID[t].unlockPrestiges;
+}
+
+/** 転生 prestiges 回の後に解放されている地形（定義の順） */
+export const unlockedTerrains = (s: Readonly<GameState>, prestiges: number = s.meta.prestiges): TerrainId[] =>
+  TERRAINS.filter((t) => terrainUnlocked(s, t.id, prestiges)).map((t) => t.id);
+
+export interface TerrainChoiceView {
+  readonly id: TerrainId;
+  /** 今転生したら行き先に選べるか（この転生で解放されるものを含む。n 回目の転生で、解放の回数 n の地形が選べる） */
+  readonly selectable: boolean;
+  /** 今の周回の地形か（転生の確認の画面の初期の選択。何も選ばなければ今の地形のまま） */
+  readonly current: boolean;
+  /** 解放に要る転生の回数と、あと何回転生すれば解放されるか（選べるなら 0。今 0 回なら海辺は「あと 1 回の転生で解放」＝次の次の転生から選べる） */
+  readonly unlockPrestiges: number;
+  readonly prestigesLeft: number;
+  /** その地形の源泉の発見の深さ（SPRINGS の順） */
+  readonly springDepths: Readonly<Record<SpringId, number>>;
+  /** 周回の間ずっと効く効果（内容定義そのもの。書き換えない） */
+  readonly effects: readonly Readonly<TerrainEffect>[];
+}
+
+/** 転生の確認の画面の地形の選択（T4。BL-045 が使う）。定義の順 */
+export function terrainChoices(s: Readonly<GameState>): TerrainChoiceView[] {
+  const after = s.meta.prestiges + 1; // この転生の後の回数
+  return TERRAINS.map((t) => {
+    const selectable = terrainUnlocked(s, t.id, after);
+    return {
+      id: t.id,
+      selectable,
+      current: s.run.terrain === t.id,
+      unlockPrestiges: t.unlockPrestiges,
+      prestigesLeft: selectable ? 0 : t.unlockPrestiges - after,
+      springDepths: Object.fromEntries(SPRINGS.map((sp) => [sp.id, springDepthIn(t.id, sp.id)])) as Record<SpringId, number>,
+      effects: t.effects,
+    };
+  });
 }

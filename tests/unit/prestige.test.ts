@@ -2,6 +2,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { PARAMS } from '../../src/content/params.ts';
+import { TERRAINS } from '../../src/content/terrains.ts';
 import {
   cloneState,
   createRun,
@@ -141,7 +142,10 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
         if (start === 0) expect(s.collection.springsSeen).toEqual(before.collection.springsSeen);
         expect(s.tutorial).toEqual(before.tutorial);
         expect(s.meta.perks).toEqual(before.meta.perks);
-        expect(s.meta.terrainsUnlocked).toEqual(before.meta.terrainsUnlocked);
+        // 解放済みの地形は残り、この転生の後の回数で解放される地形が書き足される（定義の順。BL-024）
+        const unlockedAfter = TERRAINS.filter((t) => before.meta.terrainsUnlocked.includes(t.id) || before.meta.prestiges + 1 >= t.unlockPrestiges).map((t) => t.id);
+        expect(s.meta.terrainsUnlocked).toEqual(unlockedAfter);
+        expect(s.meta.terrainsUnlocked).toEqual(expect.arrayContaining(before.meta.terrainsUnlocked));
         expect(s.meta.endingSeen).toBe(before.meta.endingSeen);
         expect(s.meta.yunohana.spent).toEqual(before.meta.yunohana.spent);
         expect({ ...s.stats, totalCoins: null }).toEqual({ ...before.stats, totalCoins: null });

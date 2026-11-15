@@ -8,7 +8,9 @@ import { ORE_BY_ID, ORES } from '../content/ores.ts';
 import { PERKS } from '../content/perks.ts';
 import { SPRING_BY_ID, SPRINGS } from '../content/springs.ts';
 import { STRATA } from '../content/strata.ts';
+import { INITIAL_TERRAIN, TERRAIN_IDS, TERRAINS } from '../content/terrains.ts';
 import { TOOLS } from '../content/tools.ts';
+import { springDepthIn } from './formulas.ts';
 import { upgradeProblems } from './upgrades.ts';
 
 const dupes = (ids: readonly string[]): string[] => ids.filter((id, i) => ids.indexOf(id) !== i);
@@ -93,6 +95,28 @@ export function contentProblems(): string[] {
   if (!(PARAMS.bath.c0 > 0 && PARAMS.bath.r > 1 && PARAMS.bath.bonusPerLv > 0)) p.push('params: bath のコスト・成長率・倍率が正でない');
   if (!(PARAMS.offline.eff > 0 && PARAMS.offline.eff <= PARAMS.offline.maxEff)) p.push('params: offline.eff が 0〜maxEff にない');
   if (!(PARAMS.offline.capMs > 0)) p.push('params: offline.capMs が正でない');
+  // 地形（BL-024）: 3 種がそろい（ID の重複なし・定義の順は TERRAIN_IDS）、初期の地形は転生 0 回で解放、解放の回数は減らない。
+  // 源泉の深さの倍率は正の有限の数で、倍率を掛けた深さは正の整数（四捨五入）・浅い順は SPRINGS の順のまま（重なりもない）
+  if (TERRAINS.map((t) => t.id).join() !== TERRAIN_IDS.join()) p.push('terrains: 定義が TERRAIN_IDS と同じ順にそろっていない');
+  for (const d of dupes(TERRAINS.map((t) => t.id))) p.push(`terrains: id ${d} が重複`);
+  TERRAINS.forEach((t, i) => {
+    const prev = TERRAINS[i - 1];
+    if (!(Number.isInteger(t.unlockPrestiges) && t.unlockPrestiges >= 0)) p.push(`terrains: ${t.id} の解放の回数が 0 以上の整数でない`);
+    if (prev && t.unlockPrestiges < prev.unlockPrestiges) p.push(`terrains: ${t.id} の解放の回数が前より少ない`);
+    if (t.id === INITIAL_TERRAIN && t.unlockPrestiges !== 0) p.push(`terrains: 初期の地形 ${t.id} の解放の回数が 0 でない`);
+    if (t.nameKey !== `terrain.${t.id}`) p.push(`terrains: ${t.id} の名前のキーが terrain.${t.id} でない`);
+    for (const [id, k] of Object.entries(t.springDepthMult)) {
+      if (!Object.hasOwn(SPRING_BY_ID, id)) p.push(`terrains: ${t.id} の源泉 ${id} がない`);
+      if (!(Number.isFinite(k) && k > 0)) p.push(`terrains: ${t.id} の源泉 ${id} の深さの倍率が正の有限の数でない`);
+    }
+    SPRINGS.forEach((sp, k) => {
+      const d = springDepthIn(t.id, sp.id);
+      const before = SPRINGS[k - 1];
+      if (!(Number.isInteger(d) && d > 0)) p.push(`terrains: ${t.id} の ${sp.id} の深さが正の整数でない`);
+      if (before && !(d > springDepthIn(t.id, before.id))) p.push(`terrains: ${t.id} の ${sp.id} の深さが前の源泉より深くない（浅い順を SPRINGS の順のままにする）`);
+    });
+    for (const e of t.effects) p.push(...effectProblems(`terrains: ${t.id}`, e));
+  });
   // 改良（BL-018。TS-018-02）
   p.push(...upgradeProblems());
   // 湯の華の木（BL-022）: ID の重複なし、コストは正の整数、前提は先に定義したノード、名前のキーは perk.<id>、効果の値は健全
