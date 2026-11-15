@@ -20,7 +20,7 @@ import { createRewardHooks } from './rewards.ts';
 import { createAdFlow, pausesForReward, type LateKind } from './ad-flow.ts';
 import type { View } from '../view/game.ts';
 import type { DevParams } from './dev-params.ts';
-import { captureErrors, createErrorLog } from './errors.ts';
+import { captureErrors, createErrorLog, storeErrorHandler } from './errors.ts';
 import { isHappyBatch } from './happy-time.ts';
 import { setupInput } from './input.ts';
 import { createLifecycle, signalsHidden } from './lifecycle.ts';
@@ -93,7 +93,8 @@ async function boot(): Promise<void> {
     state.run.autoDig.on = true;
     state.input.hold = true;
   }
-  const store = new GameStore(state);
+  // 購読者（UI の部品）の例外は errors() に残し（「エラー情報をコピー」の元）、console.error にも今までどおり出す（BL-092 の Q-29）
+  const store = new GameStore(state, { onError: storeErrorHandler(errorLog) });
   // 読み取り専用（新しい版のセーブ）なら起動直後から readonly（Q-26。最初の保存の前、UI の最初の描画の前）
   store.setSaveStatus(saveDisplay(slots.status, slots.readOnly));
   // 設定を書く唯一の口。読み取り専用の間は書かない（Q-26 ③）
@@ -232,7 +233,8 @@ async function boot(): Promise<void> {
   if (DEV_BUILD && params.debug) (await import('./dev-panel.ts')).mountDevPanel({ store, platform });
   if (import.meta.env.VITE_TEST_HOOKS === 'true') {
     const m = await import('./test-hooks.ts');
-    if (view) m.install({ store, loop, perf, platform, view, contextEvents, clock, autosave, slots, errors: errorLog });
+    // 描画の起動に失敗しても（view が null）仮の view でフックを置く（入力・保存が続くことを e2e で確かめる。BL-092）
+    m.install({ store, loop, perf, platform, view, contextEvents, clock, autosave, slots, errors: errorLog });
   }
 }
 
