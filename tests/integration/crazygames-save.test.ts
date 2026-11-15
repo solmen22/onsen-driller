@@ -216,16 +216,16 @@ describe('BL-115 両方に枠があるとき（kept の後の扱い。PR #30 の
     from.map.set(SAVE_KEYS.b, 'garbage');
     expect(moveLegacySlots(from, to)).toBe('replaced');
     expect(slotsOf(to)).toEqual({ a: saveText(6, '6'), b: undefined });
-    // 両方とも壊れている → 何も変えない（今の保存先の退避は slots.ts の規則 4）
+    // 両方とも壊れている → 何も変えない（held。今の保存先の退避は slots.ts の規則 4）
     from = new FakeStore('local');
     to = new FakeStore('sdk');
     to.map.set(SAVE_KEYS.a, 'x');
     from.map.set(SAVE_KEYS.a, 'y');
-    expect(moveLegacySlots(from, to)).toBe('kept');
+    expect(moveLegacySlots(from, to)).toBe('held');
     expect([...to.map]).toEqual([[SAVE_KEYS.a, 'x']]);
     expect([...from.map]).toEqual([[SAVE_KEYS.a, 'y']]);
   });
-  it('どちらかに新しい版の枠があれば何も変えない（kept。読み取り専用の規則。新しいビルドで読めるよう残す）', () => {
+  it('どちらかに新しい版の枠があれば何も変えない（held。読み取り専用の規則。新しいビルドで読めるよう残す）', () => {
     const newer = '{"schema":999,"seq":1}';
     for (const side of ['from', 'to'] as const) {
       const from = new FakeStore('local');
@@ -234,9 +234,56 @@ describe('BL-115 両方に枠があるとき（kept の後の扱い。PR #30 の
       from.map.set(SAVE_KEYS.a, side === 'from' ? newer : saveText(30, '30'));
       const fromBefore = new Map(from.map);
       const toBefore = new Map(to.map);
-      expect(moveLegacySlots(from, to), side).toBe('kept');
+      expect(moveLegacySlots(from, to), side).toBe('held');
       expect(from.map, side).toEqual(fromBefore);
       expect(to.map, side).toEqual(toBefore);
+    }
+  });
+  it('退避（superseded・broken）が書けない・読み戻しが合わないときは、元の枠を変えない（replaced は failed・kept は held で以前の枠を残す。PR #89 のレビュー S-2）', () => {
+    /** 退避のキーだけ書けない（false）・黙って捨てる（読み戻しが合わない）・例外（容量不足） */
+    const breakKey = (t: FakeStore, key: string, mode: 'false' | 'drop' | 'throw') => {
+      const set = t.set.bind(t);
+      t.set = (k, v) => {
+        if (k !== key) return set(k, v);
+        if (mode === 'throw') throw new DOMException('quota', 'QuotaExceededError');
+        return mode === 'drop'; // drop: 成功と答えるが書かない（読み戻しが合わない）
+      };
+    };
+    for (const mode of ['false', 'drop', 'throw'] as const) {
+      // replaced: 今の保存先（負け）の最良の枠を退避できない → 何も変えず failed
+      let from = new FakeStore('local');
+      let to = new FakeStore('sdk');
+      to.map.set(SAVE_KEYS.a, saveText(9, '9'));
+      to.map.set(SAVE_KEYS.b, saveText(10, '10'));
+      to.map.set(SUPERSEDED_KEY, 'older backup');
+      from.map.set(SAVE_KEYS.a, saveText(11, '11'));
+      let toBefore = new Map(to.map);
+      let fromBefore = new Map(from.map);
+      breakKey(to, SUPERSEDED_KEY, mode);
+      expect(moveLegacySlots(from, to), `replaced ${mode}`).toBe('failed');
+      expect(to.map, `replaced ${mode}: 今の保存先と前の退避はそのまま`).toEqual(toBefore);
+      expect(from.map, `replaced ${mode}: 以前の枠は残る`).toEqual(fromBefore);
+      // kept: 以前の保存先（負け）の最良の枠を退避できない → 以前の枠を消さない
+      from = new FakeStore('local');
+      to = new FakeStore('sdk');
+      to.map.set(SAVE_KEYS.b, saveText(20, '20'));
+      from.map.set(SAVE_KEYS.a, saveText(12, '12'));
+      toBefore = new Map(to.map);
+      fromBefore = new Map(from.map);
+      breakKey(to, SUPERSEDED_KEY, mode);
+      expect(moveLegacySlots(from, to), `kept ${mode}`).toBe('held');
+      expect(to.map, `kept ${mode}`).toEqual(toBefore);
+      expect(from.map, `kept ${mode}: 以前の枠は消さない`).toEqual(fromBefore);
+      // 壊れた枠しかない側（save:broken への退避）も同じ
+      from = new FakeStore('local');
+      to = new FakeStore('sdk');
+      to.map.set(SAVE_KEYS.b, 'not json');
+      from.map.set(SAVE_KEYS.a, saveText(2, '2'));
+      toBefore = new Map(to.map);
+      breakKey(to, BROKEN_KEY, mode);
+      expect(moveLegacySlots(from, to), `broken ${mode}`).toBe('failed');
+      expect(to.map, `broken ${mode}: 壊れた枠も上書きしない`).toEqual(toBefore);
+      expect(from.map.size).toBe(1);
     }
   });
   it('写せない・読み戻しが合わないときは、今の保存先を元に戻し、以前の枠を残す（failed。例外なし）', () => {
