@@ -692,7 +692,7 @@ describe('レビュー S-5: ID の配列の重複除去は O(n) で、長さに�
     const r = parseGame(g);
     expect(r.ok && r.state.collection.achievements).toEqual(['b', 'a', 'c']);
   });
-  it('BL-022 湯の華の木: 知っている ID だけを定義の順に残し、前提を満たさないノードは捨てる。使った分はコストの合計に直す。合計が累計を超えたら木を空にする', () => {
+  it('TS-022-16 BL-022 湯の華の木: 知っている ID だけを定義の順に残し、前提を満たさないノードは捨てる。使った分はコストの合計に直す。合計が累計を超えたら木を空にする', () => {
     const g = toSaveGame(createInitialState(1)) as unknown as { meta: Record<string, unknown> & { yunohana: Record<string, unknown> } };
     g.meta.perks = ['nightDig', 'sharpBlade', 'grip', 'famousSpring', 'sharpBlade', 'travelFunds'];
     g.meta.yunohana = { lifetime: '1e2', spent: '7e0' };
