@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { PARAMS } from '../../src/content/params.ts';
 import { TERRAIN_IDS, type TerrainId } from '../../src/content/terrains.ts';
 import { saveReasonForEvents } from '../../src/app/autosave.ts';
-import { isHappyMoment } from '../../src/app/happy-time.ts';
+import { isHappyBatch, isHappyMoment } from '../../src/app/happy-time.ts';
+import { GameStore } from '../../src/app/store.ts';
 import { applyGrant, createInitialState, dispatch, num, step, type GameEvent, type GameState } from '../../src/core/index.ts';
 import { decodeSave, encodeSave } from '../../src/save/codec.ts';
 import { parseGame } from '../../src/save/schema.ts';
@@ -212,3 +213,29 @@ describe('BL-023 app 側: すぐ保存・祝いの合図・シミュレーター
     expect(rec.at.ending).toBe(12_345);
   });
 });
+
+describe('BL-023 と BL-030（オフライン）・happytime のバッチ', () => {
+  it('TS-023-16 離れている間（オフラインの早送り）に自動掘削で 500m に届く: 早送りの出来事に EndingReached が 1 回（ストアを通る）', () => {
+    const s = digger(495);
+    s.run.autoDig.level = 200;
+    const store = new GameStore(s);
+    store.useWallClock(() => 2_000_000_000_000);
+    const evs: GameEvent[] = [];
+    store.onEvents((e) => evs.push(...e));
+    store.resume(2 * 3_600_000, 2_000_000_000_000 - 2 * 3_600_000);
+    expect(endings(evs)).toHaveLength(1);
+    expect(evs.at(-1)?.type).toBe('OfflineSummary'); // 集計は最後（UI はおかえり → カードの順に出す）
+    expect(store.state.meta.endingSeen).toBe(true);
+  });
+
+  it('TS-023-15 (b) 近道の転生で PrestigeDone と EndingReached が同じ列でも、happytime は 1 列で 1 回（Q-55 (c)）', () => {
+    const evs: GameEvent[] = [
+      { type: 'PrestigeDone', gained: '1.44e2' },
+      { type: 'EndingReached', depth: 600 },
+      { type: 'BreakOpportunity', placement: 'M1' },
+    ];
+    expect(evs.filter((e) => isHappyMoment(e, createInitialState(1)))).toHaveLength(2);
+    expect(isHappyBatch(evs, createInitialState(1))).toBe(true); // main.ts は 1 列につき 1 回だけ happyTime を呼ぶ
+  });
+});
+
