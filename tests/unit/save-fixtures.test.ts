@@ -1,5 +1,5 @@
 // BL-028: セーブの見本（tests/fixtures/saves/v{N}/。序盤・転生前・転生後・最大状態）を今の版で読む・移行の連鎖・新しい版のセーブの保護・大きさ。
-// 見本は tools/fixtures/make-save-fixtures.ts が書き、消さない（gdd §10）。TS-ID は BL-021 のシナリオ（TS-021-27・29・30・32）と、BL-028 のシナリオが出たら付ける
+// 見本は tools/fixtures/make-save-fixtures.ts が書き、消さない（gdd §10）。TS-ID は BL-021 のシナリオ（TS-021-27・29・30・32）と BL-028 のシナリオ（BL-028_save-migration-fixtures.md。traceability 付録 A-4）のもの
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -47,12 +47,12 @@ function invariants(s: GameState): void {
 }
 
 describe('BL-028 見本の置き場所（見本は消さない）', () => {
-  it('版 1 から今の版まで、どの版にも 4 種（序盤・転生前・転生後・最大状態）がある', () => {
+  it('TS-028-06 版 1 から今の版まで、どの版にも 4 種（序盤・転生前・転生後・最大状態）がある', () => {
     expect(versions).toEqual(Array.from({ length: SAVE_SCHEMA_VERSION }, (_, i) => i + 1));
     for (const v of versions) expect(readdirSync(join(ROOT, `v${v}`)).sort()).toEqual(FIXTURE_KINDS.map((k) => `${k}.json`).sort());
   });
 
-  it('見本の封筒の schema と game の schema は、その版の番号', () => {
+  it('TS-028-06 見本の封筒の schema と game の schema は、その版の番号', () => {
     for (const v of versions)
       for (const k of FIXTURE_KINDS) {
         const env = JSON.parse(read(`v${v}`, `${k}.json`)) as { schema: number; game: { schema: number } };
@@ -79,13 +79,13 @@ describe('BL-028 見本は上書きしない（PR #87 のレビュー S-2）', (
   ];
   const sha = (t: string): string => createHash('sha256').update(t).digest('hex').slice(0, 16);
 
-  it('どの見本も、固定したハッシュのとおり（置き場所にある見本はすべて表にある）', () => {
+  it('TS-028-10 どの見本も、固定したハッシュのとおり（置き場所にある見本はすべて表にある）', () => {
     const files = ['newer', ...versions.map((v) => `v${v}`)].flatMap((d) => readdirSync(join(ROOT, d)).map((f) => `${d}/${f}`)).sort();
     expect(files).toEqual(PINNED.map(([f]) => f).sort());
     for (const [f, h] of PINNED) expect(sha(read(...f.split('/'))), f).toBe(h);
   });
 
-  it('道具（writeFixtures）は、ある見本に触れず、ない見本だけを書く', () => {
+  it('TS-028-11 道具（writeFixtures）は、ある見本に触れず、ない見本だけを書く', () => {
     const dir = mkdtempSync(join(tmpdir(), 'odr-fixtures-'));
     try {
       mkdirSync(join(dir, 'v1'), { recursive: true });
@@ -112,13 +112,13 @@ describe('BL-028 見本は上書きしない（PR #87 のレビュー S-2）', (
 describe('BL-028・TS-021-27・32 どの版の見本も今の版で読める', () => {
   for (const v of versions)
     for (const k of FIXTURE_KINDS)
-      it(`v${v}/${k}: 補正なしで読め、不変条件を満たす`, () => {
+      it(`TS-028-07 v${v}/${k}: 補正なしで読め、不変条件を満たす`, () => {
         const { state, corrected } = decodeOk(read(`v${v}`, `${k}.json`));
         expect(corrected).toEqual([]);
         invariants(state);
       });
 
-  it('版 1 の見本: どれにも run.pendingOffline の欄があり、少なくとも 1 つは受け取り待ち（BL-058 が版 1 のまま足した欄）。前回の獲得・始めの深さの欄はない', () => {
+  it('TS-028-08 版 1 の見本: どれにも run.pendingOffline の欄があり、少なくとも 1 つは受け取り待ち（BL-058 が版 1 のまま足した欄）。前回の獲得・始めの深さの欄はない', () => {
     const games = FIXTURE_KINDS.map((k) => (JSON.parse(read('v1', `${k}.json`)) as { game: { run: Rec; meta: Rec } }).game);
     for (const g of games) {
       expect(Object.hasOwn(g.run, 'pendingOffline')).toBe(true);
@@ -128,7 +128,7 @@ describe('BL-028・TS-021-27・32 どの版の見本も今の版で読める', (
     expect(games.some((g) => g.run.pendingOffline !== null)).toBe(true);
   });
 
-  it('版 1 の見本を読むと、同じ状態から書いた版 2 の見本と、前回の獲得・始めの深さ・木を除いて同じ（移行は足すだけ）', () => {
+  it('TS-028-07 版 1 の見本を読むと、同じ状態から書いた版 2 の見本と、前回の獲得・始めの深さ・木を除いて同じ（移行は足すだけ）', () => {
     for (const k of FIXTURE_KINDS) {
       const a = toSaveGame(decodeOk(read('v1', `${k}.json`)).state) as unknown as { run: Rec; meta: Rec & { yunohana: Rec } };
       const b = toSaveGame(decodeOk(read('v2', `${k}.json`)).state) as unknown as { run: Rec; meta: Rec & { yunohana: Rec } };
@@ -150,7 +150,7 @@ describe('BL-028・TS-021-27・32 どの版の見本も今の版で読める', (
     expect(s.meta.perks.length).toBeGreaterThan(0);
   });
 
-  it('最大状態の見本は、保存すると 200KB 以下（gdd §10）', () => {
+  it('TS-028-09 最大状態の見本は、保存すると 200KB 以下（gdd §10）', () => {
     for (const v of versions) {
       expect(read(`v${v}`, 'max.json').length, `v${v}`).toBeLessThanOrEqual(200 * 1024);
       const s = decodeOk(read(`v${v}`, 'max.json')).state;
@@ -169,7 +169,7 @@ describe('BL-028 移行の連鎖（版ごとの関数を順に当て、各段階
   };
   const v1 = (): Rec => (JSON.parse(read('v1', 'early.json')) as { game: Rec }).game;
 
-  it('版 1 → 4: 1 → 2 → 3 → 4 の順に 1 回ずつ当たり、前の段階の結果を次が使う。入力は書き換えない', () => {
+  it('TS-028-01 版 1 → 4: 1 → 2 → 3 → 4 の順に 1 回ずつ当たり、前の段階の結果を次が使う。入力は書き換えない', () => {
     calls.length = 0;
     const g = v1();
     const before = JSON.stringify(g);
@@ -179,14 +179,14 @@ describe('BL-028 移行の連鎖（版ごとの関数を順に当て、各段階
     expect(JSON.stringify(g)).toBe(before);
   });
 
-  it('途中の版から始めると、その版からだけ当たる（版 3 → 4 は 1 段）', () => {
+  it('TS-028-01 途中の版から始めると、その版からだけ当たる（版 3 → 4 は 1 段）', () => {
     calls.length = 0;
     const g = { ...v1(), schema: 3, meta: { ...(v1().meta as Rec), note: 'v3' } };
     expect((migrateGame(g, { steps: fake, target: 4 })!.run as Rec).extra).toBe('from-v3');
     expect(calls).toEqual([3]);
   });
 
-  it('段階の確かめ: 次の版の番号にならない・run や meta を壊す・例外を出す・途中の関数がない → null（読み込みは migrateFailed で読み取り専用。tests/unit/save-migrate-fail.test.ts）', () => {
+  it('TS-028-02 段階の確かめ: 次の版の番号にならない・run や meta を壊す・例外を出す・途中の関数がない → null（読み込みは migrateFailed で読み取り専用。tests/unit/save-migrate-fail.test.ts）', () => {
     const broken: Record<string, Record<number, MigrationStep>> = {
       wrongVersion: { ...STEPS, 2: (g) => ({ ...g, schema: 2 }) },
       dropsRun: { ...STEPS, 2: (g) => ({ ...g, schema: 3, run: null }) },
@@ -201,7 +201,7 @@ describe('BL-028 移行の連鎖（版ごとの関数を順に当て、各段階
     for (const [name, steps] of Object.entries(broken)) expect(migrateGame(v1(), { steps, target: 3 }), name).toBeNull();
   });
 
-  it('今の版の表（STEPS）は、版 1 から今の版まで途切れずにある', () => {
+  it('TS-028-03 今の版の表（STEPS）は、版 1 から今の版まで途切れずにある', () => {
     for (let v = 1; v < SAVE_SCHEMA_VERSION; v++) expect(typeof STEPS[v], `v${v} → v${v + 1}`).toBe('function');
   });
 });
@@ -211,7 +211,7 @@ describe('BL-028・TS-021-30 新しい版のセーブ（見本 tests/fixtures/sa
     .map((f) => ({ f, raw: read('newer', f) }))
     .filter(({ raw }) => (JSON.parse(raw) as { schema: number }).schema > SAVE_SCHEMA_VERSION);
 
-  it('今の版より新しい見本がある（版を上げたら make-save-fixtures で次の版の見本が足される）', () => {
+  it('TS-028-06 今の版より新しい見本がある（版を上げたら make-save-fixtures で次の版の見本が足される）', () => {
     expect(newer.length).toBeGreaterThan(0);
   });
 
@@ -234,7 +234,7 @@ describe('BL-028・TS-021-30 新しい版のセーブ（見本 tests/fixtures/sa
   }
 
   for (const slot of ['a', 'b'] as const)
-    it(`新しい版の見本が枠 ${slot} にある: 読み取り専用で起動し、そのセッションはどの枠にも書かない（もう一方の版 2 の見本から始める）`, () => {
+    it(`TS-028-12 新しい版の見本が枠 ${slot} にある: 読み取り専用で起動し、そのセッションはどの枠にも書かない（もう一方の版 2 の見本から始める）`, () => {
       for (const { f, raw } of newer) {
         const st = new CountingStore();
         st.map.set(SAVE_KEYS[slot], raw);
@@ -249,7 +249,7 @@ describe('BL-028・TS-021-30 新しい版のセーブ（見本 tests/fixtures/sa
       }
     });
 
-  it('新しい版の見本は、今の版から見て checksum が合わなくても newer（壊れた枠ではなく新しい版として扱い、上書きしない。M-1）', () => {
+  it('TS-028-12 新しい版の見本は、今の版から見て checksum が合わなくても newer（壊れた枠ではなく新しい版として扱い、上書きしない。M-1）', () => {
     for (const { raw } of newer) {
       const env = JSON.parse(raw) as { checksum: string; game: unknown };
       expect(env.checksum).not.toBe(checksumOf(env.game)); // game に将来の欄を足したので checksum は合わない（将来の版は計算も変えうる）

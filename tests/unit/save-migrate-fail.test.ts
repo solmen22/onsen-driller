@@ -40,12 +40,12 @@ class CountingStore implements KeyValueStore {
 }
 
 describe('BL-028 移行の失敗は読み取り専用（PR #87 のレビュー S-1）', () => {
-  it('decodeSave は migrateFailed（invalidGame ではない）', () => {
+  it('TS-028-02 decodeSave は migrateFailed（invalidGame ではない）', () => {
     expect(decodeSave(fixture('v1', 'early'))).toEqual({ ok: false, reason: 'migrateFailed' });
     expect(decodeSave(fixture('v2', 'early')).ok).toBe(true); // 今の版は移行しないので読める
   });
 
-  it('2 枠とも移行に落ちた: 読み取り専用で新しいゲーム。退避もせず、そのセッションの書き込みは 0（直したビルドで読めるように残す）', () => {
+  it('TS-028-04 2 枠とも移行に落ちた: 読み取り専用で新しいゲーム。退避もせず、そのセッションの書き込みは 0（直したビルドで読めるように残す）', () => {
     const st = new CountingStore();
     const a = fixture('v1', 'pre-prestige');
     const b = fixture('v1', 'post-prestige');
@@ -61,7 +61,7 @@ describe('BL-028 移行の失敗は読み取り専用（PR #87 のレビュー S
     expect([st.map.get(SAVE_KEYS.a), st.map.get(SAVE_KEYS.b)]).toEqual([a, b]);
   });
 
-  it('片方だけ落ちた（もう一方は今の版）: 今の版の枠から始めるが、読み取り専用（落ちた枠を次の保存で上書きしない）', () => {
+  it('TS-028-04 片方だけ落ちた（もう一方は今の版）: 今の版の枠から始めるが、読み取り専用（落ちた枠を次の保存で上書きしない）', () => {
     const st = new CountingStore();
     const old = fixture('v1', 'post-prestige');
     st.map.set(SAVE_KEYS.a, old);
@@ -73,7 +73,7 @@ describe('BL-028 移行の失敗は読み取り専用（PR #87 のレビュー S
     expect([st.sets, st.map.get(SAVE_KEYS.a)]).toEqual([0, old]);
   });
 
-  it('書き出しの文字列も migrateFailed（今のセーブを上書きしない）', () => {
+  it('TS-028-05 書き出しの文字列も migrateFailed（今のセーブを上書きしない）', () => {
     const env = JSON.parse(fixture('v1', 'early')) as { checksum: string; game: unknown };
     const str = `ODR1:${LZString.compressToEncodedURIComponent(JSON.stringify(env.game))}.${env.checksum}`;
     expect(importString(str)).toEqual({ ok: false, reason: 'migrateFailed' });

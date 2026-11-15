@@ -147,7 +147,7 @@ describe('BL-021 セーブの版 1 → 2 の移行', () => {
     }
   });
 
-  it('PR #78 のレビュー N-1: run.startDepth が周回の最深より大きいセーブは、最深に直し、補正に数える（BL-022）', () => {
+  it('TS-022-08 PR #78 のレビュー N-1: run.startDepth が周回の最深より大きいセーブは、最深に直し、補正に数える（BL-022）', () => {
     const g = toSaveGame(stateWith({ depth: 120 })) as unknown as Rec & { run: Rec };
     g.run.startDepth = 500;
     const r = decodeSave(JSON.stringify({ schema: 2, seq: 1, savedAt: 1, appVersion: APP, checksum: checksumOf(g), game: g }));
