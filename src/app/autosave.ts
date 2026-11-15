@@ -6,14 +6,16 @@
 import type { GameEvent, GameState } from '../core/index.ts';
 import type { SaveSlots, SaveStatus } from '../save/slots.ts';
 
-export type SaveReason = 'interval' | 'hidden' | 'pagehide' | 'prestige' | 'ad' | 'manual';
+export type SaveReason = 'interval' | 'hidden' | 'pagehide' | 'prestige' | 'ending' | 'ad' | 'manual';
 
 /**
- * すぐ保存する出来事（BL-021）: 転生の完了（PrestigeDone）。転生の直後にタブを閉じても、新しい周回・湯の華・チケットを失わない
- * （次の 15 秒ごとの保存を待たない）。それ以外は null
+ * すぐ保存する出来事: 転生の完了（PrestigeDone。BL-021）とエンディング（EndingReached。BL-023）。転生の直後にタブを閉じても、
+ * 新しい周回・湯の華・チケットを失わない。エンディングを見た印を失って、次の起動でもう一度出すことがない（次の 15 秒ごとの保存を待たない）。
+ * 両方なら prestige（近道で 500m 以上から始めた転生）。それ以外は null
  */
 export function saveReasonForEvents(evs: readonly GameEvent[]): SaveReason | null {
-  return evs.some((e) => e.type === 'PrestigeDone') ? 'prestige' : null;
+  if (evs.some((e) => e.type === 'PrestigeDone')) return 'prestige';
+  return evs.some((e) => e.type === 'EndingReached') ? 'ending' : null;
 }
 
 export interface AutosaveTimers {

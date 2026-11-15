@@ -85,7 +85,7 @@ export const TARGETS: readonly TargetDef[] = [
     min: 50 * MIN,
     max: 90 * MIN,
   },
-  { no: 13, label: '500m・伝説の源泉（エンディング。累計）', goal: '3〜5 時間', kind: 'pending', pending: '伝説の源泉とエンディング（S3 の BL-023）が入るまで', bot: 'standard', unit: 'ms', event: true, value: time('ending'), min: 180 * MIN, max: 300 * MIN },
+  { no: 13, label: '500m・伝説の源泉（エンディング。累計）', goal: '3〜5 時間', kind: 'pending', pending: '後半の数値（BL-034）まで。BL-023 の後は EndingReached の時刻で測る（標準ボット・シード 1 で 7:28:34。目標より遅い）', bot: 'standard', unit: 'ms', event: true, value: time('ending'), min: 180 * MIN, max: 300 * MIN },
   { no: 14, label: '空白時間（何も買えない最長。0〜10 分）', goal: '60 秒以内', kind: 'judge', bot: 'standard', unit: 'ms', value: (r) => r.buyGapMs[0], max: 60 * SEC },
   { no: 15, label: '空白時間（10〜30 分）', goal: '120 秒以内', kind: 'judge', bot: 'standard', unit: 'ms', value: (r) => r.buyGapMs[1], max: 120 * SEC },
   { no: 16, label: '空白時間（転生の推奨の後）', goal: '300 秒まで', kind: 'pending', pending: '測り方を BL-034 で決めるまで（標準ボットは推奨に届いた時点で転生するので、推奨の後の区間がない。CEO 決定 2026-10-26）' },
