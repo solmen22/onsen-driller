@@ -26,6 +26,8 @@
 //   止まる理由 'reward' を立て、結果が決まって報酬を付けた後に外す（'break' と同じ扱い: gameplay・入力・ループを止める）。
 //   Poki の「Order of events」の gameplayStop → rewardedBreak → gameplayStart の順になり、往復は 1 回（onPlaying の 'ad' は重なるだけ）。
 //   CrazyGames は要求の間はポータルの側でゲームを止めるので立てない（シートの待ちの間もゲームは動く。Q-37 (e)）
+//   開始の時間切れ（Q-35 (d)）で 'reward'・'break' を外しても、Poki の SDK への合図は SDK の呼び出しが決まるまでアダプタが保留する
+//   （platform/poki.ts。決定 0012 の D-2）。ここでは画面の側（ループ・入力・案内）だけを戻す
 // - 1 つの止まる理由の書き手は 1 か所: ライフサイクルの 'ad'・'break'・'prestige'・'reward' と、入力の 'ad' を書くのはこのファイルだけ
 import type { GameEvent } from '../core/index.ts';
 import type { LateReward, Platform, RewardPlacement, RewardResult, Target } from '../platform/types.ts';
