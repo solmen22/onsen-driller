@@ -124,9 +124,10 @@ test.describe('E2 最初の源泉', () => {
     await uiTick(page);
     await expect(tab2).not.toHaveAttribute('data-alert', 'true');
 
-    // TS-E2-06: happyTime が 2 回（最初の源泉・タヌキの初来訪）。web は記録だけ
+    // TS-E2-06: 最初の源泉とタヌキの初来訪は同じバッチで起きるので、happyTime は 1 回（バッチで 1 回まで。BL-030 の受け入れ基準 8・
+    // PR #30 のレビュー N-3。CrazyGames の SDK は続けて呼ぶと 2 回目を捨てる）。web は記録だけ
     const happy = (names: string[]): number => names.filter((n) => n === 'happyTime').length;
-    expect(happy((await g.calls()).map((c) => c.name)) - happy(callsBefore), '30m で happyTime 2 回').toBe(2);
+    expect(happy((await g.calls()).map((c) => c.name)) - happy(callsBefore), '30m で happyTime 1 回（バッチで 1 回まで）').toBe(1);
 
     // TS-E2-07: 80m で二酸化炭素泉（ポンプ Lv1）。枠は 1 つで埋まっているのでつながらない。M2 の機会はない。お客さんは変わらない
     const guests30 = [...runOf(await g.getState()).guests].sort();

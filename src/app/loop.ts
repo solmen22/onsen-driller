@@ -78,7 +78,7 @@ export function startLoop(store: GameStore, clock: Clock, opts: LoopOptions = {}
     resume() {
       if (running) return;
       running = true;
-      last = clock.monoNow(); // 止めていた間の時間は早送りしない（S3 の BL-030 で「60 秒以内は早送り」を入れる）
+      last = clock.monoNow(); // 止めていた間の時間はループでは進めない（タブの復帰の追いつきは GameStore.resume。BL-030）
       handle = raf(frame);
     },
     get running() {

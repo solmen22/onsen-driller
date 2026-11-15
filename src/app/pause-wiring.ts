@@ -18,6 +18,11 @@ export interface VisibilityWiringDeps {
   isHidden: () => boolean;
   /** 転生の確認の画面（ui/overlay/prestige-confirm.ts の onPrestigeConfirmChange・dismissPrestigeConfirm） */
   prestigeConfirm: { onChange(fn: (open: boolean) => void): () => void; dismiss(): void };
+  /**
+   * 留守の追いつき（BL-030）: 隠れた時刻を覚え、見えるようになったら、ループを動かす前に離れていた時間で resume を呼ぶ
+   * （60 秒未満はオンラインの規則、以上はオフラインの規則とおかえり。GameStore.resume）。wallNow は app の時計
+   */
+  away?: { wallNow(): number; resume(awayMs: number, fromWallMs: number): void };
 }
 
 export interface VisibilityWiring {
@@ -33,9 +38,19 @@ export function wireVisibility(d: VisibilityWiringDeps): VisibilityWiring {
   // 止める判定は ad-flow の 1 か所（hidden・ad・break・prestige）。開いている間に広告が終わってもループは動かない（PR #68 の QA の申し送り）
   const off = d.prestigeConfirm.onChange((open) => d.ads.setPrestigeConfirm(open));
   d.life.setPaused('hidden', d.isHidden());
+  let hiddenAt: number | null = d.isHidden() && d.away ? d.away.wallNow() : null;
   return {
     onVisibilityChange() {
       const hidden = d.isHidden();
+      if (d.away) {
+        // 隠れた時刻を覚える（続けて hidden が来ても最初の時刻のまま）。見えたら、ループが動き出す前に追いつく
+        if (hidden) hiddenAt ??= d.away.wallNow();
+        else if (hiddenAt !== null) {
+          const from = hiddenAt;
+          hiddenAt = null;
+          d.away.resume(d.away.wallNow() - from, from);
+        }
+      }
       d.life.setPaused('hidden', hidden);
       // 確認の画面を開いたまま隠れたら閉じる（戻ったら開き直したときの値を見せる。留守の早送りで値がずれないように。決定 0010 の 14 (b)）
       if (hidden) d.prestigeConfirm.dismiss();

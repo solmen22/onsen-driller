@@ -17,3 +17,9 @@ export function isHappyMoment(e: GameEvent, s: Readonly<GameState>): boolean {
       return false;
   }
 }
+
+/**
+ * 1 つのバッチ（1 回のステップ・アクション・留守の追いつき）で happytime を送るか（送るのは 1 回まで）。CrazyGames の SDK は続けて呼ぶと
+ * 2 回目を「happytime() call throttled」として捨てるため（BL-030・PR #30 のレビュー N-3。最初の源泉とお客さんの初来訪が同じ早送りで起きる）
+ */
+export const isHappyBatch = (evs: readonly GameEvent[], s: Readonly<GameState>): boolean => evs.some((e) => isHappyMoment(e, s));

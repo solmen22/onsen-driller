@@ -21,7 +21,7 @@ import { createAdFlow, pausesForReward, type LateKind } from './ad-flow.ts';
 import type { View } from '../view/game.ts';
 import type { DevParams } from './dev-params.ts';
 import { captureErrors, createErrorLog } from './errors.ts';
-import { isHappyMoment } from './happy-time.ts';
+import { isHappyBatch } from './happy-time.ts';
 import { setupInput } from './input.ts';
 import { createLifecycle, signalsHidden } from './lifecycle.ts';
 import { startLoop } from './loop.ts';
@@ -98,12 +98,16 @@ async function boot(): Promise<void> {
   store.setSaveStatus(saveDisplay(slots.status, slots.readOnly));
   // 設定を書く唯一の口。読み取り専用の間は書かない（Q-26 ③）
   const persistSettings = makePersistSettings(storage, settings, () => slots.readOnly);
-  // 祝いの合図（CrazyGames の happytime。最初の源泉・お客さんの初来訪・転生の完了だけ。app/happy-time.ts）
+  // 祝いの合図（CrazyGames の happytime。最初の源泉・お客さんの初来訪・転生の完了だけ。app/happy-time.ts）。
+  // 1 つのバッチ（1 回のステップ・アクション・留守の追いつき）で 1 回まで（SDK は続けて呼ぶと 2 回目を捨てる。BL-030・PR #30 のレビュー N-3）
   store.onEvents((evs) => {
-    for (const e of evs) if (isHappyMoment(e, store.state)) platform.happyTime();
+    if (isHappyBatch(evs, store.state)) platform.happyTime();
   });
   perf?.start();
   const loop = startLoop(store, clock);
+  // 留守の追いつき（BL-030）: 最後に保存した時刻からの経過で進める（60 秒以上ならオフラインの規則とおかえり）。ループの最初のフレームより前、
+  // 壁時計がストアにつながった後（startLoop）に、ストアを通して行う（初来訪の時刻・休みの正規化。PR #20 のレビューの S-2）
+  if (loaded?.state && loaded.savedAt !== null) store.resume(clock.wallNow() - loaded.savedAt, loaded.savedAt);
 
   // 入力・保存の契機は、描画の起動より前に結線する（描画のチャンクの読み込みや Phaser の起動に失敗しても、
   // 遊べて進行を保存し続ける。レビュー S-3）。hidden・pagehide では、入力（長押しの終わり）→ 保存 → ループの停止の順に動く
@@ -133,7 +137,7 @@ async function boot(): Promise<void> {
     isSuppressed: () => settings.recordingMode || slots.readOnly || params.demo,
     onStatus: (st) => store.setSaveStatus(saveDisplay(st, slots.readOnly)),
   });
-  // タブを隠したら gameplay とループを止める（保存は autosave が先に行う。戻ったときの早送りは S3 の BL-030）。
+  // タブを隠したら gameplay とループを止める（保存は autosave が先に行う。戻ったときは、離れていた時間で追いつく〔BL-030。wireVisibility の away〕）。
   // 見えるようになったら、ほかに止まる理由がなければ gameplay を再開する（CrazyGames は gameplay の合図を送らず、ループだけ止める）
   // 広告の流れ（BL-059）: 再生中（onPlaying）・ミッドゲームの機会の間はループ・入力・音・gameplay を止める。ループは理由
   // （hidden・ad・break・prestige〔転生の確認の画面。BL-021〕）から決める（広告の最中に見せても動かない。PR #16 のレビュー S-3）。要求の前に保存を 1 回試す
@@ -162,6 +166,7 @@ async function boot(): Promise<void> {
     ads,
     isHidden: () => document.hidden,
     prestigeConfirm: { onChange: onPrestigeConfirmChange, dismiss: dismissPrestigeConfirm },
+    away: { wallNow: () => clock.wallNow(), resume: (ms, from) => void store.resume(ms, from) },
   });
   document.addEventListener('visibilitychange', () => visibility.onVisibilityChange());
   // 幕間（新しい帯に入った直後の 1.5 秒。ドリルが止まる）の間は gameplay を止める（ストアの通知は 200ms ごと）

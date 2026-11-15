@@ -1,16 +1,19 @@
 // 状態の持ち主と通知（arch §7。BL-010）。
 // - UI へは 200ms（5Hz）ごと（ループが tick を呼ぶ）か dispatch の直後に通知する
 // - 描画へはイベントの列（drainView）を渡す。テスト用フックへは直近のイベント（events）を残す
+import { PARAMS } from '../content/params.ts';
 import {
   advance,
   dispatch,
   normalizeBoostClock,
+  runOffline,
   stampGuestsSeen,
   step,
   type AdvanceOptions,
   type ActionResult,
   type GameEvent,
   type GameState,
+  type OfflineResult,
 } from '../core/index.ts';
 import type { SaveStatus } from '../save/slots.ts';
 
@@ -96,6 +99,32 @@ export class GameStore {
     this.stepSerial++;
     this.notify();
     return evs;
+  }
+
+  /**
+   * 復帰（起動時の読み込みの後・タブが見えるようになったとき。BL-030）: awayMs だけ離れていた（fromWallMs はその始めの壁時計）。
+   * - 60 秒未満: オンラインと同じ規則（効率 100%・1 秒刻み）で追いつく。おかえりは出ない。null を返す
+   * - 60 秒以上: オフラインの規則で早送りし（core の runOffline）、得たコインは pendingOffline に足す（おかえり R1）。結果を返す
+   * - 負・NaN（時計が戻った）: 何もしない（null）。基準の時刻は次の保存・次の非表示で今になる
+   * 出来事は pushEvents を通す（初来訪の時刻・休みの正規化 BL-120・購読者）。初来訪の時刻は「fromWallMs＋その来訪までの留守の時間」
+   * （PR #20 のレビューの S-2・案 B。起動時に core を直接回さない）
+   */
+  resume(awayMs: number, fromWallMs: number): OfflineResult | null {
+    if (!(Number.isFinite(awayMs) && awayMs > 0)) return null;
+    if (awayMs < PARAMS.offline.awayMs) {
+      this.advance(awayMs, { stepMs: PARAMS.offline.fineStepMs });
+      return null;
+    }
+    const evs: GameEvent[] = [];
+    const res = runOffline(this.state, awayMs, evs);
+    if (Number.isFinite(fromWallMs) && fromWallMs > 0) {
+      const seen = this.state.collection.guestsSeen;
+      for (const [g, at] of Object.entries(res.guestFirstAtMs) as [keyof typeof seen, number][]) if (seen[g] === 0) seen[g] = fromWallMs + at;
+    }
+    this.pushEvents(evs);
+    this.stepSerial++;
+    this.notify();
+    return res;
   }
 
   /** 状態を差し替える（読み込み・テスト用フックの seed・setState）。描画の列は捨てる */
