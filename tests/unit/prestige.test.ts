@@ -4,12 +4,14 @@ import { describe, expect, it } from 'vitest';
 import { PARAMS } from '../../src/content/params.ts';
 import { TERRAINS } from '../../src/content/terrains.ts';
 import {
+  add,
   cloneState,
   createRun,
   depthForGain,
   dispatch,
   gainTickets,
   num,
+  NUM_MAX,
   prestigeView,
   toStr,
   yunohanaGain,
@@ -116,7 +118,8 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
         // 近道で見つけた源泉に初めて来たお客さんのチケット（今までの規則: 上限であふれた分はコイン）を出来事から足し合わせ、「ちょうど」で比べる（PR #78 のレビュー N-4）
         const guestTickets = r.events.filter((e) => e.type === 'TicketGained' && e.source === 'guestFirstVisit');
         const guestN = guestTickets.reduce((a, e) => a + (e.type === 'TicketGained' ? e.n : 0), 0);
-        const guestCoins = guestTickets.reduce((a, e) => (e.type === 'TicketGained' ? a.add(num(e.coins)) : a), num(0));
+        // 足し算は core の add（上限 1e9e15 で止まる。Decimal の .add は止まらないので、累計が上限の近くで期待が上限を超える。FC_SEED=-1242051719 の反例）
+        const guestCoins = guestTickets.reduce((a, e) => (e.type === 'TicketGained' ? add(a, num(e.coins)) : a), num(0));
         expect(r.ok).toBe(true);
         // 周回: 新しい周回（シードは擬似乱数から。地形・掘削ブーストは引き継ぐ）。木の周回の始めの効果（BL-022）は
         // 旅の支度金（コイン）・形見のツルハシ（道具）・近道の坑道（深さと途中の源泉・帯・枠・お客さん）だけを変える
@@ -124,7 +127,7 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
         const has = (id: string): boolean => before.meta.perks.includes(id as never);
         const start = has('shortcut') ? Math.floor(before.run.maxDepth * 0.25) : 0;
         // コイン: 旅の支度金なら 500。近道で見つけた源泉で初めて来たお客さんのチケットが上限であふれたら、その分（今までの規則）が足される
-        expect(s.run.coins.toString()).toBe(guestCoins.add(has('travelFunds') ? 500 : 0).toString());
+        expect(s.run.coins.toString()).toBe(add(guestCoins, has('travelFunds') ? 500 : 0).toString());
         if (start === 0) expect(guestTickets).toEqual([]);
         expect(s.run.drill).toEqual({ level: 0, tool: has('heirloomPick') ? 2 : 0 });
         expect([s.run.depth, s.run.maxDepth, s.run.startDepth]).toEqual([start, start, start]);
@@ -150,7 +153,7 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
         expect(s.meta.yunohana.spent).toEqual(before.meta.yunohana.spent);
         expect({ ...s.stats, totalCoins: null }).toEqual({ ...before.stats, totalCoins: null });
         // 上限を超えた転生のチケットをコインに替えない（Q-47 (d)）。近道で初めて来たお客さんのチケットのあふれ（今までの規則）は除く
-        expect(s.stats.totalCoins.toString()).toBe(before.stats.totalCoins.add(guestCoins).toString());
+        expect(s.stats.totalCoins.toString()).toBe(add(before.stats.totalCoins, guestCoins).toString());
         expect(s.clock).toEqual(before.clock);
         // 増えるもの
         expect(s.meta.prestiges).toBe(before.meta.prestiges + 1);
@@ -167,6 +170,27 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
       }),
       fcRuns(150),
     );
+  });
+
+  it('TS-021-16（固定の例）累計の湯の華とコインの累計が上限（1e9e15）: 近道で初めて来たお客さんのチケットがあふれてコインになっても、累計は上限で止まる（FC_SEED=-1242051719 の反例）', () => {
+    // 反例の要点だけを残す: 累計の湯の華が上限（入湯料が上限）・近道の坑道・チケット 8 枚（転生の 2 枚で 10 枚になり、初来訪の 1 枚があふれる）
+    const s = stateWith({ seed: 1 });
+    s.run.maxDepth = 150; // 近道の始めは 37m（単純温泉を見つけ、タヌキが初めて来る）
+    s.meta.yunohana = { lifetime: NUM_MAX, spent: num(60) };
+    s.meta.perks = ['sharpBlade', 'heirloomPick', 'shortcut'];
+    s.meta.tickets = 8;
+    s.stats.totalCoins = NUM_MAX;
+    const before = cloneState(s);
+    const r = dispatch(s, { type: 'prestige' });
+    expect(r.ok).toBe(true);
+    const guest = r.events.filter((e) => e.type === 'TicketGained' && e.source === 'guestFirstVisit');
+    expect(guest).toEqual([expect.objectContaining({ n: 0, overflow: 1 })]); // あふれた 1 枚がコインになる
+    const guestCoins = guest.reduce((a, e) => (e.type === 'TicketGained' ? add(a, num(e.coins)) : a), num(0));
+    expect(guestCoins.gt(0)).toBe(true);
+    // 期待は core の add（上限で止まる）で作る。Decimal の .add で作ると 2e9e15 になり、上限で止まる実際の値とずれる
+    expect(s.stats.totalCoins.toString()).toBe(add(before.stats.totalCoins, guestCoins).toString());
+    expect(s.stats.totalCoins.toString()).toBe(NUM_MAX.toString());
+    expect(s.run.coins.toString()).toBe(guestCoins.toString());
   });
 
   it('TS-021-19 解放の深さに届いていない周回では転生できず、状態は変わらない', () => {
