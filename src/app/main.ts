@@ -7,12 +7,13 @@ import type { RewardPlacement, RewardResult } from '../platform/types.ts';
 import { moveLegacySlots } from '../save/legacy.ts';
 import { SaveSlots } from '../save/slots.ts';
 import { resolveLang, setLang, type Lang } from '../i18n/index.ts';
+import { setNotation } from '../i18n/number-format.ts';
 import { App } from '../ui/App.tsx';
 import { applyLayout, layoutOf } from '../ui/layout.ts';
-import { Ctx } from '../ui/hooks/use-game.ts';
+import { Ctx, type SettingsHooks } from '../ui/hooks/use-game.ts';
 import { onModalChange } from '../ui/overlay/modal-state.ts';
 import { dismissPrestigeConfirm, onPrestigeConfirmChange } from '../ui/overlay/prestige-confirm.ts';
-import { playBreak, playHit, resumeAudio, setMuted, unlockAudio } from '../audio/sfx.ts';
+import { playBreak, playHit, resumeAudio, setMuted, setSfxEnabled, unlockAudio } from '../audio/sfx.ts';
 import { startAutosave } from './autosave.ts';
 import { subscribeSaveThenAds, wireVisibility } from './pause-wiring.ts';
 import { createAppClock } from './clock.ts';
@@ -27,7 +28,7 @@ import { createLifecycle, signalsHidden } from './lifecycle.ts';
 import { startLoop } from './loop.ts';
 import type { PerfMonitor } from './perf.ts';
 import { makePersistSettings, saveDisplay } from './save-display.ts';
-import { loadSettings } from './settings.ts';
+import { loadSettings, normalizeSettings } from './settings.ts';
 import { GameStore } from './store.ts';
 import '../styles/global.css';
 
@@ -75,6 +76,9 @@ async function boot(): Promise<void> {
   // 設定（別のキー。壊れていたら初期値）と言語（設定 → platform.locale → navigator.language → 英語。arch §13）
   const settings = loadSettings(storage);
   setLang(resolveLang(settings.lang, platform.locale())); // 判定は resolveLang の 1 か所（PR #11 のレビュー S-1）
+  // 設定を当てる（数値の表記・効果音。動きを減らすは描画の起動で読む。T5 の BL-045）
+  setNotation(settings.notation);
+  setSfxEnabled(settings.sfx);
   setMuted(platform.isMuted());
   platform.onMutedChange(setMuted);
 
@@ -171,12 +175,33 @@ async function boot(): Promise<void> {
     settings.lang = l;
     persistSettings();
   };
+  // T5 の設定の口（BL-045）: 変えたら当てて、保存の唯一の口（persistSettings。読み取り専用の間は書かない）を通す
+  const settingsHooks: SettingsHooks = {
+    get: () => ({ ...settings }),
+    set: (patch) => {
+      Object.assign(settings, normalizeSettings({ ...settings, ...patch }));
+      setNotation(settings.notation);
+      setSfxEnabled(settings.sfx);
+      persistSettings();
+    },
+  };
   // ご褒美の口（R1 のチケット・R2 のチケット）と動画の要求（requestReward。'rewarded' のときだけ rewards.grantAd を呼ぶ。BL-059）。
   // 壁時計は store.wallTime()（startLoop がつないだ app の時計）
   const requestReward = (p: RewardPlacement): Promise<RewardResult> => ads.requestReward(p);
   const onLateReward = (cb: (p: RewardPlacement, kind: LateKind) => void): (() => void) => ads.onLateReward(cb); // 遅れた報酬（Q-45）の知らせ
   const onAdPlaying = (cb: (playing: boolean) => void): (() => void) => ads.onAdPlaying(cb); // 待ちの案内を消す（決定 0010 の 7）
-  const ctx = { store, platform, version: APP_VERSION, onLangChange, rewards, requestReward, onLateReward, onAdPlaying };
+  const ctx = {
+    store,
+    platform,
+    version: APP_VERSION,
+    onLangChange,
+    rewards,
+    requestReward,
+    onLateReward,
+    onAdPlaying,
+    settings: settingsHooks,
+    errors: () => errorLog.list(),
+  };
   render(
     h(Ctx.Provider, { value: ctx }, h(App, {})),
     uiRoot,
@@ -188,7 +213,8 @@ async function boot(): Promise<void> {
   let view: View | null = null;
   try {
     const { createView } = await import('../view/game.ts');
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // 動きを減らす（設定。auto は OS の prefers-reduced-motion）。描画の起動で 1 回だけ読む（T5 で変えたら次の起動から）
+    const reduceMotion = settings.reduceMotion === 'on' || (settings.reduceMotion === 'auto' && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     view = await createView(stage, {
       state: () => store.state,
       drain: () => store.drainView(),

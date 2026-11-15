@@ -814,3 +814,28 @@ body {
   background: #7fd3e6;
   box-shadow: 0 0 0 2px var(--ink);
 }
+
+/* T5「≡」（BL-045）: 準備中の行・クレジットの一覧・エラー情報の文字の欄 */
+.row.menu-soon .row-cost {
+  color: var(--muted);
+}
+
+.credits-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.errors-text {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: 4px;
+  padding: 6px;
+  resize: vertical;
+}

@@ -5,6 +5,7 @@ import type { GameState } from '../../core/index.ts';
 import type { LateKind } from '../../app/ad-flow.ts';
 import type { GameStore } from '../../app/store.ts';
 import type { Lang } from '../../i18n/index.ts';
+import type { Settings } from '../../app/settings.ts';
 import type { Platform, RewardPlacement, RewardResult } from '../../platform/types.ts';
 
 /** ご褒美の core の口（app/rewards.ts の createRewardHooks が core のアクションにつなぐ。ない間はチケットで使うボタンを押せない） */
@@ -18,6 +19,13 @@ export interface RewardHooks {
    * 呼ぶのは requestReward が 'rewarded' を返したときだけ（BL-059）
    */
   grantAd(p: RewardPlacement): void;
+}
+
+/** 設定の口（T5。BL-045）。app が持つ設定を読み、変えたら当てて保存する（読み取り専用の間は保存しない） */
+export interface SettingsHooks {
+  get(): Readonly<Settings>;
+  /** 変える（app が当てる: 効果音・数値の表記。動きを減らすは次の起動から）。言語は onLangChange を使う */
+  set(patch: Partial<Settings>): void;
 }
 
 export interface UiContext {
@@ -44,6 +52,10 @@ export interface UiContext {
    * シート・おかえりの待ちの案内（「広告を読み込んでいます…」）を、広告が始まったら消すのに使う（決定 0010 の 7）
    */
   onAdPlaying?: (cb: (playing: boolean) => void) => () => void;
+  /** 設定の口（T5）。ない間は T5 がメモリだけの設定で動く（テスト） */
+  settings?: SettingsHooks;
+  /** 直近のエラー（app/errors.ts。T5 の「エラー情報をコピー」） */
+  errors?: () => readonly string[];
 }
 
 export const Ctx = createContext<UiContext | null>(null);

@@ -1,6 +1,6 @@
 // UI（Preact・DOM。arch §15・gdd §11-1）: HUD の帯・キャンバスの下端のボタン（BL-042）、タブと一覧（BL-043）
 // - 縦・横の配置は styles/global.css（#app の data-layout。判定は ui/layout.ts の layoutOf）
-// - タブは 5 つ（tab-1〜tab-5。クリックか 1〜5 キー）。中身があるのは T1・T2・T3（BL-044）・T4（BL-045）で、T5 は「準備中」（panel-placeholder。Q-09）
+// - タブは 5 つ（tab-1〜tab-5。クリックか 1〜5 キー）。中身があるのは T1・T2・T3（BL-044）・T4・T5（BL-045）
 // - 湯宿の「！」（BL-044。Q-38 (b)）: SpringFound のたびに（T2 を開いていないとき）立て、T2 を開いたら消す。保存しない（メモリだけ）
 // - 改良の「！」（BL-044 の T3。CEO 2026-10-18）: 新しい改良が解放されたとき（T3 を開いていないとき）に立て、T3 を開いたら消す。T2 と同じく保存しない。
 //   core にイベントがないので（core は変えない。TS-044-18）、解放済みの改良の集合（upgradeViews）が前の通知より増えたことで決める。
@@ -12,7 +12,7 @@
 // - ご褒美のシート（R2: ブーストのボタン、R3: 鉱脈のチップ）とトースト（BL-046）。モーダル・シートの表示中は 1〜5・Shift を使わない
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { offlineClaimView, prestigeView, upgradeViews, type Qty } from '../core/index.ts';
-import { getLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
+import { getLang, resolveLang, setLang, t, type Lang, type TextKey } from '../i18n/index.ts';
 import { formatNum } from './format.ts';
 import { useGame, useUi } from './hooks/use-game.ts';
 import { Hud } from './hud/Hud.tsx';
@@ -24,6 +24,7 @@ import { Toasts } from './overlay/Toasts.tsx';
 import { WelcomeModal, type WelcomeChoice } from './overlay/WelcomeModal.tsx';
 import { DigPanel } from './panels/DigPanel.tsx';
 import { InnPanel } from './panels/InnPanel.tsx';
+import { MenuPanel } from './panels/MenuPanel.tsx';
 import { PrestigePanel } from './panels/PrestigePanel.tsx';
 import { UpgradesPanel } from './panels/UpgradesPanel.tsx';
 
@@ -41,29 +42,6 @@ export const TABS: readonly { no: TabNo; key: TextKey; icon: string }[] = [
 /** 購入の一覧があるタブ（購入数の切り替えを出す。T3 には出さない。Q-38 (e)） */
 const BUY_TABS: readonly TabNo[] = [1, 2];
 
-/** 中身のないタブ（T5）の仮の表示（Q-09）。言語の切り替えと版を残す（設定の本体は BL-045 の T5） */
-function Placeholder({ tab, lang, onLang }: { tab: TabNo; lang: Lang; onLang: (l: Lang) => void }) {
-  const { platform, version } = useUi();
-  return (
-    <div class="list">
-      <p class="note placeholder" data-testid="panel-placeholder">
-        {t(TABS[tab - 1]?.key ?? 'tab.menu')}: {t('panel.soon')}
-      </p>
-      {tab === 5 && (
-        <>
-          <button class="row" type="button" data-testid="lang-toggle" onClick={() => onLang(lang === 'ja' ? 'en' : 'ja')}>
-            <span class="row-name">{t('menu.lang')}</span>
-            <span class="row-cost">{t(lang === 'ja' ? 'ui.langName.ja' : 'ui.langName.en')}</span>
-          </button>
-          <p class="note">
-            {t('menu.version')}: {version} · {t('menu.target')}: {platform.target}
-          </p>
-        </>
-      )}
-    </div>
-  );
-}
-
 /** 購入数の切り替えボタン（×1 → ×10 → 最大 → ×1。data-qty に今の値） */
 function QtyToggle({ qty, onNext }: { qty: Qty; onNext: () => void }) {
   return (
@@ -75,7 +53,7 @@ function QtyToggle({ qty, onNext }: { qty: Qty; onNext: () => void }) {
 }
 
 export function App() {
-  const { onLangChange, rewards, store } = useUi();
+  const { onLangChange, rewards, store, settings, platform } = useUi();
   const [tab, setTabState] = useState<TabNo>(1);
   const [innAlert, setInnAlert] = useState(false);
   const [upgradeAlert, setUpgradeAlert] = useState(false);
@@ -115,6 +93,16 @@ export function App() {
     setLangState(l);
     onLangChange?.(l);
   };
+  // 端末の言語に合わせる（設定は auto。判定は resolveLang の 1 か所）
+  const onLangAuto = (): void => {
+    settings?.set({ lang: 'auto' });
+    const l = resolveLang('auto', platform.locale());
+    setLang(l);
+    setLangState(l);
+    setRev((x) => x + 1);
+  };
+  // 設定を変えたら全体を描き直す（数値の表記は HUD・一覧の数に効く）
+  const [, setRev] = useState(0);
 
   // キー操作（1〜5 でタブ、Shift で購入数）。Space・矢印は app/input.ts
   useEffect(() => {
@@ -200,7 +188,7 @@ export function App() {
           ) : tab === 4 ? (
             <PrestigePanel lang={lang} />
           ) : (
-            <Placeholder tab={tab} lang={lang} onLang={onLang} />
+            <MenuPanel lang={lang} onLang={onLang} onLangAuto={onLangAuto} onChanged={() => setRev((x) => x + 1)} />
           )}
         </div>
       </section>

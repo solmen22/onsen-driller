@@ -113,12 +113,12 @@ describe('掘削ブースト（S1 は押せない。TS-042-13）', () => {
 });
 
 describe('設定ボタン', () => {
-  it('押すと T5（≡）に切り替わる（S1 は準備中）', () => {
+  it('押すと T5（≡）に切り替わる（BL-045 で中身が入った）', () => {
     m = mount();
     m.click('btn-settings');
     expect(m.get('tab-5').getAttribute('aria-selected')).toBe('true');
     expect(m.get('tab-1').getAttribute('aria-selected')).toBe('false');
-    expect(m.q('panel-placeholder')).not.toBeNull();
+    expect(m.q('panel-menu')).not.toBeNull();
   });
 });
 

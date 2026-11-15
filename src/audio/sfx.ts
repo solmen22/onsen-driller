@@ -85,8 +85,16 @@ export function resumeAudio(): void {
   }
 }
 
-/** 鳴らせるか（読み込み済み・消音でない・AudioContext が running） */
-const audible = (): boolean => !muted && context()?.state === 'running';
+/** 効果音の設定（T5。BL-045）。消音（ポータル・広告）とは別に持つ */
+let sfxOn = true;
+
+/** 鳴らせるか（読み込み済み・消音でない・効果音の設定がオン・AudioContext が running） */
+const audible = (): boolean => !muted && sfxOn && context()?.state === 'running';
+
+/** 効果音の設定（オン・オフ）。起動時と T5 の切り替えで main.ts が呼ぶ */
+export const setSfxEnabled = (on: boolean): void => {
+  sfxOn = on;
+};
 
 export const setMuted = (m: boolean): void => {
   muted = m;
