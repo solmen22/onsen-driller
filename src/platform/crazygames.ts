@@ -225,6 +225,7 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
     }
     muted = !!s.game.settings?.muteAudio;
     s.game.addSettingsChangeListener?.((st) => {
+      if (sdk !== s) return; // init の途中の例外で SDK を外した後は受けない（BL-116）
       muted = !!st.muteAudio;
       mutedL.emit(muted);
     });
@@ -262,6 +263,15 @@ export function createCrazyGamesPlatform(opts: CrazyGamesOptions): Platform {
       log.push('init');
       try {
         await initSdk();
+      } catch {
+        // initSdk の中の同期の処理（environment・settings・addSettingsChangeListener・hasAdblock.bind など）や getSdk・init の
+        // 同期の例外でも、init は resolve する（Platform.init の約束: 失敗・時間切れでも resolve。0 クリックでゲーム画面〔#1〕）。
+        // SDK を外し、保存先は localStorage（web と同じ動作）にする（BL-116。PR #30 のレビュー S-2）
+        log.push('initFailed', 'exception');
+        sdk = null;
+        storage = local;
+        legacy = undefined;
+        muted = false;
       } finally {
         initDone = true; // 以後の loading の合図はその場で送る（SDK が使えなければ記録だけ）
         early.length = 0; // SDK が使えなかった起動では送らない（web と同じ）
