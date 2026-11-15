@@ -221,9 +221,12 @@ describe('地層の見た目（帯ごとの 4 種の変化形・飾り・鉱石�
   it('鉱石 12 種に色、きらめきと源泉の気配の絵がある。次の源泉は未発見のいちばん浅いもの', () => {
     expect(Object.keys(ORE_TINT).sort()).toEqual([...ORE_IDS].sort());
     expect(frames.has('ore-gem') && frames.has('spring-hint')).toBe(true);
-    expect(nextSpringHint(() => false)).toEqual({ id: 'simple', depth: 30 });
-    expect(nextSpringHint((id) => id === 'simple')).toEqual({ id: 'co2', depth: 80 });
-    expect(nextSpringHint(() => true)).toBeNull();
+    expect(nextSpringHint('mountain', () => false)).toEqual({ id: 'simple', depth: 30 });
+    expect(nextSpringHint('mountain', (id) => id === 'simple')).toEqual({ id: 'co2', depth: 80 });
+    expect(nextSpringHint('mountain', () => true)).toBeNull();
+    // 気配の深さは今の地形のもの（BL-024）: 海辺の塩化物泉は 105m、火山のふもとの含鉄泉は 280m
+    expect(nextSpringHint('seaside', (id) => id === 'simple' || id === 'co2')).toEqual({ id: 'salt', depth: 105 });
+    expect(nextSpringHint('volcano', (id) => id !== 'iron')).toEqual({ id: 'iron', depth: 280 });
     for (let t = 0; t < 5000; t += 37) {
       const a = glintAlpha(t, 3);
       expect(a).toBeGreaterThanOrEqual(0.55 - 1e-9);

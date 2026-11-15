@@ -3,6 +3,12 @@
 // プロジェクト（package.json のスクリプトで選ぶ）
 //   chromium       … PR ごと（`npm run test:e2e`。prod-builds と一緒）。デスクトップ 1280×720 で E1・E5・E9 の本筋と共通の検査、チケット別の e2e（BL-097）。
 //                    `@nightly` の印のテスト（優先度 中・低、画面サイズの繰り返しなど）は除く。10 分以内が目安（TS-073-07）
+//   webkit-layout  … PR ごと（`npm run test:e2e` に含む）。レイアウトの spec（LAYOUT_SPECS: 案内・HUD・レイアウト・T3・キャンバスの配置を測るもの）
+//                    だけを WebKit（Desktop Safari・1280×720）で流す。`@nightly` の印は chromium と同じく除く。決定 0011 追記 Q-52 (a):
+//                    Chromium だけの詰め方（text-spacing-trim）で 375×667 の崩れが PR で隠れ、nightly で初めて赤になった（10/19〜）ため。
+//                    毎晩の webkit は全件を流すので、test:e2e:nightly・test:e2e:full には入れない（同じテストを 2 回流さない）。
+//                    「レイアウトの spec」はこの一覧 1 か所で決める。配置を測る spec を足したら LAYOUT_SPECS にも足す（test:checks が今の 5 つが入っていて、
+//                    一覧のファイルが実在することを検査する。QA 判定書 2026-11-15 §5-2 の 1）
 //   webkit・firefox・mobile-safari・mobile-chrome
 //                  … 毎晩（週 2 回。`npm run test:e2e:nightly`。BL-084 の nightly.yml）。`@nightly` を含む全件
 //   chromium-full  … リリース前の e2e-full（`npm run test:e2e:full` は chromium-full と毎晩の 4 つと prod-builds）。全件
@@ -16,6 +22,10 @@
 // サーバー: e2e/support/serve.mjs が既存の e2e のビルドを `vite preview` で配信する（ビルドはしない）。
 //   ローカルは先に `npm run build:e2e`。CI は verify ジョブの dist/ を e2e ジョブが受け取る。
 //   ポートは 4174（4173 は preview:web・preview:lan の iPhone 確認で使うので避ける）。PW_PORT で変えられる。
+//   手元で複数の worktree の E2E を同時に流すときは、3 つのポート（PW_PORT・PW_PROD_PORT・PW_CG_PORT）を担当ごとに分ける
+//   （PM 4174/4175/4176〔既定〕・TL-A 4274〜・TL-B 4374〜・DevOps 4474〜・TE 4574〜。下 2 桁は 74/75/76 で同じ。
+//   例: PW_PORT=4474 PW_PROD_PORT=4475 PW_CG_PORT=4476 npm run test:e2e）。同じポートだと、後から起動した側が
+//   「already used」で止まるか、PW_REUSE=1 のときは他の worktree のビルドを相手にテストしてしまう。CI は既定のまま
 //   本番のビルドは e2e/support/serve-prod.mjs が 4175（PW_PROD_PORT）の /html/123/<target>/ で配信する（ビルドはしない。先に `npm run build:all`）。
 //   ビルドが無くてもサーバーは起動し、prod-builds のテストだけが理由つきで失敗する。
 //   e2e-crazygames のビルドは同じ serve.mjs を PW_MODE=e2e-crazygames で 4176（PW_CG_PORT）に立てる（BL-072）。
@@ -36,6 +46,19 @@ const POC_TOOLS = ['**/perf.spec.ts', '**/screens.spec.ts', '**/sdk-live.spec.ts
 /** 本番のビルドの起動（prod-builds だけで動かす。e2e のビルドの baseURL では動かない） */
 const PROD_SPECS = ['**/bl007-prod-builds.spec.ts'];
 const IGNORE = [...POC_TOOLS, ...PROD_SPECS];
+/**
+ * レイアウトの spec（PR でも webkit-layout で流す。決定 0011 追記 Q-52 (a)）。テスト設計者の Q-52 の案 1 の 4 つ（BL-136 の最初の案内・
+ * BL-126 の btn-boost の幅・BL-042 のレイアウトと HUD・BL-044 の T3 の配置）と、QA 判定書 2026-11-15 §5-2 の 1 の BL-035（キャンバスが
+ * ステージを満たす・大きさの変更に追従する）。BL-035 はファイルごと入れる（入力・WebGL の喪失の 2 件も WebKit で流れる。毎晩の webkit と同じ）。
+ * 幅は 320・360・375・390・402・414・568・800・1280 などを含む（bl136 の 8 つの画面と bl035・bl042・bl044）
+ */
+const LAYOUT_SPECS = [
+  '**/bl136-first-hint.spec.ts',
+  '**/bl126-boost-hud.spec.ts',
+  '**/bl042-layout.spec.ts',
+  '**/bl044-t3-upgrades.spec.ts',
+  '**/bl035-phaser.spec.ts',
+];
 /** 毎晩だけ動かすテストの印 */
 const NIGHTLY_TAG = /@nightly/;
 
@@ -46,6 +69,7 @@ const chromium = { ...devices['Desktop Chrome'], ...desktop, channel: CHANNEL };
 const projects: Project[] = [
   { name: 'chromium', testIgnore: IGNORE, grepInvert: NIGHTLY_TAG, use: chromium },
   { name: 'chromium-full', testIgnore: IGNORE, use: chromium },
+  { name: 'webkit-layout', testMatch: LAYOUT_SPECS, grepInvert: NIGHTLY_TAG, use: { ...devices['Desktop Safari'], ...desktop } },
   { name: 'webkit', testIgnore: IGNORE, use: { ...devices['Desktop Safari'], ...desktop } },
   { name: 'firefox', testIgnore: IGNORE, use: { ...devices['Desktop Firefox'], ...desktop } },
   { name: 'mobile-safari', testIgnore: IGNORE, use: { ...devices['iPhone 15'], locale: 'en-US' } },

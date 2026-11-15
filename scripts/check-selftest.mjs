@@ -794,7 +794,7 @@ describe('ci.yml', () => {
       /run: npm run check:assets$/m,
       /run: npm run check:text$/m,
       /run: node scripts\/check-e2e-dist\.mjs$/m,
-      /run: npx playwright install --with-deps chromium$/m,
+      /run: npx playwright install --with-deps chromium webkit$/m,
       /run: npm run test:e2e$/m,
     ].map((re) => {
       const i = v.search(re);
@@ -868,10 +868,18 @@ describe('ci.yml', () => {
   test('A3: Playwright のブラウザは actions/cache で package-lock.json をキーにキャッシュし、その後に install --with-deps する', () => {
     const ss = steps(job('verify'));
     const cache = ss.findIndex((s) => /uses: actions\/cache@\S+/.test(s));
-    const install = ss.findIndex((s) => /^ +run: npx playwright install --with-deps chromium$/m.test(s));
+    const install = ss.findIndex((s) => /^ +run: npx playwright install --with-deps chromium webkit$/m.test(s));
     assert.ok(cache >= 0 && install > cache, 'キャッシュの step が Playwright の導入の前にない');
     assert.match(ss[cache], /^ {10}path: ~\/\.cache\/ms-playwright$/m);
-    assert.match(ss[cache], /^ {10}key: playwright-\$\{\{ runner\.os \}\}-\$\{\{ hashFiles\('package-lock\.json'\) \}\}$/m);
+    // キーは OS・OS の版（WebKit は Ubuntu の版ごとに別のビルドで、置き場所は同じ。Ubuntu 26 への移行）・入れるブラウザ・lockfile
+    assert.match(ss[cache], /^ {10}key: playwright-\$\{\{ runner\.os \}\}-\$\{\{ steps\.os\.outputs\.id \}\}-chromium-webkit-\$\{\{ hashFiles\('package-lock\.json'\) \}\}$/m);
+    const os = ss.findIndex((s) => /^ {8}id: os$/m.test(s));
+    assert.ok(os >= 0 && os < cache, 'OS の版を出す step（id: os）がキャッシュの step より前にない');
+    assert.match(ss[os], /^ {8}run: echo "id=\$\(\. \/etc\/os-release && echo "\$ID\$VERSION_ID"\)" >> "\$GITHUB_OUTPUT"$/m, 'OS の版を /etc/os-release の ID と VERSION_ID から出さない');
+    // キーのブラウザと install のブラウザが同じ（片方だけ増やすと、前のキーのキャッシュに無いブラウザを毎回取りに行くか、合わないものを戻す）
+    const keyBrowsers = /^ {10}key: playwright-.*\}\}-([a-z-]+)-\$\{\{ hashFiles/m.exec(ss[cache])?.[1].split('-') ?? [];
+    const installBrowsers = /^ +run: npx playwright install --with-deps (.+)$/m.exec(ss[install])?.[1].split(' ') ?? [];
+    assert.deepEqual(installBrowsers, keyBrowsers, 'キャッシュのキーのブラウザと install のブラウザが違う');
     assert.equal((ci.match(/uses: actions\/cache@/g) ?? []).length, 1, 'キャッシュは Playwright の 1 つだけ');
   });
 
@@ -879,7 +887,7 @@ describe('ci.yml', () => {
     assert.doesNotMatch(ci, /pnpm/);
     assert.match(ci, /cache: npm/);
     const v = job('verify');
-    assert.match(v, /run: npx playwright install --with-deps chromium/);
+    assert.match(v, /run: npx playwright install --with-deps chromium webkit$/m);
     assert.match(v, /PW_CHANNEL: chromium/);
   });
 
@@ -916,7 +924,7 @@ describe('ci.yml', () => {
     const order = [
       at(/^ +run: npm run build:e2e$/m, 'build:e2e'),
       at(/^ +run: node scripts\/check-e2e-dist\.mjs$/m, 'check-e2e-dist.mjs'),
-      at(/^ +run: npx playwright install --with-deps chromium$/m, 'Playwright の導入'),
+      at(/^ +run: npx playwright install --with-deps chromium webkit$/m, 'Playwright の導入'),
       at(/^ +run: npm run test:e2e$/m, 'npm run test:e2e（1 行だけの run）'),
     ];
     for (let i = 1; i < order.length; i++) assert.ok(order[i - 1] < order[i], `verify の E2E の step の順番が違う（${i} 番目）`);
@@ -1136,8 +1144,30 @@ describe('preview.yml（ラベルのプレビュー。verify という名前の�
 
 // ---- PR ごとの E2E の中身（BL-098。PR #28 のレビュー N-3） ----
 describe('package.json の test:e2e（テストを 1 件も流さずに緑にならない）', () => {
-  test('test:e2e は playwright test --project=chromium --project=prod-builds（変えるときはこの検査も明示的に直す）', () => {
-    assert.equal(pkg.scripts['test:e2e'], 'playwright test --project=chromium --project=prod-builds');
+  test('test:e2e は playwright test --project=chromium --project=webkit-layout --project=prod-builds（変えるときはこの検査も明示的に直す）', () => {
+    assert.equal(pkg.scripts['test:e2e'], 'playwright test --project=chromium --project=webkit-layout --project=prod-builds');
+  });
+
+  // 決定 0011 追記 Q-52 (a): レイアウトの spec は PR でも WebKit で流す（Chromium だけの詰め方で崩れが隠れない）
+  test('Q-52 (a): webkit-layout はレイアウトの 5 つの spec（QA 判定書 2026-11-15 §5-2 の 1 の bl136・bl042・bl035 を含む）を Desktop Safari で流し、@nightly だけを除く。毎晩・full には入れない', () => {
+    const pw = readFileSync(join(root, 'playwright.config.ts'), 'utf8');
+    const code = pw.split('\n').filter((l) => !/^\s*(?:\/\/|\/\*\*|\*)/.test(l)).join('\n');
+    const layout = /^const LAYOUT_SPECS = \[([^\]]*)\];$/m.exec(code)?.[1];
+    assert.ok(layout, 'playwright.config.ts に LAYOUT_SPECS がない');
+    const specs = [...layout.matchAll(/'\*\*\/([\w.-]+\.spec\.ts)'/g)].map((m) => m[1]);
+    for (const f of ['bl136-first-hint.spec.ts', 'bl126-boost-hud.spec.ts', 'bl042-layout.spec.ts', 'bl044-t3-upgrades.spec.ts', 'bl035-phaser.spec.ts'])
+      assert.ok(specs.includes(f), `LAYOUT_SPECS に ${f} がない（PR の WebKit から外れる）`);
+    // 無い名前は 0 件で黙って通るので、名前を変えたら LAYOUT_SPECS も直す
+    for (const f of specs) assert.ok(existsSync(join(root, 'e2e', f)), `LAYOUT_SPECS の e2e/${f} がない`);
+    const proj = code.split('\n').filter((l) => /name: 'webkit-layout'/.test(l));
+    assert.equal(proj.length, 1, 'webkit-layout の project が 1 つでない');
+    assert.match(
+      proj[0],
+      /^ {2}\{ name: 'webkit-layout', testMatch: LAYOUT_SPECS, grepInvert: NIGHTLY_TAG, use: \{ \.\.\.devices\['Desktop Safari'\], \.\.\.desktop \} \},$/,
+      'webkit-layout の形が違う（testMatch: LAYOUT_SPECS・grepInvert: NIGHTLY_TAG・Desktop Safari の 1280×720）',
+    );
+    for (const k of ['test:e2e:nightly', 'test:e2e:full'])
+      assert.doesNotMatch(pkg.scripts[k], /webkit-layout/, `${k} に webkit-layout がある（毎晩の webkit と同じテストを 2 回流す）`);
   });
 
   test('E2E のスクリプト（test:e2e・test:e2e:nightly・test:e2e:full）に、流さずに終える・一部だけ流すオプションがない', () => {

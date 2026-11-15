@@ -93,8 +93,10 @@ describe('TS-015-01 源泉の定義（gdd §5-4 の表）と内容定義の検�
   });
 
   it('springAtDepth（表示用）は源泉の深さちょうどだけ。500m は伝説の源泉（BL-023）なので今は null', () => {
-    expect(SPRINGS.map((sp) => springAtDepth(sp.depth))).toEqual(SPRING_IDS);
-    for (const d of [0, 29, 31, 79, 81, 149, 151, 249, 251, 399, 401, 500]) expect(springAtDepth(d)).toBeNull();
+    expect(SPRINGS.map((sp) => springAtDepth('mountain', sp.depth))).toEqual(SPRING_IDS);
+    for (const d of [0, 29, 31, 79, 81, 149, 151, 249, 251, 399, 401, 500]) expect(springAtDepth('mountain', d)).toBeNull();
+    // 地形の深さで引く（BL-024）: 火山のふもとの硫黄泉は 175m、含鉄泉は 280m。山あいの 250m・400m には何もない
+    expect([springAtDepth('volcano', 175), springAtDepth('volcano', 280), springAtDepth('volcano', 250), springAtDepth('volcano', 400)]).toEqual(['sulfur', 'iron', null, null]);
   });
 });
 
