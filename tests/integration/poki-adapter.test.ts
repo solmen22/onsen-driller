@@ -278,7 +278,7 @@ describe('Q-45: 開始の時間切れの後に遅れて始まり、最後まで�
     }
   });
 
-  it('アダプタ → 広告の流れ → ライフサイクル: 時間切れの failed の後に遅れて見終えたら報酬が 1 回。止めたものは戻り、SDK への合図は stop → rewardedBreak → start と、遅れた再生の間の 1 往復', async () => {
+  it('アダプタ → 広告の流れ → ライフサイクル: 時間切れの failed の後に遅れて見終えたら報酬が 1 回。止めたものは戻り、SDK への合図は stop → rewardedBreak → （決まるまで何も出さない）→ start の 1 往復（決定 0012 の D-2）', async () => {
     const sdk = pokiMock();
     const p = createPokiPlatform({ getSdk: () => sdk });
     await p.init();
@@ -307,14 +307,15 @@ describe('Q-45: 開始の時間切れの後に遅れて始まり、最後まで�
     await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
     expect(r.value()).toBe('failed');
     expect(grants).toEqual([]);
-    expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']);
-    expect([st.loop, st.input]).toEqual([true, false]);
+    expect(sdk.log, 'rewardedBreak が決まるまで gameplayStart を出さない').toEqual(['gameplayStop', 'rewardedBreak']);
+    expect([st.loop, st.input], '画面の側は 30 秒で戻る（Q-35 (d)）').toEqual([true, false]);
     sdk.start();
     expect([st.loop, st.input]).toEqual([false, true]);
+    expect(sdk.log, '遅れた開始で合図は増えない').toEqual(['gameplayStop', 'rewardedBreak']);
     sdk.finish();
     await flush();
     expect(grants).toEqual(['R2']);
-    expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart', 'gameplayStop', 'gameplayStart']);
+    expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']);
     expect([st.loop, st.input]).toEqual([true, false]);
   });
 });
@@ -348,7 +349,7 @@ async function wired(setup: (sdk: PokiMock) => void = () => {}) {
     pauseForReward: pausesForReward(p.target),
   });
   sdk.log.length = 0;
-  return { sdk, p, flow, st };
+  return { sdk, p, flow, st, life };
 }
 
 describe('広告の間の音（BL-060 の受け入れ基準 2026-10-26 追加。Poki の要件「広告の間は音を止める」）', () => {
@@ -459,11 +460,12 @@ describe('PR #84 のレビュー N-1: SDK を呼ばずに返るときは、gamep
       const { sdk, flow } = await wired((s) => (s.manual = true));
       void flow.requestReward('R2');
       await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
-      expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']);
+      expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak']); // SDK が決まるまで gameplayStart は出さない（D-2）
       await expect(flow.requestReward('R2')).resolves.toBe('failed');
-      expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']); // 往復なし
+      expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak']); // 往復なし
       sdk.finish(); // SDK が終えた（広告なし）
       await flush();
+      expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']);
       const next = flow.requestReward('R2');
       await flush();
       sdk.start();
@@ -473,5 +475,108 @@ describe('PR #84 のレビュー N-1: SDK を呼ばずに返るときは、gamep
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('決定 0012 の D-2（PR #84 のレビュー N-2 の案 A）: SDK の広告の呼び出しが決まるまで、SDK に gameplay の合図を出さない', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('リワード: 開始が来ないまま 30 秒 → 画面の側は戻るが、SDK には合図を出さない。遅れた開始でも増えない。決まったら gameplayStart が 1 回', async () => {
+    for (const rewarded of [true, false]) {
+      const { sdk, flow, st } = await wired((s) => (s.manual = true));
+      sdk.rewarded = rewarded;
+      const r = track(flow.requestReward('R2'));
+      await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+      expect(r.value(), String(rewarded)).toBe('failed');
+      expect([st.loop, st.input], '画面の側は 30 秒で戻る（Q-35 (d)）').toEqual([true, false]);
+      expect(sdk.log, String(rewarded)).toEqual(['gameplayStop', 'rewardedBreak']);
+      await vi.advanceTimersByTimeAsync(60_000);
+      sdk.start();
+      expect([st.muted, st.loop, st.input], '遅れた開始では止める（音・入力・ループ）').toEqual([true, false, true]);
+      expect(sdk.log, '遅れた開始で gameplayStop を出さない').toEqual(['gameplayStop', 'rewardedBreak']);
+      sdk.finish();
+      await flush();
+      expect(sdk.log, String(rewarded)).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']);
+      expect(st.grants, 'Q-45 の遅れた報酬は変えない').toEqual(rewarded ? ['R2'] : []);
+      expect([st.muted, st.loop, st.input]).toEqual([false, true, false]);
+    }
+  });
+
+  it('リワード: 開始が来ないまま SDK が false・reject で決まった（動画なし）: その時点で gameplayStart が 1 回', async () => {
+    for (const reject of [false, true]) {
+      const { sdk, flow } = await wired((s) => (s.manual = true));
+      sdk.rewarded = false;
+      void flow.requestReward('R1');
+      await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+      expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak']);
+      sdk.finish(reject);
+      await flush();
+      expect(sdk.log, `reject=${reject}`).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']);
+    }
+  });
+
+  it('ミッドゲーム（M1・M2）も同じ: 30 秒で機会は終わりループは戻るが、commercialBreak が決まるまで合図を出さない', async () => {
+    for (const placement of ['M1', 'M2'] as const) {
+      const { sdk, flow, st } = await wired((s) => (s.manual = true));
+      flow.onEvents([{ type: 'BreakOpportunity', placement, band: 3 }]);
+      await flush();
+      expect(sdk.log, placement).toEqual(['gameplayStop', 'commercialBreak']);
+      await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+      expect(flow.breaking, placement).toBe(false);
+      expect([st.loop, st.input], placement).toEqual([true, false]);
+      expect(sdk.log, placement).toEqual(['gameplayStop', 'commercialBreak']);
+      sdk.start();
+      expect(st.muted, placement).toBe(true);
+      expect(sdk.log, placement).toEqual(['gameplayStop', 'commercialBreak']);
+      sdk.finish();
+      await flush();
+      expect(sdk.log, placement).toEqual(['gameplayStop', 'commercialBreak', 'gameplayStart']);
+      expect([st.muted, st.loop, st.input], placement).toEqual([false, true, false]);
+    }
+  });
+
+  it('再生の時間切れ（AD_END_TIMEOUT_MS）の後も、SDK が決まるまで gameplayStart を出さない（画面の側は戻る）', async () => {
+    const { sdk, flow, st } = await wired((s) => (s.manual = true));
+    void flow.requestReward('R2');
+    await flush();
+    sdk.start();
+    await vi.advanceTimersByTimeAsync(AD_END_TIMEOUT_MS);
+    expect([st.muted, st.loop, st.input]).toEqual([false, true, false]);
+    expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak']);
+    sdk.finish();
+    await flush();
+    expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']);
+  });
+
+  it('決まるまでの間のタブの切り替えも SDK に出さない。決まった時点で隠れていれば出さず、見えたら gameplayStart が 1 回', async () => {
+    const { sdk, flow, life } = await wired((s) => (s.manual = true));
+    void flow.requestReward('R2');
+    await vi.advanceTimersByTimeAsync(AD_START_TIMEOUT_MS);
+    life.setPaused('hidden', true);
+    life.setPaused('hidden', false);
+    life.setPaused('hidden', true);
+    expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak']);
+    sdk.finish();
+    await flush();
+    expect(sdk.log, '隠れている間は出さない').toEqual(['gameplayStop', 'rewardedBreak']);
+    life.setPaused('hidden', false);
+    expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']);
+  });
+
+  it('ふつうの経路は変わらない: stop → rewardedBreak → start の 1 往復。calls() の記録も SDK に送った合図と同じ', async () => {
+    const { sdk, flow, st, p } = await wired((s) => (s.manual = true));
+    const r = flow.requestReward('R3');
+    await flush();
+    sdk.start();
+    sdk.finish();
+    await expect(r).resolves.toBe('rewarded');
+    expect(sdk.log).toEqual(['gameplayStop', 'rewardedBreak', 'gameplayStart']);
+    expect(st.grants).toEqual(['R3']);
+    expect(p.calls().map((c) => c.name).filter((n) => n.startsWith('gameplay')), '最初の入力の start の後').toEqual(['gameplayStart', 'gameplayStop', 'gameplayStart']);
   });
 });

@@ -54,11 +54,29 @@ export function createPokiPlatform(opts: PokiOptions): Platform {
    */
   let busy = false;
   const storage = localStore();
+  /**
+   * SDK に送る gameplay の合図（決定 0012 の D-2。PR #84 のレビュー N-2 の案 A）。ライフサイクルが望む状態（want）を覚え、
+   * **SDK の広告の呼び出しが決まるまで（busy の間）は送らない**。Poki の要件「広告の間に SDK の合図を出さない」
+   * （https://developers.poki.com/guide/requirements-quality）と、例の `.then` の中で gameplayStart の形に合わせる。
+   * 開始の時間切れ（Q-35 (d)）で画面の側（ループ・入力・案内）が戻っても、SDK には決まるまで gameplayStart を送らず、
+   * 遅れて始まった再生の gameplayStop も送らない。決まった時点で want が送った状態と違えば 1 回だけ送る（往復は 1 回）
+   */
+  let want = false;
   const gate = gameplayGate(
     log,
     () => sdk?.gameplayStart(),
     () => sdk?.gameplayStop(),
   );
+  const sendGameplay = (): void => {
+    if (busy) return;
+    if (want) gate.start();
+    else gate.stop();
+  };
+  /** SDK の広告の呼び出しが決まった（busy を外し、保留していた合図を送る） */
+  const release = (): void => {
+    busy = false;
+    sendGameplay();
+  };
 
   /**
    * 広告を 1 回流す（BL-060。CrazyGames の request と同じ形。Q-35 (d)・Q-45）。結果はちょうど 1 回返し、onPlaying は true の後に必ず false。
@@ -111,17 +129,19 @@ export function createPokiPlatform(opts: PokiOptions): Platform {
       try {
         pr = call(onStart);
       } catch {
-        busy = false;
+        release();
         end('failed');
         return;
       }
+      // 決まったら、先に保留していた合図を送ってから結果を返す（ふつうの経路では want は stop のままなので何も送らず、
+      // ad-flow が報酬を付けた後に gameplayStart。開始の時間切れの後なら、ここで gameplayStart が 1 回）
       pr.then(
         (v) => {
-          busy = false;
+          release();
           end(!rewarded || v === true ? 'rewarded' : 'failed');
         },
         () => {
-          busy = false;
+          release();
           end('failed');
         },
       );
@@ -148,8 +168,14 @@ export function createPokiPlatform(opts: PokiOptions): Platform {
         /* 無視 */
       }
     },
-    gameplayStart: gate.start,
-    gameplayStop: gate.stop,
+    gameplayStart: () => {
+      want = true;
+      sendGameplay();
+    },
+    gameplayStop: () => {
+      want = false;
+      sendGameplay();
+    },
     happyTime: () => log.push('happyTime'),
     ads: {
       rewardedAvailable: () => sdk !== null,
