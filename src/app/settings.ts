@@ -66,3 +66,8 @@ export function saveSettings(storage: KeyValueStore, s: Settings): boolean {
     return false;
   }
 }
+
+/** 動きを減らすか（設定 auto は OS の prefers-reduced-motion。BL-037） */
+export function resolveReduceMotion(setting: Settings['reduceMotion'], osPrefersReduced: boolean): boolean {
+  return setting === 'on' || (setting === 'auto' && osPrefersReduced);
+}

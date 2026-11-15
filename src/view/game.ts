@@ -1,7 +1,7 @@
 // Phaser.Game を 1 つ作る（arch §14。BL-035）。Phaser の入力・音は使わない（入力は DOM、音は ZzFX）
 import Phaser from 'phaser';
 import { watchParentSize } from './parent-size.ts';
-import { MineScene, type ViewBridge } from './scenes/mine-scene.ts';
+import { MineScene, type EffectStats, type ViewBridge } from './scenes/mine-scene.ts';
 
 export interface RenderStats {
   /** 表示の倍率（整数。zoomFor） */
@@ -14,6 +14,8 @@ export interface RenderStats {
   popups: number;
   /** DOM のレイアウト（app の #app の data-layout） */
   layout: 'landscape' | 'portrait';
+  /** 演出の量（動きを減らす・画質の倍率・破片の上限・揺れとフラッシュの回数。BL-037） */
+  effects: EffectStats;
 }
 
 export interface View {

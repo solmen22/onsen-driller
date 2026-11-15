@@ -18,6 +18,8 @@ import { interpolateDepth, layerRects, projectRect, TILE, tileGridSize, undergro
 import { mergeBreaks, POPUP_MAX, POPUP_TTL_MS, PopupQueue, popupText, type BreakPop } from '../popups.ts';
 import { decoAt, glintAlpha, nextSpringHint, ORE_TINT, SPRING_BUBBLE_ROWS, tileFrame, tileVariant } from '../strata-look.ts';
 import { TilePool, type CellLook } from '../tile-pool.ts';
+import { breakShards, EFFECTS, effectBudget, hitShards, scaled, shardsMax, type EffectBudget } from '../effects.ts';
+import { QualityGovernor, type QualitySetting } from '../quality.ts';
 import { applyToolTexture, toolSwings } from '../tools.ts';
 
 const T = TILE;
@@ -38,13 +40,31 @@ export interface ViewBridge {
   onInputRendered(now: number): void;
   hasPendingInput(): boolean;
   stressParticles: number;
+  /** 動きを減らす（設定と OS の prefers-reduced-motion から main.ts が決める。BL-037） */
   reduceMotion: boolean;
+  /** 画質の設定（auto は quality.ts の自動調整。BL-037。省略は auto） */
+  quality?: QualitySetting;
   onContext(ev: 'lost' | 'restored'): void;
   /** DOM のレイアウト（renderStats 用） */
   layout?(): string | undefined;
 }
 
 type Img = Phaser.GameObjects.Image;
+
+/** 演出の量の記録（テスト用フックの renderStats().effects。BL-037） */
+export interface EffectStats {
+  reduceMotion: boolean;
+  /** パーティクルの数に掛けている倍率（動きを減らす ×0.5 と画質の倍率の積） */
+  scale: number;
+  /** 画質の自動調整の倍率（1・0.5・0.25） */
+  qualityScale: number;
+  /** 破片の同時の上限（200 × scale） */
+  shardsMax: number;
+  /** 生きている破片の数 */
+  shards: number;
+  shakes: number;
+  flashes: number;
+}
 
 export class MineScene extends Phaser.Scene {
   private readonly bridge: ViewBridge;
@@ -68,6 +88,12 @@ export class MineScene extends Phaser.Scene {
   private popTweens: (Phaser.Tweens.Tween | null)[] = [];
   private card!: Phaser.GameObjects.Text;
   private cardUntil = 0;
+  /** 画質の自動調整と演出の量（BL-037） */
+  private quality!: QualityGovernor;
+  private budget: EffectBudget = effectBudget(false, 1);
+  /** 揺れ・フラッシュを出した回数（テスト用フックの renderStats） */
+  private shakes = 0;
+  private flashes = 0;
   private sky!: Phaser.GameObjects.Rectangle;
   private ground!: Phaser.GameObjects.Rectangle;
   private zoom = 3;
@@ -156,9 +182,11 @@ export class MineScene extends Phaser.Scene {
       angle: { min: 200, max: 340 },
       gravityY: 320,
       emitting: false,
-      maxAliveParticles: 150,
+      maxAliveParticles: EFFECTS.shardsMax,
     });
     this.chips.setDepth(7);
+    this.quality = new QualityGovernor(this.bridge.quality ?? 'auto');
+    this.applyBudget();
     // 数字のポップ（20 個まで。PopupQueue の枠の番号と同じ添字のテキストを使う）
     for (let i = 0; i < POPUP_MAX; i++) {
       const tx = this.add.text(0, 0, '', POP_STYLE).setOrigin(0.5).setDepth(9).setVisible(false);
@@ -238,7 +266,8 @@ export class MineScene extends Phaser.Scene {
     this.ground.setSize(viewW + T * 4, 3);
   }
 
-  override update(time: number, _delta: number): void {
+  override update(time: number, delta: number): void {
+    if (this.quality.push(delta)) this.applyBudget();
     const s = this.bridge.state();
     const depth = s.run.depth;
     const seed = s.run.seed;
@@ -306,7 +335,11 @@ export class MineScene extends Phaser.Scene {
       } else if (e.type === 'BlockBroken') {
         breaks.push({ depth: e.depth, coins: e.coins, ore: e.ore, count: 1 });
       } else if (e.type === 'SpringFound') {
-        this.steam.explode(12, 36, -20);
+        this.steam.explode(scaled(12, this.budget.scale), 36, -20);
+        if (this.budget.flash) {
+          ug.flash(EFFECTS.flashMs, 255, 240, 200);
+          this.flashes++;
+        }
       } else if (e.type === 'ToolEvolved') {
         applyToolTexture(this.tool, e.tool);
       } else if (e.type === 'StratumEntered') {
@@ -316,7 +349,12 @@ export class MineScene extends Phaser.Scene {
     }
     if (breaks.length > 0) {
       this.pop(breaks, time);
-      if (!this.bridge.reduceMotion) ug.shake(60, 0.004);
+      // 破片（1 フレームの上限つき）と揺れ（0.5 秒以内。カメラだけを揺らし、操作は止めない）
+      this.chips.explode(breakShards(breaks.length, this.budget.scale), 0, toolY + 1);
+      if (this.budget.shake) {
+        ug.shake(EFFECTS.shakeMs, EFFECTS.shakeIntensity);
+        this.shakes++;
+      }
     }
     for (const i of this.popQueue.expire(time)) this.pops[i]?.setVisible(false);
     if (this.card.visible) {
@@ -335,7 +373,7 @@ export class MineScene extends Phaser.Scene {
 
   private hit(y: number, band: number, n: number, tool: number): void {
     this.chips.setParticleTint(CHIP_TINT[band] ?? 0xffffff);
-    this.chips.explode(Math.min(3 + n * 2, 12), 0, y + 1);
+    this.chips.explode(hitShards(n, this.budget.scale), 0, y + 1);
     this.swing?.stop();
     // スコップ・ツルハシ・やぐらは振り下ろす。ドリルは縦に震わせる
     const swings = toolSwings(tool);
@@ -369,6 +407,12 @@ export class MineScene extends Phaser.Scene {
     }
   }
 
+  /** 動きを減らす・画質の倍率から演出の量を決め直し、破片の同時の上限に当てる */
+  private applyBudget(): void {
+    this.budget = effectBudget(this.bridge.reduceMotion, this.quality.scale);
+    this.chips.maxAliveParticles = shardsMax(this.budget.scale);
+  }
+
   aliveParticles(): number {
     return (
       this.chips.getAliveParticleCount() +
@@ -379,8 +423,22 @@ export class MineScene extends Phaser.Scene {
   }
 
   /** テスト用フックの renderStats() の描画の部分 */
-  renderStats(): { zoom: number; tileSprites: number; particles: number; popups: number } {
-    return { zoom: this.zoom, tileSprites: this.tiles.size, particles: this.aliveParticles(), popups: this.popQueue.active };
+  renderStats(): { zoom: number; tileSprites: number; particles: number; popups: number; effects: EffectStats } {
+    return {
+      zoom: this.zoom,
+      tileSprites: this.tiles.size,
+      particles: this.aliveParticles(),
+      popups: this.popQueue.active,
+      effects: {
+        reduceMotion: this.bridge.reduceMotion,
+        scale: this.budget.scale,
+        qualityScale: this.quality.scale,
+        shardsMax: this.chips.maxAliveParticles,
+        shards: this.chips.getAliveParticleCount(),
+        shakes: this.shakes,
+        flashes: this.flashes,
+      },
+    };
   }
 
   /** 道具のスプライトの画面上の矩形（ビューポートの CSS ピクセル）。道具が地表より上なら地上のカメラで測る */
