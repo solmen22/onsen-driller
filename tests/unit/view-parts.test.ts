@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import atlas from '../../src/generated/atlas.json';
 import { ORE_IDS } from '../../src/content/ores.ts';
 import { STRATA } from '../../src/content/strata.ts';
+import { TERRAIN_IDS } from '../../src/content/terrains.ts';
 import { TOOLS } from '../../src/content/tools.ts';
 import { CrackTracker, crackFrame, crackStage } from '../../src/view/cracks.ts';
 import { tileGridSize } from '../../src/view/layout.ts';
@@ -194,6 +195,11 @@ describe('TS-036-07 toolTexture と ToolEvolved', () => {
 describe('地層の見た目（帯ごとの 4 種の変化形・飾り・鉱石の色・源泉の気配。PoC-5 の CEO レビュー）', () => {
   it('6 帯 × 4 種のタイルがすべてアトラスにあり、変化形はマスごとに決まって 4 種とも出る', () => {
     for (let b = 0; b < STRATA.length; b++) for (let v = 0; v < 4; v++) expect(frames.has(tileFrame(b, v)), tileFrame(b, v)).toBe(true);
+    // BL-061: 地形 3 種の色替え（山あいは今の名前のまま）
+    for (const t of TERRAIN_IDS)
+      for (let b = 0; b < STRATA.length; b++) for (let v = 0; v < 4; v++) expect(frames.has(tileFrame(b, v, t)), tileFrame(b, v, t)).toBe(true);
+    expect(tileFrame(1, 2, 'mountain')).toBe(tileFrame(1, 2));
+    expect(tileFrame(1, 2, 'volcano')).toBe('tile-volcano-clay-2');
     const seen = new Set<number>();
     for (let r = 0; r < 50; r++) for (let c = -6; c <= 6; c++) seen.add(tileVariant(123, r, c));
     expect([...seen].sort()).toEqual([0, 1, 2, 3]);
