@@ -1501,6 +1501,23 @@ describe('nightly-gate.mjs（公開中は毎日・非公開の間は月・木。
       { name: 'e2e-nightly', conclusion: 'success', steps: [skippedStep(E2E), FULL] },
     ],
     otherJob: [{ name: 'e2e', conclusion: 'success', steps: [E2E] }],
+    // D-3: E2E の step まで走って赤／E2E の前の step で赤（E2E は skip）／cancelled／赤を引き継いだ gate だけの回（e2e-nightly は skip）
+    red: [
+      { name: 'gate', conclusion: 'success', steps: [] },
+      { name: 'e2e-nightly', conclusion: 'failure', steps: [{ ...E2E, conclusion: 'failure' }, skippedStep(FULL)] },
+    ],
+    redBeforeE2E: [
+      { name: 'gate', conclusion: 'success', steps: [] },
+      { name: 'e2e-nightly', conclusion: 'failure', steps: [{ name: 'install', conclusion: 'failure' }, skippedStep(E2E), skippedStep(FULL)] },
+    ],
+    cancelled: [
+      { name: 'gate', conclusion: 'success', steps: [] },
+      { name: 'e2e-nightly', conclusion: 'cancelled', steps: [{ ...E2E, conclusion: 'cancelled' }, skippedStep(FULL)] },
+    ],
+    inherited: [
+      { name: 'gate', conclusion: 'failure', steps: [] },
+      { name: 'e2e-nightly', conclusion: 'skipped', steps: [] },
+    ],
   };
 
   test('decide: 手動実行は常に流す。月・木以外の回は公開のときだけ。前回の成功と同じ SHA なら流さない', () => {
@@ -1549,7 +1566,7 @@ describe('nightly-gate.mjs（公開中は毎日・非公開の間は月・木。
         // 本物の API と同じく status・head_sha で絞り、per_page・page で切る（新しい順は渡した runs の順）。
         // ignoreFilter のときは絞り込みを無視して全件を返す（API が絞り込みを無視しても取り違えないかを見る。BL-142）
         const q = url.searchParams;
-        const list = ignoreFilter ? runs : runs.filter((r) => (!q.get('head_sha') || r.head_sha === q.get('head_sha')) && (q.get('status') !== 'success' || r.conclusion === 'success'));
+        const list = ignoreFilter ? runs : runs.filter((r) => (!q.get('head_sha') || r.head_sha === q.get('head_sha')) && (!q.get('status') || r.conclusion === q.get('status')));
         const per = Number(q.get('per_page') ?? 30);
         const page = Number(q.get('page') ?? 1);
         return send(200, { total_count: list.length, workflow_runs: list.slice((page - 1) * per, page * per) });
@@ -1577,8 +1594,11 @@ describe('nightly-gate.mjs（公開中は毎日・非公開の間は月・木。
         },
       });
       const lines = readFileSync(out, 'utf8').trim().split('\n');
-      assert.equal(lines.length, 1, `GITHUB_OUTPUT の行が 1 つでない: ${lines.join(' / ')}`);
-      return { run: lines[0], log: r.stdout, requests };
+      assert.equal(lines.length, 2, `GITHUB_OUTPUT の行が 2 つ（run・inherit_red）でない: ${lines.join(' / ')}`);
+      assert.match(lines[1], /^inherit_red=(?:true|false)$/, `GITHUB_OUTPUT の 2 行目: ${lines[1]}`);
+      // 赤を引き継ぐのは流さない回だけ
+      if (lines[1] === 'inherit_red=true') assert.equal(lines[0], 'run=false', '赤を引き継いだのに流す');
+      return { run: lines[0], inherit: lines[1], log: r.stdout, requests, summary: readFileSync(join(dir, 'summary'), 'utf8') };
     } finally {
       server.close();
     }
@@ -1685,6 +1705,81 @@ describe('nightly-gate.mjs（公開中は毎日・非公開の間は月・木。
     const r2 = await runGate({ schedule: '17 18 * * *', repo: { private: true }, runs: [run(1, OLD)], jobs: { 1: JOBS.green } });
     assert.equal(r2.run, 'run=true', r2.log);
     assert.match(r2.log, /::warning::知らない cron/);
+  });
+
+  // ---- 決定 0012 追記 D-3（QA 判定書 2026-11-15 §4-2 の条件 1〜6）: 非公開の間は、同じ SHA の赤 1 回で省き、その回を赤にする ----
+  test('D-3 decide: 非公開（分からないときも）で成功がなければ赤を調べ、同じ SHA の赤なら流さずに引き継ぐ。公開・手動は調べずに流す', () => {
+    const d = (p) => gate.decide({ event: 'schedule', schedule: TW, isPrivate: true, headSha: H, lastGreen: null, ...p });
+    assert.equal(d({}).needLastRed, true, '非公開で成功がないのに赤を調べない');
+    assert.equal(d({ isPrivate: null }).needLastRed, true, '可視性が分からないときに非公開として扱わない（条件 1）');
+    const inh = d({ lastRed: { sha: H, runId: 7 } });
+    assert.deepEqual([inh.run, inh.inheritRed?.runId], [false, 7], '非公開・同じ SHA の赤で省いて引き継がない');
+    assert.equal(d({ lastRed: null }).run, true, '赤が見つからない（読めない）のに流さない');
+    assert.equal(d({ lastRed: { sha: OLD, runId: 7 } }).run, true, '別の SHA の赤で省いた');
+    assert.equal(d({ lastRed: { sha: H, runId: 7 } , lastGreen: { sha: H, runId: 8 } }).inheritRed, null, '同じ SHA の成功があるのに赤を引き継いだ');
+    const pub = d({ isPrivate: false, lastRed: { sha: H, runId: 7 } });
+    assert.deepEqual([pub.run, pub.needLastRed, pub.inheritRed], [true, false, null], '公開中に赤で省いた（公開は赤でも毎日流す）');
+    const man = d({ event: 'workflow_dispatch', lastGreen: undefined, lastRed: { sha: H, runId: 7 } });
+    assert.deepEqual([man.run, man.needLastRed, man.inheritRed], [true, false, null], '手動実行で赤を調べた・省いた（条件 4）');
+    assert.equal(d({ schedule: OD }).needLastRed, false, '非公開の月・木以外で赤を調べた（流さないので要らない）');
+  });
+
+  test('D-3 isRedE2E: e2e-nightly が failure で、E2E か e2e-full の step が failure の回だけを赤に数える（E2E の前の赤・cancelled・gate だけ・引き継いだ回は数えない）', () => {
+    assert.equal(gate.isRedE2E(JOBS.red), true);
+    assert.equal(gate.isRedE2E(JOBS.redBeforeE2E), false, 'E2E の前の step で落ちた回（E2E は skip）を赤に数えた');
+    assert.equal(gate.isRedE2E(JOBS.cancelled), false, 'cancelled の回を赤に数えた（条件 2）');
+    assert.equal(gate.isRedE2E(JOBS.gateOnly), false, 'gate だけの回を赤に数えた');
+    assert.equal(gate.isRedE2E(JOBS.inherited), false, '赤を引き継いだ回（E2E を流していない）を赤に数えた');
+    assert.equal(gate.isRedE2E(JOBS.green), false, '緑の回を赤に数えた');
+    assert.equal(gate.isRedE2E([{ name: 'e2e', conclusion: 'failure', steps: [{ ...E2E, conclusion: 'failure' }] }]), false, 'e2e-nightly 以外のジョブを数えた');
+  });
+
+  test('D-3 偽の API: 非公開・月・木・同じ SHA の赤 → 流さず赤を引き継ぐ（::error:: と要約に run id）。status=failure で SHA を絞って読む', async () => {
+    const r = await runGate({ repo: { private: true }, runs: [run(4, H, 'failure')], jobs: { 4: JOBS.red } });
+    assert.deepEqual([r.run, r.inherit], ['run=false', 'inherit_red=true'], r.log);
+    assert.match(r.log, /::error::.*run 4/, '引き継いだことを ::error:: で出さない');
+    assert.match(r.summary, /引き継いだ赤: run 4/, '要約に引き継いだ赤の run id がない（条件 3）');
+    const reds = r.requests.filter((q) => q.path.endsWith('/runs') && /[?&]status=failure(&|$)/.test(q.query));
+    assert.ok(reds.length > 0, '赤の run を status=failure で読んでいない');
+    for (const q of reds) assert.match(q.query, new RegExp(`[?&]head_sha=${H}(&|$)`), `赤の run の一覧を SHA で絞っていない: ${q.query}`);
+    // 可視性が分からないときも非公開として扱う（条件 1）
+    const r2 = await runGate({ fail: ['repo'], runs: [run(4, H, 'failure')], jobs: { 4: JOBS.red } });
+    assert.deepEqual([r2.run, r2.inherit], ['run=false', 'inherit_red=true'], r2.log);
+    // 引き継いだ回が積み上がっても（gate だけの failure）、その前の本当の赤を見つけて引き継ぎ続ける
+    const inherited = Array.from({ length: 120 }, (_, i) => run(500 - i, H, 'failure'));
+    const r3 = await runGate({ repo: { private: true }, runs: [...inherited, run(4, H, 'failure')], jobs: { 4: JOBS.red, ...Object.fromEntries(inherited.map((x) => [x.id, JOBS.inherited])) } });
+    assert.deepEqual([r3.run, r3.inherit], ['run=false', 'inherit_red=true'], r3.log);
+  });
+
+  test('D-3 偽の API: 公開 → 同じ SHA の赤でも流す（赤の一覧を読まない）。cancelled だけ・E2E の前の赤・引き継いだ回だけ・別の SHA の赤 → 流す。手動 → 流す', async () => {
+    const pub = await runGate({ repo: { private: false }, runs: [run(4, H, 'failure')], jobs: { 4: JOBS.red } });
+    assert.deepEqual([pub.run, pub.inherit], ['run=true', 'inherit_red=false'], pub.log);
+    assert.ok(!pub.requests.some((q) => /[?&]status=failure(&|$)/.test(q.query)), '公開中に赤の run を読んだ');
+    for (const [name, runs, jobs] of [
+      ['cancelled だけ', [run(4, H, 'cancelled')], { 4: JOBS.cancelled }],
+      ['E2E の前の step の赤', [run(4, H, 'failure')], { 4: JOBS.redBeforeE2E }],
+      ['引き継いだ回だけ', [run(4, H, 'failure')], { 4: JOBS.inherited }],
+      ['別の SHA の赤', [run(4, OLD, 'failure')], { 4: JOBS.red }],
+      ['赤がない', [], {}],
+    ]) {
+      const r = await runGate({ repo: { private: true }, runs, jobs });
+      assert.deepEqual([r.run, r.inherit], ['run=true', 'inherit_red=false'], `${name}: ${r.log}`);
+    }
+    // 赤の一覧が読めない → 流す（証拠を欠かない側）
+    const failRuns = await runGate({ repo: { private: true }, fail: ['jobs'], runs: [run(4, H, 'failure')], jobs: { 4: JOBS.red } });
+    assert.deepEqual([failRuns.run, failRuns.inherit], ['run=true', 'inherit_red=false'], failRuns.log);
+    const man = await runGate({ event: 'workflow_dispatch', repo: { private: true }, runs: [run(4, H, 'failure')], jobs: { 4: JOBS.red } });
+    assert.deepEqual([man.run, man.inherit], ['run=true', 'inherit_red=false'], man.log);
+  });
+
+  test('D-3 nightly.yml: 赤を引き継いだ回は gate の次の step で失敗する（省いた回の結論が success にならない）。その step はトークンを持たない', () => {
+    const ss = stepsOf(jobOf(nightly, 'gate'));
+    const at = ss.findIndex((x) => /^ {8}id: gate$/m.test(x));
+    const st = ss[at + 1] ?? '';
+    assert.match(st, /^ {8}if: steps\.gate\.outputs\.inherit_red == 'true'$/m, 'gate の次の step が inherit_red の条件で動かない');
+    assert.match(codeOf(st), /^ {10}exit 1$/m, '赤を引き継いだ回の step が失敗しない（省いた回が緑に見える）');
+    assert.doesNotMatch(codeOf(st), /github\.token|GITHUB_TOKEN|GH_TOKEN|secrets|continue-on-error/, '引き継ぎの step にトークン・continue-on-error がある');
+    assert.doesNotMatch(codeOf(jobOf(nightly, 'gate')), /continue-on-error/, 'gate に continue-on-error がある');
   });
 
   test('nightly.yml の gate: 権限は contents: read と actions: read だけ。トークンは gate の step 1 つだけ。npm・setup-node を使わない', () => {

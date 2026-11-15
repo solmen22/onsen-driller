@@ -35,8 +35,10 @@
 #     - 月・木以外の回は、リポジトリが公開のときだけ流す。可視性はその回に API で読む（読めなければ非公開として扱う）。
 #     - 前回に成功した nightly（E2E まで success の回）の SHA と main の先頭が同じなら流さない（同じ SHA を何度も流さない）。
 #       gate だけで終えた回・赤の回は「前回」に数えない。読めないときは流す。
+#     - 非公開の間（可視性が分からないときも）は、成功がなくても同じ SHA で E2E が赤だった回があれば流さず、この回を赤にする
+#       （決定 0012 追記 D-3。gate の次の step が失敗する。省いた回を緑に見せない）。公開中は赤でも毎日流す。
 #     - 手動実行（workflow_dispatch）は常に流す。
-#   - e2e-nightly は gate の run が true のときだけ動く（false の回は skip。run は success のまま 1 分足らずで終わる）。
+#   - e2e-nightly は gate の run が true のときだけ動く（false の回は skip。run は success〔赤を引き継いだ回だけ failure〕のまま 1 分足らずで終わる）。
 #   - gate だけがトークン（github.token。actions: read）を持つ。npm ci もテストのコードも動かさない（スクリプトは node: の組み込みだけ）。
 #     e2e-nightly はワークフロー直下の contents: read だけで、トークンを参照しない（PR #9 のレビュー S-3。test:checks が検査する）。
 #   結果は CEO がセッションの開始時に gh run list で見る（runbook §7-1）。
@@ -88,6 +90,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT_SCHEDULE: ${{ github.event.schedule }}
           EVENT_PRIVATE: ${{ github.event.repository.private }}
+      # 決定 0012 追記 D-3（QA 判定書 2026-11-15 §4-2 の条件 3）: 非公開の間に同じ SHA の赤を引き継いで E2E を省いた回は、run を赤にする
+      # （gate だけの success だと、赤の SHA が緑に見える）。理由と引き継いだ赤の run id は gate の step の要約にある。トークンは渡さない
+      - name: 同じ SHA の赤を引き継いだ回を赤にする（非公開の間だけ。省いた回を緑に見せない）
+        if: steps.gate.outputs.inherit_red == 'true'
+        run: |
+          echo "::error::E2E は流していない。同じ SHA の前の赤を引き継いだ（理由と run id は gate の要約）。直したら main に push するか、手動実行で流す"
+          exit 1
 
   e2e-nightly:
     needs: gate
