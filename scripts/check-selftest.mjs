@@ -1149,13 +1149,13 @@ describe('package.json の test:e2e（テストを 1 件も流さずに緑にな
   });
 
   // 決定 0011 追記 Q-52 (a): レイアウトの spec は PR でも WebKit で流す（Chromium だけの詰め方で崩れが隠れない）
-  test('Q-52 (a): webkit-layout はレイアウトの 5 つの spec（QA 判定書 2026-11-15 §5-2 の 1 の bl136・bl042・bl035 を含む）を Desktop Safari で流し、@nightly だけを除く。毎晩・full には入れない', () => {
+  test('Q-52 (a): webkit-layout はレイアウトの 6 つの spec（QA 判定書 2026-11-15 §5-2 の 1 の bl136・bl042・bl035、BL-103 その 2 の bl103-screen-tour を含む）を Desktop Safari で流し、@nightly だけを除く。毎晩・full には入れない', () => {
     const pw = readFileSync(join(root, 'playwright.config.ts'), 'utf8');
     const code = pw.split('\n').filter((l) => !/^\s*(?:\/\/|\/\*\*|\*)/.test(l)).join('\n');
     const layout = /^const LAYOUT_SPECS = \[([^\]]*)\];$/m.exec(code)?.[1];
     assert.ok(layout, 'playwright.config.ts に LAYOUT_SPECS がない');
     const specs = [...layout.matchAll(/'\*\*\/([\w.-]+\.spec\.ts)'/g)].map((m) => m[1]);
-    for (const f of ['bl136-first-hint.spec.ts', 'bl126-boost-hud.spec.ts', 'bl042-layout.spec.ts', 'bl044-t3-upgrades.spec.ts', 'bl035-phaser.spec.ts'])
+    for (const f of ['bl136-first-hint.spec.ts', 'bl126-boost-hud.spec.ts', 'bl042-layout.spec.ts', 'bl044-t3-upgrades.spec.ts', 'bl035-phaser.spec.ts', 'bl103-screen-tour.spec.ts'])
       assert.ok(specs.includes(f), `LAYOUT_SPECS に ${f} がない（PR の WebKit から外れる）`);
     // 無い名前は 0 件で黙って通るので、名前を変えたら LAYOUT_SPECS も直す
     for (const f of specs) assert.ok(existsSync(join(root, 'e2e', f)), `LAYOUT_SPECS の e2e/${f} がない`);

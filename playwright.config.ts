@@ -50,7 +50,8 @@ const IGNORE = [...POC_TOOLS, ...PROD_SPECS];
  * レイアウトの spec（PR でも webkit-layout で流す。決定 0011 追記 Q-52 (a)）。テスト設計者の Q-52 の案 1 の 4 つ（BL-136 の最初の案内・
  * BL-126 の btn-boost の幅・BL-042 のレイアウトと HUD・BL-044 の T3 の配置）と、QA 判定書 2026-11-15 §5-2 の 1 の BL-035（キャンバスが
  * ステージを満たす・大きさの変更に追従する）。BL-035 はファイルごと入れる（入力・WebGL の喪失の 2 件も WebKit で流れる。毎晩の webkit と同じ）。
- * 幅は 320・360・375・390・402・414・568・800・1280 などを含む（bl136 の 8 つの画面と bl035・bl042・bl044）
+ * 幅は 320・360・375・390・402・414・568・800・1280 などを含む（bl136 の 8 つの画面と bl035・bl042・bl044）。
+ * BL-103 その 2 の T2 の画面の巡回（TS-044-16 の T2・TS-042-15・TS-043-17。800×450・390×844）も配置を測るので入れる
  */
 const LAYOUT_SPECS = [
   '**/bl136-first-hint.spec.ts',
@@ -58,6 +59,7 @@ const LAYOUT_SPECS = [
   '**/bl042-layout.spec.ts',
   '**/bl044-t3-upgrades.spec.ts',
   '**/bl035-phaser.spec.ts',
+  '**/bl103-screen-tour.spec.ts',
 ];
 /** 毎晩だけ動かすテストの印 */
 const NIGHTLY_TAG = /@nightly/;
