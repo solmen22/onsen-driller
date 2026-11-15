@@ -11,6 +11,7 @@
 |---|---|---|---|---|---|---|---|---|---|
 | アトラス（下の行の絵をまとめたもの） | `atlas.png` | コードで描画 | `scripts/build-art.mjs` が `assets-src/sprites/` の画素配列から生成 | 自作（本プロダクトの権利） | — | AI エージェント（Claude）が画素配列を記述 | 2026-09-28 | —（画像生成 AI は不使用） | なし |
 | 地層タイル tile-topsoil・clay・sandstone・tuff・granite・basalt の -0〜-3（6 帯 × 4 種、16×16） | `atlas.png` | コードで描画 | 帯 1〜4 は `assets-src/sprites/tiles.ts` の手で打った画素配列、帯 5・6 と変化形（ずらし・反転・粒）は `assets-src/sprites/strata.ts` が決まった擬似乱数で生成 | 自作 | 帯 1〜4 の元の絵から変化形を作った | 同上 | 2026-09-28 | — | なし |
+| 地形の色替えの地層タイル tile-volcano-*・tile-seaside-*（火山のふもと・海辺。各 6 帯 × 4 種、16×16） | `atlas.png` | コードで描画 | `scripts/build-art.mjs` が上の地層タイルの色を `assets-src/terrains.ts` の差し替え（同じパレットの中の名前 → 名前）で置き換えて生成 | 自作 | 山あいの地層タイルの色だけを替えた（形は同じ） | 同上 | 2026-11-15 | — | なし |
 | tool-shovel・tool-pickaxe（24×24） | `atlas.png` | コードで描画 | `assets-src/sprites/objects.ts`（Grid の線・楕円＋画素） | 自作 | — | 同上 | 2026-09-28 | — | なし |
 | 道具の仮の絵 tool-yagura・tool-boring・tool-bigdrill・tool-geodrill・tool-giantdrill・tool-legenddrill（24×24。S1 の仮。本番の絵は S4） | `atlas.png` | コードで描画 | `assets-src/sprites/props.ts`（Grid の線・矩形・円錐） | 自作 | — | 同上 | 2026-09-28 | — | なし |
 | ひび crack-1〜crack-4（16×16） | `atlas.png` | コードで描画 | `assets-src/sprites/props.ts` | 自作 | — | 同上 | 2026-09-28 | — | なし |
@@ -19,6 +20,23 @@
 | guest-tanuki（24×24） | `atlas.png` | コードで描画 | 同上。他作品のキャラクターを参照していない | 自作 | — | 同上 | 2026-09-28 | — | なし |
 | bath-tub（48×24） | `atlas.png` | コードで描画 | 同上 | 自作 | — | 同上 | 2026-09-28 | — | なし |
 | パーティクル p-chip・p-steam・p-spark・p-coin（8×8） | `atlas.png` | コードで描画 | 同上 | 自作 | — | 同上 | 2026-09-28 | — | なし |
-| パレット（32 色） | — | 自作 | `assets-src/palette.json` | 自作 | — | — | 2026-09-28 | — | — |
+| パレット（32 色。土の暖色 12・湯の青緑 6・湯けむりの白 4・UI 用 10 の組。BL-061 で組を付けた。色の値は変えていない） | — | 自作 | `assets-src/palette.json` | 自作 | — | — | 2026-09-28（組は 2026-11-15） | — | — |
 | DotGothic16 サブセット | `dotgothic16-subset.woff2` | フォント（OFL） | https://github.com/google/fonts/tree/main/ofl/dotgothic16 （原作 https://github.com/fontworks-fonts/DotGothic16） | SIL OFL 1.1（`LICENSES/OFL-DotGothic16.txt`） | 使用文字だけにサブセット（`scripts/subset-font.mjs`。2026-09-28 に帯・鉱石の名前などを足して作り直した。同日、HUD・購入ボタンの文言を足して作り直した。2026-09-29 に BL-052〔i18n・英語の単数のキー〕で作り直した。同日、BL-011〔数値の表記を src/i18n/number-format.ts に移した。万進の単位の文字は前から入っている〕で作り直した〔46,476 → 48,672 バイト〕。2026-10-05 に BL-017〔お客さんの名前。PR #20〕と BL-011〔PR #27〕の両方のマージの後に作り直した〔表示の文字〔お客さんの名前〕の「ニ」「ネ」「ホ」の 3 字が増えた。48,672 → 48,888 バイト〕。同日、BL-046〔PR #32。シート・おかえり・確認・トースト・読み取り専用の案内の文言 +27 キー〕で作り直した〔表示の文字とコメントの文字で 48 字増えた。48,888 → 52,596 バイト〕。2026-10-12 に BL-044〔湯宿タブ T2 の文言 +31 キー〕で作り直した〔52,596 → 53,984 バイト〕。2026-10-18 に BL-126〔ご褒美の結線。ブーストの実際の倍率〔×4〕の文言と、src/ui のコメント〕で、main〔BL-044 を含む〕の取り込みの後に作り直した〔53,984 → 54,468 バイト〕。同日、BL-018〔改良 12 項目の名前。「振 ざ 帳 油 板 牛 乳 研 磨 台」の 10 字が欠けていた。PR #62 のレビュー S-1〕で、main〔BL-126 を含む〕の取り込みの後に作り直した〔54,468 → 55,072 バイト。655 字〕。同日、BL-059〔広告の待ちの案内「広告を読み込んでいます…」・払ったチケットの返却のトースト。決定 0010 の 7・11〕で、main〔BL-018 を含む〕の取り込みの後に作り直した〔55,072 → 55,916 バイト。663 字〕。同日、BL-044 の T3〔改良タブの説明・見出し・次の改良の条件・「購入済み」の文言と、改良のタブの「！」の src/ui のコメント〕で、main〔BL-059 を含む〕の取り込みの後に作り直した〔55,916 → 56,684 バイト〕。2026-11-15 に BL-045〔T4 の転生タブ・確認の画面・湯の華の木の文言（PR #91）と、T5 のメニュー・設定・クレジットの文言と、転生の確認の画面の地形の選択の文言〕で作り直した〔56,684 → 59,080 → 60,700 バイト〕。このスクリプトは src/i18n・src/ui のコメントの文字も集めるので、BL-011 の分の文字の追加はコメント由来〔表示の文字は増えていない〕。表示の文字だけに絞るのは BL-053） | subset-font 2.9.0（harfbuzz） | 2026-09-28 取得 | — | なし |
 | 効果音（打撃・破壊） | —（音声ファイルなし） | コードで生成（効果音など） | ZzFX のパラメータ（`src/audio/sfx.ts`） | ZzFX は MIT | — | — | 2026-09-28 | — | なし |
+
+## アトラスのフレーム（BL-061）
+
+`npm run check:assets` は、生成物 `src/generated/atlas.json` のフレームの id をこの表の 1 列目の型（`*` は英小文字・数字・ハイフンの並び）と突き合わせる。型に当たらないフレームがあっても、どのフレームにも当たらない型があっても失敗する。素材を足したら、上の台帳の行とこの表の両方に書く。
+
+| フレーム | 台帳の行（素材名） |
+|---|---|
+| `tile-topsoil-*` `tile-clay-*` `tile-sandstone-*` `tile-tuff-*` `tile-granite-*` `tile-basalt-*` | 地層タイル（山あい） |
+| `tile-volcano-*` `tile-seaside-*` | 地形の色替えの地層タイル |
+| `tool-shovel` `tool-pickaxe` | tool-shovel・tool-pickaxe |
+| `tool-yagura` `tool-boring` `tool-bigdrill` `tool-geodrill` `tool-giantdrill` `tool-legenddrill` | 道具の仮の絵 |
+| `crack-*` | ひび |
+| `deco-pebble` `deco-root` `deco-fossil` `deco-crystal` `deco-lava` | 飾り |
+| `ore-gem` `spring-hint` | 鉱石のきらめき・源泉の気配 |
+| `guest-tanuki` | guest-tanuki |
+| `bath-tub` | bath-tub |
+| `p-chip` `p-steam` `p-spark` `p-coin` | パーティクル |

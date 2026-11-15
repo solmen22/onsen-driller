@@ -459,7 +459,8 @@ const ledger = (rows, head = LEDGER_HEAD) => {
   write(f, ['# 素材台帳', '', ...head, ...rows, ''].join('\n'));
   return f;
 };
-const assets = (dist, led, ...targets) => run('check-assets.mjs', ['--dist', dist, '--ledger', led, ...targets]);
+/** アトラスのフレームの突き合わせ（BL-061）は既定で見ない（下の describe で見る） */
+const assets = (dist, led, ...targets) => run('check-assets.mjs', ['--dist', dist, '--ledger', led, '--atlas', 'none', ...targets]);
 
 describe('check:assets', () => {
   test('TS-008-14 台帳にない素材（画像・音声・フォント 11 種）は失敗し、ファイル名を表示する', () => {
@@ -554,9 +555,54 @@ describe('check:assets', () => {
     const d = newDist();
     for (const t of ['web', 'crazygames', 'itch']) makeTarget(d, t);
     const led = ledger([row('`atlas.png`')]);
-    assertFail(run('check-assets.mjs', ['--dist', d, '--ledger', led]), /\[dist\.missing\] 本番のターゲット poki/);
+    assertFail(run('check-assets.mjs', ['--dist', d, '--ledger', led, '--atlas', 'none']), /\[dist\.missing\] 本番のターゲット poki/);
     makeTarget(d, 'poki');
-    assertPass(run('check-assets.mjs', ['--dist', d, '--ledger', led]));
+    assertPass(run('check-assets.mjs', ['--dist', d, '--ledger', led, '--atlas', 'none']));
+  });
+
+  // ---- BL-061: アトラスのフレームと台帳の「フレーム」の表 ----
+  const atlasFile = (ids) => {
+    const f = join(tmpRoot, `atlas-${++seq}.json`);
+    write(f, JSON.stringify({ frames: Object.fromEntries(ids.map((id) => [id, {}])) }));
+    return f;
+  };
+  const framesTable = (rows) => ['', '## アトラスのフレーム', '', '| フレーム | 台帳の行（素材名） |', '|---|---|', ...rows.map((r) => `| ${r} | 地層 |`)];
+  const withAtlas = (d, led, atlas) => run('check-assets.mjs', ['--dist', d, '--ledger', led, '--atlas', atlas, 'web']);
+
+  test('BL-061 アトラスのフレームがすべて台帳の型に当たれば通る（* は英小文字・数字・ハイフンの並び）', () => {
+    const d = newDist();
+    write(join(makeTarget(d, 'web'), 'assets', 'atlas-abcd1234.png'), 'x');
+    const led = ledgerFile(['# 素材台帳', '', ...LEDGER_HEAD, row('`atlas.png`'), ...framesTable(['`tile-clay-*` `tile-volcano-*`', '`bath-tub`'])]);
+    const r = withAtlas(d, led, atlasFile(['tile-clay-0', 'tile-clay-3', 'tile-volcano-clay-0', 'bath-tub']));
+    assertPass(r);
+    assert.match(r.out, /フレーム 4 件・台帳の型 3 件/);
+  });
+
+  test('BL-061 台帳の型に当たらないフレームは失敗し、id を表示する（`tile-clay-*` は tile-volcano-clay-0 に当たらない）', () => {
+    const d = newDist();
+    write(join(makeTarget(d, 'web'), 'assets', 'atlas-abcd1234.png'), 'x');
+    const led = ledgerFile(['# 素材台帳', '', ...LEDGER_HEAD, row('`atlas.png`'), ...framesTable(['`tile-clay-*`'])]);
+    assertFail(withAtlas(d, led, atlasFile(['tile-clay-0', 'tile-volcano-clay-0'])), /\[atlas\.unlisted\] アトラスのフレーム tile-volcano-clay-0 が/);
+    assertFail(withAtlas(d, led, atlasFile(['tile-clay-0', 'guest-fox'])), /\[atlas\.unlisted\] アトラスのフレーム guest-fox が/);
+  });
+
+  test('BL-061 どのフレームにも当たらない型（古い行）・フレームの表がない・生成物がないは失敗', () => {
+    const d = newDist();
+    write(join(makeTarget(d, 'web'), 'assets', 'atlas-abcd1234.png'), 'x');
+    const led = ledgerFile(['# 素材台帳', '', ...LEDGER_HEAD, row('`atlas.png`'), ...framesTable(['`tile-clay-*`', '`guest-fox`'])]);
+    assertFail(withAtlas(d, led, atlasFile(['tile-clay-0'])), /\[atlas\.stale\] ledger-\d+\.md:\d+ 台帳のフレームの型 `guest-fox`/);
+    const noTable = ledgerFile(['# 素材台帳', '', ...LEDGER_HEAD, row('`atlas.png`')]);
+    assertFail(withAtlas(d, noTable, atlasFile(['tile-clay-0'])), /\[atlas\.table\]/);
+    assertFail(withAtlas(d, led, join(tmpRoot, 'no-such-atlas.json')), /\[atlas\.missing\]/);
+  });
+
+  test('BL-061 リポジトリの ASSETS.md と src/generated/atlas.json は一致する（--atlas を付けない既定の形）', () => {
+    const d = newDist();
+    write(join(makeTarget(d, 'web'), 'assets', 'atlas-abcd1234.png'), 'x');
+    write(join(d, 'web', 'assets', 'dotgothic16-subset-abcd1234.woff2'), 'x');
+    const r = run('check-assets.mjs', ['--dist', d, 'web']);
+    assertPass(r);
+    assert.match(r.out, /アトラス: .*atlas\.json（フレーム \d+ 件/);
   });
 
   test('TS-008-17 区分の 6 種（CEO 承認で追加したフォント（OFL）・コードで生成（効果音など）を含む）は警告なし', () => {

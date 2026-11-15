@@ -680,7 +680,7 @@
     "h": 16
    }
   },
-  "crack-1": {
+  "tile-volcano-topsoil-0": {
    "frame": {
     "x": 109,
     "y": 115,
@@ -700,7 +700,7 @@
     "h": 16
    }
   },
-  "crack-2": {
+  "tile-volcano-topsoil-1": {
    "frame": {
     "x": 1,
     "y": 133,
@@ -720,7 +720,7 @@
     "h": 16
    }
   },
-  "crack-3": {
+  "tile-volcano-topsoil-2": {
    "frame": {
     "x": 19,
     "y": 133,
@@ -740,7 +740,7 @@
     "h": 16
    }
   },
-  "crack-4": {
+  "tile-volcano-topsoil-3": {
    "frame": {
     "x": 37,
     "y": 133,
@@ -760,7 +760,7 @@
     "h": 16
    }
   },
-  "deco-pebble": {
+  "tile-volcano-clay-0": {
    "frame": {
     "x": 55,
     "y": 133,
@@ -780,7 +780,7 @@
     "h": 16
    }
   },
-  "deco-root": {
+  "tile-volcano-clay-1": {
    "frame": {
     "x": 73,
     "y": 133,
@@ -800,7 +800,7 @@
     "h": 16
    }
   },
-  "deco-fossil": {
+  "tile-volcano-clay-2": {
    "frame": {
     "x": 91,
     "y": 133,
@@ -820,7 +820,7 @@
     "h": 16
    }
   },
-  "deco-crystal": {
+  "tile-volcano-clay-3": {
    "frame": {
     "x": 109,
     "y": 133,
@@ -840,7 +840,7 @@
     "h": 16
    }
   },
-  "deco-lava": {
+  "tile-volcano-sandstone-0": {
    "frame": {
     "x": 1,
     "y": 151,
@@ -860,7 +860,7 @@
     "h": 16
    }
   },
-  "ore-gem": {
+  "tile-volcano-sandstone-1": {
    "frame": {
     "x": 19,
     "y": 151,
@@ -880,7 +880,7 @@
     "h": 16
    }
   },
-  "spring-hint": {
+  "tile-volcano-sandstone-2": {
    "frame": {
     "x": 37,
     "y": 151,
@@ -900,10 +900,970 @@
     "h": 16
    }
   },
-  "p-steam": {
+  "tile-volcano-sandstone-3": {
    "frame": {
     "x": 55,
     "y": 151,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-volcano-tuff-0": {
+   "frame": {
+    "x": 73,
+    "y": 151,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-volcano-tuff-1": {
+   "frame": {
+    "x": 91,
+    "y": 151,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-volcano-tuff-2": {
+   "frame": {
+    "x": 109,
+    "y": 151,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-volcano-tuff-3": {
+   "frame": {
+    "x": 1,
+    "y": 169,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-volcano-granite-0": {
+   "frame": {
+    "x": 19,
+    "y": 169,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-volcano-granite-1": {
+   "frame": {
+    "x": 37,
+    "y": 169,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-volcano-granite-2": {
+   "frame": {
+    "x": 55,
+    "y": 169,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-volcano-granite-3": {
+   "frame": {
+    "x": 73,
+    "y": 169,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-volcano-basalt-0": {
+   "frame": {
+    "x": 91,
+    "y": 169,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-volcano-basalt-1": {
+   "frame": {
+    "x": 109,
+    "y": 169,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-volcano-basalt-2": {
+   "frame": {
+    "x": 1,
+    "y": 187,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-volcano-basalt-3": {
+   "frame": {
+    "x": 19,
+    "y": 187,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-topsoil-0": {
+   "frame": {
+    "x": 37,
+    "y": 187,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-topsoil-1": {
+   "frame": {
+    "x": 55,
+    "y": 187,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-topsoil-2": {
+   "frame": {
+    "x": 73,
+    "y": 187,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-topsoil-3": {
+   "frame": {
+    "x": 91,
+    "y": 187,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-clay-0": {
+   "frame": {
+    "x": 109,
+    "y": 187,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-clay-1": {
+   "frame": {
+    "x": 1,
+    "y": 205,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-clay-2": {
+   "frame": {
+    "x": 19,
+    "y": 205,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-clay-3": {
+   "frame": {
+    "x": 37,
+    "y": 205,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-sandstone-0": {
+   "frame": {
+    "x": 55,
+    "y": 205,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-sandstone-1": {
+   "frame": {
+    "x": 73,
+    "y": 205,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-sandstone-2": {
+   "frame": {
+    "x": 91,
+    "y": 205,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-sandstone-3": {
+   "frame": {
+    "x": 109,
+    "y": 205,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-tuff-0": {
+   "frame": {
+    "x": 1,
+    "y": 223,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-tuff-1": {
+   "frame": {
+    "x": 19,
+    "y": 223,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-tuff-2": {
+   "frame": {
+    "x": 37,
+    "y": 223,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-tuff-3": {
+   "frame": {
+    "x": 55,
+    "y": 223,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-granite-0": {
+   "frame": {
+    "x": 73,
+    "y": 223,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-granite-1": {
+   "frame": {
+    "x": 91,
+    "y": 223,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-granite-2": {
+   "frame": {
+    "x": 109,
+    "y": 223,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-granite-3": {
+   "frame": {
+    "x": 1,
+    "y": 241,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-basalt-0": {
+   "frame": {
+    "x": 19,
+    "y": 241,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-basalt-1": {
+   "frame": {
+    "x": 37,
+    "y": 241,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-basalt-2": {
+   "frame": {
+    "x": 55,
+    "y": 241,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "tile-seaside-basalt-3": {
+   "frame": {
+    "x": 73,
+    "y": 241,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "crack-1": {
+   "frame": {
+    "x": 91,
+    "y": 241,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "crack-2": {
+   "frame": {
+    "x": 109,
+    "y": 241,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "crack-3": {
+   "frame": {
+    "x": 1,
+    "y": 259,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "crack-4": {
+   "frame": {
+    "x": 19,
+    "y": 259,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "deco-pebble": {
+   "frame": {
+    "x": 37,
+    "y": 259,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "deco-root": {
+   "frame": {
+    "x": 55,
+    "y": 259,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "deco-fossil": {
+   "frame": {
+    "x": 73,
+    "y": 259,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "deco-crystal": {
+   "frame": {
+    "x": 91,
+    "y": 259,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "deco-lava": {
+   "frame": {
+    "x": 109,
+    "y": 259,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "ore-gem": {
+   "frame": {
+    "x": 1,
+    "y": 277,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "spring-hint": {
+   "frame": {
+    "x": 19,
+    "y": 277,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "p-steam": {
+   "frame": {
+    "x": 37,
+    "y": 277,
     "w": 8,
     "h": 8
    },
@@ -922,8 +1882,8 @@
   },
   "p-coin": {
    "frame": {
-    "x": 65,
-    "y": 151,
+    "x": 47,
+    "y": 277,
     "w": 8,
     "h": 8
    },
@@ -942,8 +1902,8 @@
   },
   "p-spark": {
    "frame": {
-    "x": 75,
-    "y": 151,
+    "x": 57,
+    "y": 277,
     "w": 5,
     "h": 5
    },
@@ -962,8 +1922,8 @@
   },
   "p-chip": {
    "frame": {
-    "x": 82,
-    "y": 151,
+    "x": 64,
+    "y": 277,
     "w": 4,
     "h": 4
    },
@@ -987,7 +1947,7 @@
   "format": "RGBA8888",
   "size": {
    "w": 128,
-   "h": 256
+   "h": 512
   },
   "scale": "1"
  }

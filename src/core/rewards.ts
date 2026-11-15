@@ -4,7 +4,7 @@
 //   コイン → チケットの道はない（QA §3-2(b)・Q-36 (a) の条件 1〜4）。減るのは useBoost('ticket')・claimOffline('double','ticket') の成功だけ
 // - R2 掘削ブースト: 効果はロジックの時間で減る（オンライン中だけ）。休みは壁時計（使った時刻 + 15 分）。広告でもチケットでも同じ
 // - R3 ラッキー鉱脈: 出現は周回の擬似乱数（rng.run）で 5〜8 分ごと（ロジックの時間）、60 秒で消える。タップの打撃 15 回か広告で開く
-// - R1 おかえり ×2: 未受け取りのオフライン収入（run.pendingOffline）を 1 回だけ受け取る。付けるのは S3 の BL-030
+// - R1 おかえり ×2: 未受け取りのオフライン収入（run.pendingOffline）を 1 回だけ受け取る。付けるのは core/offline.ts の runOffline（BL-030）
 // 広告の成否は core では見ない。app（BL-059）が広告の成功を確かめてから source='ad' で呼ぶ
 import { PARAMS } from '../content/params.ts';
 import type { GameEvent, TicketSource } from './events.ts';
@@ -292,6 +292,9 @@ export function claimOffline(
 }
 
 // ---- 払ったチケットの返却（決定 0010 の 11。QA の判断 qa-lead/2026-10-18_compensation-and-public.md §1-3 の条件 1〜6） ----
+
+/** 返却の印を外す（BL-030: 新しい復帰の pendingOffline を入れるときに R1 を外す。前の復帰の分を返さない。QA の確認 2026-10-18 §6） */
+export const forgetTicketPaid = (s: GameState, p: 'R1' | 'R2'): void => markTicketPaid(s, p, false);
 
 function markTicketPaid(s: GameState, p: 'R1' | 'R2', paid: boolean): void {
   const m = s.run.ticketPaid;

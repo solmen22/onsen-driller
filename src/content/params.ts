@@ -43,8 +43,18 @@ export const PARAMS = {
   },
   /** 湯船（gdd §5-5）: コスト c0 × r^Lv、1 Lv ごとに入湯料の合計 +5%、枠は Lv0・5・15・35 で 1〜4 つ（MVP の最大 4） */
   bath: { c0: 150, r: 1.25, bonusPerLv: 0.05, slotsAtLevel: [0, 5, 15, 35] },
-  /** オフライン（gdd §9）: 効率の基本 50%。塩化物泉などの足し算の効果を足しても maxEff（100%。オンラインを超えない）まで（BL-016。早送りは S3 の BL-030） */
-  offline: { eff: 0.5, maxEff: 1, capMs: 8 * 3_600_000 },
+  /** オフライン（gdd §9）: 効率の基本 50%。塩化物泉などの足し算の効果を足しても maxEff（100%。オンラインを超えない）まで（BL-016。早送りは core/offline.ts。BL-030） */
+  offline: {
+    eff: 0.5,
+    maxEff: 1,
+    capMs: 8 * 3_600_000,
+    /** 離れていた時間がこれ以上なら、オフラインの規則（効率・上限・おかえり）。未満はオンラインと同じ規則で追いつく（gdd §9。BL-030） */
+    awayMs: 60_000,
+    /** 早送りの刻み（最初の fineMs までは fineStepMs、その先は coarseStepMs。gdd §9: 1 秒刻み、1 時間を超える分は 10 秒刻み） */
+    fineMs: 3_600_000,
+    fineStepMs: 1_000,
+    coarseStepMs: 10_000,
+  },
   pumpMilestones: [10, 25, 50, 100],
   /**
    * 転生（gdd §5-8。BL-021）: 「転生の推奨」は、今得られる湯の華が max(recommendGain, 前回の獲得 × recommendGrowth) 以上のとき

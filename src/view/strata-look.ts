@@ -5,16 +5,21 @@
 import type { OreId } from '../content/ores.ts';
 import { SPRINGS, type SpringId } from '../content/springs.ts';
 import { STRATA, type StratumId } from '../content/strata.ts';
-import type { TerrainId } from '../content/terrains.ts';
+import { INITIAL_TERRAIN, type TerrainId } from '../content/terrains.ts';
 import { hash32 } from '../core/rng.ts';
 import { springDepthIn } from '../core/selectors.ts';
 
 export const TILE_VARIANTS = 4;
 
-/** 帯と変化形 → タイルのテクスチャのキー（例 tile-clay-2） */
-export function tileFrame(band: number, variant: number): string {
+/**
+ * 帯と変化形（と地形）→ タイルのテクスチャのキー（例 tile-clay-2・tile-volcano-clay-2）。
+ * 地形の配色は同じパレットの中の差し替えで build-art が作る（assets-src/terrains.ts。BL-061）。山あいは地形の名前を入れない。
+ * 周回の地形を渡して画面に出すのは BL-040（今の呼び出しは地形を渡さない＝山あい）
+ */
+export function tileFrame(band: number, variant: number, terrain: TerrainId = INITIAL_TERRAIN): string {
   const b = STRATA[Math.min(STRATA.length - 1, Math.max(0, Math.floor(band)))] ?? STRATA[0];
-  return `tile-${b?.id ?? 'topsoil'}-${((Math.floor(variant) % TILE_VARIANTS) + TILE_VARIANTS) % TILE_VARIANTS}`;
+  const t = terrain === INITIAL_TERRAIN ? '' : `${terrain}-`;
+  return `tile-${t}${b?.id ?? 'topsoil'}-${((Math.floor(variant) % TILE_VARIANTS) + TILE_VARIANTS) % TILE_VARIANTS}`;
 }
 
 /** マスの変化形（周回のシード・行・列のハッシュ。同じマスは毎回同じ） */
