@@ -109,6 +109,16 @@ export async function waitForGame(target: HookTarget, timeoutMs = BOOT_TIMEOUT_M
   if (!has) throw new HooksMissingError();
 }
 
+/**
+ * startPaused で時計を入れるときの前倒し（ms）。install から pauseAt までの間も今のページ（about:blank）の時計は実時間で進むので、
+ * その間がこれより長いと pauseAt が「Cannot fast-forward to the past」で落ちる。前は 1 秒で、手元で別の担当の E2E と同時に
+ * 流した重い回に TS-E5-11（chromium）が 1 回落ちた（DevOps 2026-10-18。実行記録 2026-11-15）。
+ * 次の文書（ゲーム）の時計は Playwright が記録を再生して time ちょうどに合わせる（再生では pauseAt が時刻を time に置くだけで、
+ * 前倒しの分は進めない）ので、この値を大きくしてもゲームから見える Date.now・performance.now は変わらない
+ * （performance.timeOrigin だけが前倒しの分ずれるが、本体もテストも読んでいない）
+ */
+const START_PAUSED_LEAD_MS = 30_000;
+
 /** 時計を「今」の少し先で止める（pauseAt は過去を指定できないので、余裕を持たせて再試行する） */
 export async function pauseClock(page: Page): Promise<number> {
   let last: unknown;
@@ -130,9 +140,9 @@ export async function bootGame(page: Page, opts: BootOptions = {}): Promise<Hook
   const time = opts.time ?? T0;
   if (!opts.skipClockInstall) {
     if (opts.startPaused) {
-      // pauseAt は「今」より前を指定できないので、1 秒前で入れてから time で止める。
+      // pauseAt は「今」より前を指定できないので、START_PAUSED_LEAD_MS 前で入れてから time で止める。
       // 次の文書（goto の先）では Playwright が操作を再生し、時計は time ちょうどで止まっている
-      await page.clock.install({ time: time - 1_000 });
+      await page.clock.install({ time: time - START_PAUSED_LEAD_MS });
       await page.clock.pauseAt(time);
     } else {
       await page.clock.install({ time });

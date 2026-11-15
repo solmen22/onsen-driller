@@ -16,14 +16,9 @@ import { recordedKeydowns } from './support/privacy.ts';
 
 /** 親ページのスクロールが止まるまで待ち（キーのスクロールは滑らかに動く）、その位置を返す */
 // 100ms ごとに読み、3 回続けて同じ値（200ms 動かない）なら止まったとみなす。遅いランナーでは滑らかなスクロールの始まりが
-// 100ms より遅れる（PR #6 のレビュー N-3。2026-09-29 の毎晩〔run 36524469312〕で webkit の対照が 1 回目に 400 → 400 で赤）。
-// movedFrom を渡すと、まずその値から動くのを最大 3 秒待ってから止まるのを待つ（対照: ↓ で親が動くこと）
-async function settledScrollY(page: Page, opts: { movedFrom?: number } = {}): Promise<number> {
+// 100ms より遅れる（PR #6 のレビュー N-3。2026-09-29 の毎晩〔run 36524469312〕で webkit の対照が 1 回目に 400 → 400 で赤）
+async function settledScrollY(page: Page): Promise<number> {
   const read = (): Promise<number> => page.evaluate(() => window.scrollY);
-  if (opts.movedFrom !== undefined) {
-    const from = opts.movedFrom;
-    await expect.poll(read, { timeout: 3_000, intervals: [50], message: `親ページの scrollY が ${from} から動く` }).not.toBe(from);
-  }
   let last = await read();
   let same = 1;
   for (let i = 0; i < 60; i++) {
@@ -37,6 +32,73 @@ async function settledScrollY(page: Page, opts: { movedFrom?: number } = {}): Pr
     }
   }
   throw new Error('親ページのスクロールが止まりません');
+}
+
+/** ↓ を押した後の様子（対照が動かなかったときの切り分け用。注記と失敗の文言に出す） */
+interface ControlProbe {
+  scrollY: number;
+  parentHasFocus: boolean;
+  frameHasFocus: boolean;
+  parentActive: string;
+  /** その ↓ の keydown が親ページ・枠のどちらに届いたか（harness の pageProbe の __keys。どちらにも 0 なら届いていない） */
+  parentKeys: number;
+  parentPrevented: number;
+  frameKeys: number;
+}
+
+const keyCount = (target: Page | Frame): Promise<{ n: number; prevented: number }> =>
+  (target as Frame).evaluate(() => {
+    const ks = (window as unknown as { __keys: KeyboardEvent[] }).__keys.filter((e) => e.code === 'ArrowDown');
+    return { n: ks.length, prevented: ks.filter((e) => e.defaultPrevented).length };
+  });
+
+/**
+ * 対照: 親ページにフォーカスがあるときの ↓ は親をスクロールさせる（このページが矢印キーでスクロールできることの確認。偽の緑を防ぐ）。
+ * 動いたら止まった位置を返す。
+ * - 親ページの文書にフォーカスが入るのを待ってから押す。
+ * - ↓ を押して 3 秒動かなければ、その回の様子を注記に残して押し直す（3 回まで）。2026-09-29（run 36524469312）と
+ *   2026-10-15（run 38642646998）の毎晩で、webkit の TS-012-18 (a) の 1 回目だけ、↓ で 3 秒たっても 400 のままだった。
+ *   2 回とも、実行の最初にもう 1 つのワーカーと同時に新しい WebKit を起動した直後のテスト（2 番目）で、再試行では動いた。
+ *   ↓ が親に届いて動かなかったのか、届かなかったのかは、成果物が消えて分からない（実行記録 2026-11-15）。
+ *   押し直しても見ているもの（このページが ↓ でスクロールできること）は変わらない。押し直した回は注記で数えられる。
+ *   3 回とも動かなければ、各回の様子を付けて失敗する。
+ */
+async function expectArrowScrollsParent(page: Page, frame: Frame): Promise<number> {
+  const read = (): Promise<number> => page.evaluate(() => window.scrollY);
+  await expect
+    .poll(() => page.evaluate(() => document.hasFocus()), { timeout: 3_000, message: '親ページを押すと親の文書にフォーカスが入る' })
+    .toBe(true);
+  const probes: ControlProbe[] = [];
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const p0 = await keyCount(page);
+    const f0 = await keyCount(frame);
+    await page.keyboard.press('ArrowDown');
+    const moved = await expect
+      .poll(read, { timeout: 3_000, intervals: [50] })
+      .not.toBe(START_Y)
+      .then(
+        () => true,
+        () => false,
+      );
+    if (moved) {
+      if (attempt > 1) {
+        test.info().annotations.push({ type: '対照の ↓ を押し直した', description: `${attempt} 回目で動いた。前の回: ${JSON.stringify(probes)}` });
+      }
+      return settledScrollY(page);
+    }
+    const p1 = await keyCount(page);
+    const f1 = await keyCount(frame);
+    probes.push({
+      scrollY: await read(),
+      parentHasFocus: await page.evaluate(() => document.hasFocus()),
+      frameHasFocus: await frame.evaluate(() => document.hasFocus()),
+      parentActive: await page.evaluate(() => document.activeElement?.tagName ?? 'null'),
+      parentKeys: p1.n - p0.n,
+      parentPrevented: p1.prevented - p0.prevented,
+      frameKeys: f1.n - f0.n,
+    });
+  }
+  throw new Error(`親ページの scrollY が ${START_Y} から動く（対照）: ↓ を 3 回押して、どれも 3 秒動かなかった: ${JSON.stringify(probes)}`);
 }
 
 /** 親ページのスクロールの開始位置（上下どちらにも動ける位置） */
@@ -108,12 +170,14 @@ async function keysInPortal(
   //   親を 400 までスクロールしているので、ビューポートの y=50 は枠の上の本文。モバイルの狭い画面でも枠の外）
   await page.mouse.click(10, 50);
   expect(await frame.evaluate(() => document.hasFocus()), '親ページを押すとゲームの枠からフォーカスが外れる').toBe(false);
-  await page.keyboard.press('ArrowDown');
-  const moved = await settledScrollY(page, { movedFrom: START_Y });
+  const moved = await expectArrowScrollsParent(page, frame);
   test.info().annotations.push({ type: '対照: 親ページの ↓ で動いた scrollY', description: `${START_Y} → ${moved}` });
   expect(moved, '親ページは ↓ でスクロールする（対照）').toBeGreaterThan(START_Y);
   await page.evaluate((y) => window.scrollTo(0, y), START_Y);
   expect(await settledScrollY(page)).toBe(START_Y);
+
+  // 対照の ↓（押し直しを含む）は親ページに押したもので、枠には届いていない（後の件数の確かめは、ここから後の分だけになる）
+  expect(await recordedKeydowns(frame), '対照の ↓ は枠に届いていない').toEqual([]);
 
   // ゲームにフォーカスする
   await focusGame(frame);
