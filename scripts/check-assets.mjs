@@ -18,6 +18,9 @@
 //   - 見出しの 1 列目が「素材名」でない表（メモの表など）は読まない。台帳の表が複数あれば、表ごとに必要な列を検査する
 // 失敗: 台帳にない素材がビルドにある / 台帳の表がない / 必要な列がない / 素材ファイルを書いた行のライセンスが空か「—」
 //   / ターゲットを指定しないときに本番の 4 種（web・crazygames・itch・poki）のどれかのビルドがない
+// アトラスの中身（BL-061）: 生成物 src/generated/atlas.json（--atlas で変える。none で見ない）のフレームの id を、台帳の
+//   「見出しの 1 列目が『フレーム』の表」と突き合わせる。1 列目にバッククォートで id の型を書く（* は英小文字・数字・ハイフンの並び。
+//   例 `tile-*-0`）。失敗: 型に当たらないフレームがある / どのフレームにも当たらない型がある / フレームの表がない
 // 警告（終了コード 0）: 区分が 6 種（AI 生成・コードで描画・CC0・自作と、CEO 承認で追加したフォント（OFL）・コードで生成（効果音など））以外
 //   / 素材ファイルを書いた行の入手元が空か「—」 / 台帳にあってビルドにない（参考表示）
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -27,11 +30,12 @@ import { ASSET_EXT, PRODUCTION_TARGETS, assetKey, extOf, walk } from './check-li
 
 const root = resolve(import.meta.dirname, '..');
 const { values, positionals } = parseArgs({
-  options: { dist: { type: 'string' }, ledger: { type: 'string' } },
+  options: { dist: { type: 'string' }, ledger: { type: 'string' }, atlas: { type: 'string' } },
   allowPositionals: true,
 });
 const distRoot = resolve(values.dist ?? process.env.CHECK_DIST ?? join(root, 'dist'));
 const ledgerPath = resolve(values.ledger ?? join(root, 'ASSETS.md'));
+const atlasPath = values.atlas === 'none' ? null : resolve(values.atlas ?? join(root, 'src', 'generated', 'atlas.json'));
 
 /** 必要な列（見出しにこの語が含まれていればよい） */
 const REQUIRED_COLUMNS = ['素材名', '区分', '入手元', 'ライセンス', '改変', 'ツール', '生成日', 'プロンプト', '人の修正'];
@@ -107,6 +111,57 @@ else {
   if (!ledgerTables) fails.push(`[ledger.table] ${ledgerPath} に、見出しの 1 列目が「素材名」の表がない`);
 }
 
+/** 正規表現の特別な文字をそのままの文字にする */
+const escRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// ---- アトラスのフレーム（BL-061）----
+let atlasSummary = '';
+if (atlasPath) {
+  /** @type {{ re: RegExp; pattern: string; line: number; hits: number }[]} */
+  const patterns = [];
+  let frameTables = 0;
+  if (existsSync(ledgerPath)) {
+    const lines = readFileSync(ledgerPath, 'utf8').split(/\r?\n/);
+    let inFrames = false;
+    let inTable = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim().startsWith('|')) {
+        inTable = false;
+        inFrames = false;
+        continue;
+      }
+      if (!inTable) {
+        inTable = true;
+        inFrames = splitRow(line)[0]?.replace(/\s+/g, '') === 'フレーム' && isSeparator(lines[i + 1] ?? '');
+        if (inFrames) {
+          frameTables++;
+          i++;
+        }
+        continue;
+      }
+      if (!inFrames) continue;
+      for (const m of (splitRow(line)[0] ?? '').matchAll(/`([^`]+)`/g)) {
+        const pattern = m[1].trim();
+        const re = new RegExp(`^${pattern.split('*').map(escRe).join('[a-z0-9-]+')}$`);
+        patterns.push({ re, pattern, line: i + 1, hits: 0 });
+      }
+    }
+  }
+  if (!existsSync(atlasPath)) fails.push(`[atlas.missing] ${atlasPath} がない（先に npm run art）`);
+  else if (!frameTables) fails.push(`[atlas.table] ${ledgerPath} に、見出しの 1 列目が「フレーム」の表がない（アトラスの中身を台帳と突き合わせられない）`);
+  else {
+    const frames = Object.keys(JSON.parse(readFileSync(atlasPath, 'utf8')).frames ?? {});
+    for (const id of frames) {
+      const hit = patterns.filter((p) => p.re.test(id));
+      for (const p of hit) p.hits++;
+      if (!hit.length) fails.push(`[atlas.unlisted] アトラスのフレーム ${id} が台帳のフレームの表にない`);
+    }
+    for (const p of patterns) if (!p.hits) fails.push(`[atlas.stale] ${basename(ledgerPath)}:${p.line} 台帳のフレームの型 \`${p.pattern}\` に当たるフレームがアトラスにない`);
+    atlasSummary = `アトラス: ${atlasPath}（フレーム ${frames.length} 件・台帳の型 ${patterns.length} 件）`;
+  }
+}
+
 // ---- ビルドを読む ----
 const targets = positionals.length
   ? positionals
@@ -144,6 +199,7 @@ for (const t of targets) {
 
 console.log(`check:assets — 台帳: ${ledgerPath}（素材ファイル名 ${ledgerKeys.size} 件）/ dist: ${distRoot}`);
 console.log(`対象の拡張子: ${[...ASSET_EXT].join(' ')}`);
+if (atlasSummary) console.log(atlasSummary);
 console.log('| target | ビルドのファイル | 照合キー | 台帳 |');
 console.log('|---|---|---|---|');
 for (const r of rows) console.log(`| ${r.t} | ${r.rel} | ${r.key} | ${r.result} |`);

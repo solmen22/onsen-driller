@@ -1,6 +1,12 @@
 {
-  "name": "onsen-driller-v0",
-  "note": "固定パレット 32 色（gdd §14-1）。PoC 版: 土・地層 15、湯 4、湯けむり 3、木 3、金属 3、UI 4。スプライトはここにある名前だけを使える",
+  "name": "onsen-driller-v1",
+  "note": "固定パレット 32 色（gdd §14-1。BL-061）。組: soil＝土の暖色 12（土・粘土・黄土・木の中間色）、water＝湯の青緑 6（湯と凝灰岩の灰緑）、steam＝湯けむりの白 4（湯けむり・泡）、ui＝UI 用 10（墨・クリーム・金・赤・金属・木の濃淡）。スプライトと地形の差し替え（terrains.ts）はここにある名前だけを使える。色の値は v0 と同じ",
+  "groups": {
+    "soil": ["soilDark", "soilMid", "soil", "soilLight", "sand", "clayDark", "clay", "clayLight", "ochreDark", "ochre", "ochreLight", "wood"],
+    "water": ["waterDeep", "water", "waterLight", "tuffDark", "tuff", "tuffLight"],
+    "steam": ["steam", "steamMid", "steamDark", "waterFoam"],
+    "ui": ["ink", "cream", "gold", "goldLight", "red", "metalDark", "metal", "metalLight", "woodDark", "woodLight"]
+  },
   "colors": {
     "ink": "#1b1420",
     "soilDark": "#3d2418",
