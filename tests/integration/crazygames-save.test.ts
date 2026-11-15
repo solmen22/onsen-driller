@@ -5,8 +5,8 @@ import { applyGrant, createInitialState, stateHash } from '../../src/core/index.
 import { createCrazyGamesPlatform } from '../../src/platform/crazygames.ts';
 import type { KeyValueStore } from '../../src/platform/types.ts';
 import { encodeSave } from '../../src/save/codec.ts';
-import { moveLegacySlots } from '../../src/save/legacy.ts';
-import { SAVE_KEYS, SaveSlots } from '../../src/save/slots.ts';
+import { moveLegacySlots, SUPERSEDED_KEY } from '../../src/save/legacy.ts';
+import { BROKEN_KEY, SAVE_KEYS, SaveSlots } from '../../src/save/slots.ts';
 import { crazyMock } from '../mocks/sdk.ts';
 
 const APP = '0.0.1';
@@ -41,10 +41,10 @@ class FakeStore implements KeyValueStore {
 }
 
 /** 本物の形のセーブ（seq・コイン） */
-function saveText(seq: number, coins: string): string {
+function saveText(seq: number, coins: string, savedAt = 1_000 + seq): string {
   const s = createInitialState(7);
   applyGrant(s, { coins });
-  return encodeSave(s, seq, 1_000 + seq, APP);
+  return encodeSave(s, seq, savedAt, APP);
 }
 
 /** Storage（localStorage）の偽物 */
@@ -93,15 +93,6 @@ describe('moveLegacySlots（以前の保存先 → 今の保存先）', () => {
     expect(moveLegacySlots(new FakeStore('local'), to)).toBe('none');
     expect(to.map.size).toBe(0);
   });
-  it('今の保存先にもう枠があれば上書きしない（kept）。以前の枠も残す', () => {
-    const from = new FakeStore('local');
-    const to = new FakeStore('sdk');
-    from.map.set(SAVE_KEYS.a, saveText(50, '999'));
-    to.map.set(SAVE_KEYS.b, saveText(2, '1'));
-    expect(moveLegacySlots(from, to)).toBe('kept');
-    expect(to.map.has(SAVE_KEYS.a)).toBe(false);
-    expect(from.map.has(SAVE_KEYS.a)).toBe(true);
-  });
   it('書けない・読み戻しが合わない・読めないときは以前の枠を消さず、今の保存先に書いた分を取り消す（failed。例外なし）', () => {
     const cases: [string, (from: FakeStore, to: FakeStore) => void][] = [
       ['set が false（dataLimitExcedeed など）', (_f, t) => void (t.setFails = true)],
@@ -130,6 +121,150 @@ describe('moveLegacySlots（以前の保存先 → 今の保存先）', () => {
     expect(moveLegacySlots(from, to)).toBe('failed');
     expect(to.map.size).toBe(0);
     expect(from.map.size).toBe(2);
+  });
+});
+
+describe('BL-115 両方に枠があるとき（kept の後の扱い。PR #30 のレビュー S-1）', () => {
+  /** 2 枠の中身（なければ undefined） */
+  const slotsOf = (s: FakeStore) => ({ a: s.map.get(SAVE_KEYS.a), b: s.map.get(SAVE_KEYS.b) });
+  /** SaveSlots で読んだときのコイン */
+  const coinsOf = (s: FakeStore) => new SaveSlots(s, { appVersion: APP, now: () => 1 }).load().state?.run.coins.toString();
+
+  it('以前の保存先（seq 12。SDK を読めなかった起動の進行）が新しい: 今の保存先に写し、以前の枠を消し、今の保存先の最良の枠を 1 つ退避する（replaced）', () => {
+    const from = new FakeStore('local');
+    const to = new FakeStore('sdk');
+    to.map.set(SAVE_KEYS.a, saveText(9, '9'));
+    to.map.set(SAVE_KEYS.b, saveText(10, '10'));
+    from.map.set(SAVE_KEYS.a, saveText(11, '11'));
+    from.map.set(SAVE_KEYS.b, saveText(12, '12'));
+    expect(moveLegacySlots(from, to)).toBe('replaced');
+    expect(slotsOf(to)).toEqual({ a: saveText(11, '11'), b: saveText(12, '12') });
+    expect(from.map.size, '以前の枠は消える').toBe(0);
+    expect(to.map.get(SUPERSEDED_KEY), '負けた側の最良の枠を 1 つだけ退避').toBe(saveText(10, '10'));
+    expect(coinsOf(to), '新しいほうの進行で始まる').toBe('12');
+    expect(moveLegacySlots(from, to), '二度目は何もしない').toBe('none');
+  });
+  it('以前の保存先に 1 枠だけ（seq 12）: その枠を写し、写さなかった今の保存先の枠は消す（2 枠の seq を混ぜない）', () => {
+    const from = new FakeStore('local');
+    const to = new FakeStore('sdk');
+    to.map.set(SAVE_KEYS.a, saveText(9, '9'));
+    to.map.set(SAVE_KEYS.b, saveText(10, '10'));
+    from.map.set(SAVE_KEYS.a, saveText(12, '12'));
+    expect(moveLegacySlots(from, to)).toBe('replaced');
+    expect(slotsOf(to)).toEqual({ a: saveText(12, '12'), b: undefined });
+    expect(to.map.get(SUPERSEDED_KEY)).toBe(saveText(10, '10'));
+    // 次の保存は反対の枠（b）に seq 13
+    const slots = new SaveSlots(to, { appVersion: APP, now: () => 1 });
+    expect(slots.load().state?.run.coins.toString()).toBe('12');
+    expect(slots.nextTarget()).toEqual({ slot: 'b', seq: 13 });
+  });
+  it('今の保存先が新しい: 今の保存先はそのまま、以前の枠は消して 1 つ退避する（kept）。後で今の保存先が空になっても古い枠は戻らない', () => {
+    const from = new FakeStore('local');
+    const to = new FakeStore('sdk');
+    to.map.set(SAVE_KEYS.b, saveText(20, '20'));
+    from.map.set(SAVE_KEYS.a, saveText(12, '12'));
+    from.map.set(SAVE_KEYS.b, saveText(11, '11'));
+    expect(moveLegacySlots(from, to)).toBe('kept');
+    expect(slotsOf(to)).toEqual({ a: undefined, b: saveText(20, '20') });
+    expect(from.map.size, '以前の枠は消える').toBe(0);
+    expect(to.map.get(SUPERSEDED_KEY)).toBe(saveText(12, '12'));
+    // 症状 (b): 後で data モジュールが空になった起動（サインアウトでゲストのデータに戻る等）
+    const empty = new FakeStore('sdk');
+    expect(moveLegacySlots(from, empty)).toBe('none');
+    expect(empty.map.size).toBe(0);
+  });
+  it('seq が同じなら savedAt の新しいほう。それも同じなら今の保存先', () => {
+    for (const [legacyAt, want] of [
+      [2_000, 'replaced'],
+      [1_000, 'kept'],
+      [500, 'kept'],
+    ] as const) {
+      const from = new FakeStore('local');
+      const to = new FakeStore('sdk');
+      to.map.set(SAVE_KEYS.a, saveText(5, '1', 1_000));
+      from.map.set(SAVE_KEYS.a, saveText(5, '2', legacyAt));
+      expect(moveLegacySlots(from, to), `savedAt ${legacyAt}`).toBe(want);
+      expect(coinsOf(to), `savedAt ${legacyAt}`).toBe(want === 'replaced' ? '2' : '1');
+      expect(from.map.size).toBe(0);
+    }
+  });
+  it('壊れた枠は使わない。読めるほうを使い、壊れた枠しかない側は生の文字列を save:broken に 1 つ退避する（例外なし）', () => {
+    // 以前の保存先が壊れている → 今の保存先を残す
+    let from = new FakeStore('local');
+    let to = new FakeStore('sdk');
+    to.map.set(SAVE_KEYS.a, saveText(3, '3'));
+    from.map.set(SAVE_KEYS.a, '{"seq":99,"broken');
+    expect(moveLegacySlots(from, to)).toBe('kept');
+    expect(slotsOf(to)).toEqual({ a: saveText(3, '3'), b: undefined });
+    expect(to.map.get(BROKEN_KEY)).toBe('{"seq":99,"broken');
+    expect(to.map.has(SUPERSEDED_KEY)).toBe(false);
+    expect(from.map.size).toBe(0);
+    // 今の保存先が壊れている → 以前の保存先を写す
+    from = new FakeStore('local');
+    to = new FakeStore('sdk');
+    to.map.set(SAVE_KEYS.b, 'not json');
+    from.map.set(SAVE_KEYS.a, saveText(2, '2'));
+    expect(moveLegacySlots(from, to)).toBe('replaced');
+    expect(slotsOf(to)).toEqual({ a: saveText(2, '2'), b: undefined });
+    expect(to.map.get(BROKEN_KEY)).toBe('not json');
+    expect(coinsOf(to)).toBe('2');
+    // 片側の 1 枠だけ壊れている → 有効な枠で比べ、壊れた枠は写さない
+    from = new FakeStore('local');
+    to = new FakeStore('sdk');
+    to.map.set(SAVE_KEYS.a, saveText(4, '4'));
+    from.map.set(SAVE_KEYS.a, saveText(6, '6'));
+    from.map.set(SAVE_KEYS.b, 'garbage');
+    expect(moveLegacySlots(from, to)).toBe('replaced');
+    expect(slotsOf(to)).toEqual({ a: saveText(6, '6'), b: undefined });
+    // 両方とも壊れている → 何も変えない（今の保存先の退避は slots.ts の規則 4）
+    from = new FakeStore('local');
+    to = new FakeStore('sdk');
+    to.map.set(SAVE_KEYS.a, 'x');
+    from.map.set(SAVE_KEYS.a, 'y');
+    expect(moveLegacySlots(from, to)).toBe('kept');
+    expect([...to.map]).toEqual([[SAVE_KEYS.a, 'x']]);
+    expect([...from.map]).toEqual([[SAVE_KEYS.a, 'y']]);
+  });
+  it('どちらかに新しい版の枠があれば何も変えない（kept。読み取り専用の規則。新しいビルドで読めるよう残す）', () => {
+    const newer = '{"schema":999,"seq":1}';
+    for (const side of ['from', 'to'] as const) {
+      const from = new FakeStore('local');
+      const to = new FakeStore('sdk');
+      to.map.set(SAVE_KEYS.a, side === 'to' ? newer : saveText(3, '3'));
+      from.map.set(SAVE_KEYS.a, side === 'from' ? newer : saveText(30, '30'));
+      const fromBefore = new Map(from.map);
+      const toBefore = new Map(to.map);
+      expect(moveLegacySlots(from, to), side).toBe('kept');
+      expect(from.map, side).toEqual(fromBefore);
+      expect(to.map, side).toEqual(toBefore);
+    }
+  });
+  it('写せない・読み戻しが合わないときは、今の保存先を元に戻し、以前の枠を残す（failed。例外なし）', () => {
+    const cases: [string, (t: FakeStore) => void][] = [
+      ['set が false', (t) => void (t.setFails = true)],
+      ['読み戻しが合わない', (t) => void (t.dropWrites = true)],
+      [
+        '2 枠目だけ書けない',
+        (t) => {
+          const set = t.set.bind(t);
+          t.set = (k, v) => (k === SAVE_KEYS.b ? false : set(k, v));
+        },
+      ],
+    ];
+    for (const [name, setup] of cases) {
+      const from = new FakeStore('local');
+      const to = new FakeStore('sdk');
+      to.map.set(SAVE_KEYS.a, saveText(9, '9'));
+      to.map.set(SAVE_KEYS.b, saveText(10, '10'));
+      from.map.set(SAVE_KEYS.a, saveText(11, '11'));
+      from.map.set(SAVE_KEYS.b, saveText(12, '12'));
+      const toBefore = new Map(to.map);
+      const fromBefore = new Map(from.map);
+      setup(to);
+      expect(moveLegacySlots(from, to), name).toBe('failed');
+      expect(to.map, `${name}: 今の保存先は元のまま`).toEqual(toBefore);
+      expect(from.map, `${name}: 以前の枠は残る`).toEqual(fromBefore);
+    }
   });
 });
 
@@ -190,6 +325,39 @@ describe('CrazyGames のアダプタの保存先', () => {
     await p.init(); // Node には localStorage がない → メモリ
     expect(p.storage.kind).toBe('sdk');
     expect(p.legacyStorage).toBeUndefined();
+  });
+
+  it('BL-115 main.ts と同じ順番: data モジュールに枠がある → SDK を読めなかった起動で進めた分 → 次の SDK ありの起動でその進行が残る', async () => {
+    vi.stubGlobal('localStorage', fakeLocalStorage());
+    const up = crazyMock('local');
+    const boot = async (sdk: ReturnType<typeof crazyMock>) => {
+      const p = createCrazyGamesPlatform({ getSdk: () => sdk, adsEnabled: false });
+      await p.init();
+      if (p.legacyStorage) moveLegacySlots(p.legacyStorage, p.storage);
+      const slots = new SaveSlots(p.storage, { appVersion: APP, now: () => 5 });
+      return { p, slots, state: slots.load().state };
+    };
+    // 1 回目: SDK あり。data モジュールに 1 回保存
+    const b1 = await boot(up);
+    const s1 = createInitialState(3);
+    applyGrant(s1, { coins: '100' });
+    expect(b1.slots.save(s1)).toBe(true);
+    // 2 回目: SDK の init が失敗 → localStorage（空）で始まり、3 回保存（seq 3）
+    const down = crazyMock('local');
+    down.initBehavior = 'reject';
+    const b2 = await boot(down);
+    expect(b2.p.storage.kind).toBe('local');
+    const s2 = createInitialState(4);
+    for (const c of ['1', '2', '3']) {
+      applyGrant(s2, { coins: c });
+      expect(b2.slots.save(s2)).toBe(true);
+    }
+    // 3 回目: SDK あり。localStorage の進行（seq 3 > 1）が data モジュールに写り、それで始まる
+    const b3 = await boot(up);
+    expect(b3.state && stateHash(b3.state)).toBe(stateHash(s2));
+    expect(b3.p.legacyStorage?.get(SAVE_KEYS.a) ?? null, 'localStorage の枠は消えた').toBeNull();
+    expect(b3.p.legacyStorage?.get(SAVE_KEYS.b) ?? null).toBeNull();
+    expect(up.store.has(SUPERSEDED_KEY), '1 回目の枠は 1 つ退避').toBe(true);
   });
 
   it('main.ts と同じ順番: SDK なしの起動で localStorage に保存 → SDK ありの起動で data モジュールへ移り、同じ進行で始まる', async () => {
