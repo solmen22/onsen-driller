@@ -39,7 +39,12 @@ export type GameEvent =
   /** ラッキー鉱脈が開かれずに消えた（報酬なし） */
   | { type: 'VeinExpired' }
   /** おかえりの収入を受け取った（R1。mode が double なら source は ad か ticket） */
-  | { type: 'OfflineClaimed'; mode: 'normal' | 'double'; source?: 'ad' | 'ticket'; coins: string };
+  | { type: 'OfflineClaimed'; mode: 'normal' | 'double'; source?: 'ad' | 'ticket'; coins: string }
+  /**
+   * 留守の集計（BL-030。gdd §9 のおかえり画面）: 60 秒以上離れて戻ったときに 1 回。ms は離れていた時間（壁時計）、appliedMs は上限で切った後、
+   * coins はこの留守で得たコイン（run.pendingOffline に足した額。受け取りは R1）、meters は掘った m、springs は見つけた源泉（見つけた順）
+   */
+  | { type: 'OfflineSummary'; ms: number; appliedMs: number; coins: string; meters: number; springs: SpringId[] };
 
 /**
  * 温泉チケットを得る出来事の種類（QA §3-2(b)。この 5 つに閉じる）。adRefund は新しい入手ではなく、チケットで払った R1・R2 の回の

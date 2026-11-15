@@ -240,7 +240,7 @@ export function modifiers(s: GameState): Modifiers {
   return m;
 }
 
-/** オフライン効率（gdd §9）: 基本 50% ＋ 枠の塩化物泉など（+25%）。100% を超えない（S3 の BL-030 の早送りが使う） */
+/** オフライン効率（gdd §9）: 基本 50% ＋ 枠の塩化物泉など（+25%）。100% を超えない（BL-030 の早送り core/offline.ts が使う） */
 export function offlineEfficiency(s: GameState, m: Modifiers = modifiers(s)): number {
   const eff = PARAMS.offline.eff + m.offlineEff;
   return Number.isFinite(eff) ? Math.min(PARAMS.offline.maxEff, Math.max(0, eff)) : PARAMS.offline.eff;

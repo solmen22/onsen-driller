@@ -15,3 +15,4 @@ export * from './rewards.ts';
 export * from './upgrades.ts';
 export * from './prestige.ts';
 export * from './perks.ts';
+export * from './offline.ts';

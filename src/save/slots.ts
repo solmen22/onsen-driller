@@ -27,6 +27,8 @@ export type SlotReport = 'empty' | 'ok' | 'unreadable' | DecodeFail;
 export interface LoadResult {
   /** 読み込んだ状態（なければ null＝新しいゲーム） */
   state: GameState | null;
+  /** 読み込んだセーブを保存した時刻（封筒の savedAt。壁時計の UTC の ms。オフラインの早送りの起点。BL-030）。なければ null */
+  savedAt: number | null;
   /** 使った枠 */
   from: SlotId | null;
   slots: Record<SlotId, SlotReport>;
@@ -151,6 +153,7 @@ export class SaveSlots {
     this.current = best?.slot ?? null;
     return {
       state: best?.state ?? null,
+      savedAt: best?.savedAt ?? null,
       from: best?.slot ?? null,
       slots: report,
       readOnly: this.readOnlyValue,
