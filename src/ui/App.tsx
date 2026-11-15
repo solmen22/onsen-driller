@@ -22,6 +22,8 @@ import { isModalOpen } from './overlay/modal-state.ts';
 import { RewardSheet } from './overlay/RewardSheet.tsx';
 import { Toasts } from './overlay/Toasts.tsx';
 import { WelcomeModal, type WelcomeChoice } from './overlay/WelcomeModal.tsx';
+import { EndingCard } from './overlay/EndingCard.tsx';
+import { endingCardClosed, isEndingCardRequested, onEndingCardRequest } from './overlay/ending-card.ts';
 import { DigPanel } from './panels/DigPanel.tsx';
 import { InnPanel } from './panels/InnPanel.tsx';
 import { MenuPanel } from './panels/MenuPanel.tsx';
@@ -69,6 +71,9 @@ export function App() {
   const [qty, setQty] = useState<Qty>(1);
   const [lang, setLangState] = useState<Lang>(getLang());
   const [sheet, setSheet] = useState<'R2' | 'R3' | null>(null);
+  // エンディングのカード（BL-023）: app の ad-flow が出すと決めたら出す。おかえりが出ている間は、閉じた後に出す（Q-55 (d)）
+  const [ending, setEnding] = useState(isEndingCardRequested);
+  useEffect(() => onEndingCardRequest(setEnding), []);
   // おかえり（R1）: 未受け取りのオフライン収入があれば出す（core の offlineClaimView。付けるのは S3 の BL-030）。
   // 受け取りの口（rewards）がない間は出さない（受け取れないモーダルを出さない）
   const welcome = useGame((s) => {
@@ -197,6 +202,7 @@ export function App() {
       {welcome !== null && rewards !== undefined && sheet === null && (
         <WelcomeModal amount={welcome.amount} canDouble={welcome.canDouble} ticketHook onClaim={onWelcome} />
       )}
+      {ending && (welcome === null || rewards === undefined) && <EndingCard onSkip={endingCardClosed} />}
     </>
   );
 }

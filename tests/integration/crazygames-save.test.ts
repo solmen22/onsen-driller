@@ -286,6 +286,43 @@ describe('BL-115 両方に枠があるとき（kept の後の扱い。PR #30 の
       expect(from.map.size).toBe(1);
     }
   });
+  it('退避のキーに違う値が書かれてしまったら、そのキーを前の値に戻す（なければ消す）。元の枠は変えない（PR #89 の再レビューの Nit）', () => {
+    for (const prev of [null, 'older backup']) {
+      const from = new FakeStore('local');
+      const to = new FakeStore('sdk');
+      to.map.set(SAVE_KEYS.a, saveText(9, '9'));
+      if (prev !== null) to.map.set(SUPERSEDED_KEY, prev);
+      from.map.set(SAVE_KEYS.a, saveText(11, '11'));
+      const toBefore = new Map(to.map);
+      const set = to.set.bind(to);
+      let garble = true;
+      to.set = (k, v) => {
+        if (k === SUPERSEDED_KEY && garble) {
+          garble = false; // 1 回目だけ違う値を書く（戻すときは正しく書ける）
+          to.map.set(k, 'garbled');
+          return true;
+        }
+        return set(k, v);
+      };
+      expect(moveLegacySlots(from, to), String(prev)).toBe('failed');
+      expect(to.map, `${String(prev)}: 書きかけを残さない`).toEqual(toBefore);
+      expect(from.map.size).toBe(1);
+    }
+  });
+  it('以前の保存先の remove が黙って失敗した次の起動（同じ中身どうしの kept）では、前に退避した負けた側を上書きしない（PR #89 の再レビューの Nit）', () => {
+    const from = new FakeStore('local');
+    from.remove = () => {}; // 黙って失敗する
+    const to = new FakeStore('sdk');
+    to.map.set(SAVE_KEYS.a, saveText(9, '9'));
+    to.map.set(SAVE_KEYS.b, saveText(10, '10'));
+    from.map.set(SAVE_KEYS.a, saveText(12, '12'));
+    expect(moveLegacySlots(from, to)).toBe('replaced');
+    expect(to.map.get(SUPERSEDED_KEY)).toBe(saveText(10, '10'));
+    expect(from.map.size, 'remove が効かず残った').toBe(1);
+    // 次の起動: data モジュールは写した枠（seq 12）、localStorage も同じ枠
+    expect(moveLegacySlots(from, to)).toBe('kept');
+    expect(to.map.get(SUPERSEDED_KEY), '本当の負けた側（seq 10）の控えは残る').toBe(saveText(10, '10'));
+  });
   it('写せない・読み戻しが合わないときは、今の保存先を元に戻し、以前の枠を残す（failed。例外なし）', () => {
     const cases: [string, (t: FakeStore) => void][] = [
       ['set が false', (t) => void (t.setFails = true)],

@@ -6,8 +6,8 @@ import { yunohanaGain, type GameEvent, type GameState } from '../../src/core/ind
 
 /** 転生の推奨（#10）の湯の華（gdd §8-3。「湯の華 30 以上」） */
 export const RECOMMEND_YUNOHANA = PARAMS.prestige.recommendGain; // T4 の「転生の推奨」と同じ値（BL-021）
-/** エンディング（#13。伝説の源泉）の深さ */
-export const ENDING_DEPTH = 500;
+/** エンディング（#13。伝説の源泉）の深さ（どの地形でも。BL-023） */
+export const ENDING_DEPTH = PARAMS.ending.depth;
 
 export type MilestoneId =
   | 'firstUpgrade'
@@ -44,10 +44,9 @@ export class MilestoneRecorder {
     this.firsts.push(ms);
   }
 
-  /** 状態から判定する出来事（#10: 今転生すると湯の華が 30 以上になった。1 周目だけで記録する〔PR #13 レビュー S-1〕・#13: 500m） */
+  /** 状態から判定する出来事（#10: 今転生すると湯の華が 30 以上になった。1 周目だけで記録する〔PR #13 レビュー S-1〕）。#13 は EndingReached の時刻（BL-023 の D5） */
   observeState(s: GameState): void {
     if (this.at.recommend === undefined && this.at.prestige === undefined && yunohanaGain(s).gte(RECOMMEND_YUNOHANA)) this.mark('recommend', s.clock.playedMs);
-    if (s.stats.bestDepth >= ENDING_DEPTH) this.mark('ending', s.clock.playedMs);
     if (s.run.maxDepth > this.runMaxDepth) this.runMaxDepth = s.run.maxDepth;
   }
 
@@ -56,6 +55,8 @@ export class MilestoneRecorder {
       if (e.type === 'ToolEvolved') {
         if (e.tool === 1) this.mark('firstUpgrade', playedMs);
         this.first(`tool:${e.tool}`, playedMs);
+      } else if (e.type === 'EndingReached') {
+        this.mark('ending', playedMs);
       } else if (e.type === 'SpringFound') {
         this.mark(e.spring, playedMs);
         this.first(`spring:${e.spring}`, playedMs);

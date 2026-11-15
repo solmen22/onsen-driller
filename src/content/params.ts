@@ -62,6 +62,11 @@ export const PARAMS = {
    */
   prestige: { unlockDepth: 150, divisor: 50, bonusPerYunohana: 0.02, recommendGain: 30, recommendGrowth: 1.5 },
   /**
+   * 伝説の源泉とエンディング（gdd §5-8。BL-023）: どの地形でも depth m。周回の深さがここに届いたら、セーブ全体で 1 回だけエンディング。
+   * 伝説の源泉はポンプの源泉ではない（目印とエンディングだけ。CEO 決定 2026-11-15 の D3）
+   */
+  ending: { depth: 500 },
+  /**
    * 温泉チケット（gdd §5-9。BL-058）: 新しいゲームに initial 枚、上限 max 枚。上限を超えた分は「毎秒の収入 × overflowIncomeSec 秒」のコイン。
    * 1 回の出来事で得る量は固定（購入の個数・払ったコインで変わらない。QA §3-2(b)・Q-36 (a) の条件 1）
    */

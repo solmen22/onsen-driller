@@ -1,5 +1,5 @@
 // CrazyGames の happytime（祝いの合図）を送る場面（gdd §13 の「控えめに使う」・arch §12-3。BL-057）
-// 次のときだけ送る: 最初の源泉（セーブ全体で最初の 1 つ）・各お客さんの初来訪・転生の完了・エンディング（S3 以降。イベントが入ったら足す）。
+// 次のときだけ送る: 最初の源泉（セーブ全体で最初の 1 つ）・各お客さんの初来訪・転生の完了・エンディング（BL-023 の EndingReached）。
 // ほかのアダプタの happyTime は記録するだけ（SDK を呼ばない）
 import type { GameEvent, GameState } from '../core/index.ts';
 
@@ -12,6 +12,7 @@ export function isHappyMoment(e: GameEvent, s: Readonly<GameState>): boolean {
     case 'GuestArrived':
       return e.first;
     case 'PrestigeDone':
+    case 'EndingReached': // エンディング（BL-023。セーブ全体で 1 回だけ出る）
       return true;
     default:
       return false;

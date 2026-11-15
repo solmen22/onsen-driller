@@ -13,6 +13,7 @@ import { applyLayout, layoutOf } from '../ui/layout.ts';
 import { Ctx, type SettingsHooks } from '../ui/hooks/use-game.ts';
 import { onModalChange } from '../ui/overlay/modal-state.ts';
 import { dismissPrestigeConfirm, onPrestigeConfirmChange } from '../ui/overlay/prestige-confirm.ts';
+import { onEndingCardClosed, showEndingCard } from '../ui/overlay/ending-card.ts';
 import { playBreak, playHit, resumeAudio, setMuted, setSfxEnabled, unlockAudio } from '../audio/sfx.ts';
 import { startAutosave } from './autosave.ts';
 import { subscribeSaveThenAds, wireVisibility } from './pause-wiring.ts';
@@ -160,11 +161,13 @@ async function boot(): Promise<void> {
     grant: (p) => rewards.grantAd(p),
     refund: (p) => rewards.refundAd(p),
     pauseForReward: pausesForReward(platform.target), // Poki だけ: 要求の間 gameplayStop（BL-060・S-2）
+    showEnding: showEndingCard, // エンディングのカード（BL-023。M1・広告の後に出し、出している間は 'ending' で止める）
     onError: (e) => errorLog.push(e),
   });
   // 出来事は「転生の保存 → 広告の流れ（M1・M2）」の順で受ける（TS-021-45）。転生の確認の画面とタブの表示・非表示の配線
   // （隠れたら確認の画面を閉じ、見えるまで gameplayStart を出さない。決定 0010 の 14 (b)・15）。どちらも app/pause-wiring.ts（テストと同じ関数）
   subscribeSaveThenAds(store, autosave, ads);
+  onEndingCardClosed(() => ads.endingClosed()); // カードを飛ばしたら 'ending' を外す（BL-023）
   const visibility = wireVisibility({
     life,
     ads,

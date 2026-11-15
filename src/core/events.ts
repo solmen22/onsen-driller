@@ -18,6 +18,11 @@ export type GameEvent =
   | { type: 'SlotUnlocked'; n: number }
   | { type: 'Purchased'; item: string; qty: number }
   | { type: 'PrestigeDone'; gained: string }
+  /**
+   * 伝説の源泉に届いてエンディングを迎えた（BL-023。セーブ全体で 1 回だけ。meta.endingSeen が立つ）。depth はそのときの周回の深さ
+   * （掘って届けば 500、近道の坑道で 500m 以上から始めた周回なら始めの深さ）
+   */
+  | { type: 'EndingReached'; depth: number }
   /** 湯の華の木のノードを取った（BL-022。cost は払った湯の華） */
   | { type: 'PerkTaken'; perk: PerkId; cost: number }
   // ---- ご褒美（BL-058。gdd §5-9） ----
