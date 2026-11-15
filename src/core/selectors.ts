@@ -19,6 +19,7 @@ import {
   nextSlotLevel,
   offlineEfficiency,
   slotsForBathLevel,
+  springDepth,
   springIncomeIfSlotted,
   temperatureAt,
   type Modifiers,
@@ -28,7 +29,7 @@ import { add, affordGeometric, div, gt, mul, num, sub, sumGeometric, toNumber, Z
 import type { GameState } from './state.ts';
 import { upgradeQuote } from './upgrades.ts';
 
-export { bandOfDepth, oreAt, springAtDepth, temperatureAt } from './formulas.ts';
+export { bandOfDepth, oreAt, springAtDepth, springDepth, springDepthIn, temperatureAt } from './formulas.ts';
 export { autoDigUnlocked } from './input.ts';
 
 /** レベルを買う品目（ドリル・自動掘削機・湯船・源泉ごとのポンプ） */
@@ -119,7 +120,8 @@ export function buyQuote(s: Readonly<GameState>, item: ItemId, qty: Qty): BuyQuo
   const se = seriesOf(s, item);
   if (!se) {
     const id = item.slice(5) as SpringId;
-    return { item, qty, state: 'locked', n: 0, cost: ZERO, nextCost: ZERO, level: 0, unlockDepth: SPRING_BY_ID[id]?.depth };
+    // 解放の深さは今の周回の地形のもの（BL-024）
+    return { item, qty, state: 'locked', n: 0, cost: ZERO, nextCost: ZERO, level: 0, ...(Object.hasOwn(SPRING_BY_ID, id) ? { unlockDepth: springDepth(s, id) } : {}) };
   }
   const coins = s.run.coins;
   // レベルの上限（PARAMS.levelMax）に達したら maxed。×10・最大は上限までの数に減らす（レビュー S-4）
@@ -196,7 +198,7 @@ export function secondsUntil(s: Readonly<GameState>, cost: Num): number | null {
 /** 源泉 1 つの表示用の値（湯宿タブ T2 の「発見済みの源泉とポンプ」。BL-015）。読み取り専用（effect は内容定義そのものなので書き換えない） */
 export interface SpringView {
   readonly id: SpringId;
-  /** 発見の深さ（未発見のとき「〇m で発見」） */
+  /** 発見の深さ（今の周回の地形の深さ。未発見のとき「〇m で発見」。BL-024） */
   readonly depth: number;
   readonly found: boolean;
   /** ポンプの Lv（未発見は 0。発見時に Lv1） */
@@ -225,7 +227,7 @@ export function springViews(s: Readonly<GameState>): SpringView[] {
     const potential = springIncomeIfSlotted(s, def.id, m);
     return {
       id: def.id,
-      depth: def.depth,
+      depth: springDepth(s, def.id),
       found: pump > 0,
       pump,
       slot: slotIdx >= 0 ? slotIdx : null,

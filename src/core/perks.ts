@@ -8,7 +8,7 @@ import { SPRINGS } from '../content/springs.ts';
 import { STRATA } from '../content/strata.ts';
 import { TOOLS } from '../content/tools.ts';
 import type { GameEvent } from './events.ts';
-import { perkTotals, yunohanaGain } from './formulas.ts';
+import { perkTotals, springDepth, yunohanaGain } from './formulas.ts';
 import { add, num, sub, type Num } from './num.ts';
 import type { GameState } from './state.ts';
 import { discoverSpring, markStratumSeen } from './step.ts';
@@ -144,7 +144,7 @@ export function checkPerkSet(ids: unknown, budget: Num): { perks: PerkId[]; cost
  * 新しい周回の始めに木の効果を当てる（転生の直後。prevMaxDepth は前の周回の最深）
  * - 旅の支度金: コイン 500 から
  * - 形見のツルハシ: 道具が手掘りやぐらから（買わずに持っている扱い。自動掘りのスイッチも使える）
- * - 近道の坑道: 深さ＝前の周回の最深 × 25%（切り捨て）から。途中の源泉は発見済み（ポンプ Lv1・空いた枠につなぐ）、
+ * - 近道の坑道: 深さ＝前の周回の最深 × 25%（切り捨て）から。途中の源泉（新しい周回の地形の深さで。BL-024）は発見済み（ポンプ Lv1・空いた枠につなぐ）、
  *   途中の帯は入ったことにする（幕間なし）。この深さより 1m 以上掘るまで転生できない（formulas の yunohanaGainBase）
  */
 export function startRun(s: GameState, prevMaxDepth: number, out: GameEvent[]): void {
@@ -157,7 +157,7 @@ export function startRun(s: GameState, prevMaxDepth: number, out: GameEvent[]): 
     r.depth = start;
     r.maxDepth = start;
     r.startDepth = start;
-    for (const sp of SPRINGS) if (sp.depth <= start) discoverSpring(s, sp.id, false, out);
+    for (const sp of SPRINGS) if (springDepth(s, sp.id) <= start) discoverSpring(s, sp.id, false, out); // 新しい周回の地形の深さ（BL-024）
     STRATA.forEach((b, i) => {
       if (b.start <= start) markStratumSeen(s, i);
     });

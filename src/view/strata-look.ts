@@ -5,7 +5,9 @@
 import type { OreId } from '../content/ores.ts';
 import { SPRINGS, type SpringId } from '../content/springs.ts';
 import { STRATA, type StratumId } from '../content/strata.ts';
+import type { TerrainId } from '../content/terrains.ts';
 import { hash32 } from '../core/rng.ts';
+import { springDepthIn } from '../core/selectors.ts';
 
 export const TILE_VARIANTS = 4;
 
@@ -56,9 +58,9 @@ export const ORE_TINT: Readonly<Record<OreId, number>> = {
   lavaStone: 0xd9603b,
 };
 
-/** まだ見つけていない源泉のうち、いちばん浅いもの（源泉の気配を出す深さ）。なければ null */
-export function nextSpringHint(found: (id: SpringId) => boolean): { id: SpringId; depth: number } | null {
-  for (const sp of SPRINGS) if (!found(sp.id)) return { id: sp.id, depth: sp.depth };
+/** まだ見つけていない源泉のうち、いちばん浅いもの（源泉の気配を出す深さ。地形 terrain の深さ。BL-024）。なければ null */
+export function nextSpringHint(terrain: TerrainId, found: (id: SpringId) => boolean): { id: SpringId; depth: number } | null {
+  for (const sp of SPRINGS) if (!found(sp.id)) return { id: sp.id, depth: springDepthIn(terrain, sp.id) };
   return null;
 }
 

@@ -1,9 +1,11 @@
 // アクション（arch §6-2。BL-010）。どんな入力でも例外を投げず、実行できないときは { ok: false, reason } で状態を変えない
 import { PARAMS } from '../content/params.ts';
 import type { SpringId } from '../content/springs.ts';
+import { isTerrainId } from '../content/terrains.ts';
 import type { GameEvent } from './events.ts';
 import { slotsForBathLevel, yunohanaGain } from './formulas.ts';
 import { checkPerkSet, startRun, takePerk } from './perks.ts';
+import { terrainUnlocked, unlockedTerrains } from './prestige.ts';
 import { applyManualRateChange, autoDigUnlocked, manualRate, setHold } from './input.ts';
 import { add, num, sub, toStr } from './num.ts';
 import { claimOffline, gainTickets, openVeinByAd, refundAdTicket, reserveVein, useBoost } from './rewards.ts';
@@ -20,9 +22,11 @@ export type Action =
   | { type: 'assignSlot'; slot: number; spring: SpringId | null }
   /**
    * 転生（BL-021）。perks を渡すと、木をその形に振り直す（無料。使った分が全部戻ってから選び直す。BL-022）。
-   * 渡さなければ今の木のまま。perks が正しくない（知らない ID・前提を満たさない・湯の華が足りない）なら invalid で、転生もしない
+   * 渡さなければ今の木のまま。perks が正しくない（知らない ID・前提を満たさない・湯の華が足りない）なら invalid で、転生もしない。
+   * terrain を渡すと次の周回の地形（BL-024）。渡さなければ今の地形のまま。知らない地形は invalid、解放されていない地形
+   * （この転生で解放されるものは選べる）は locked で、転生もしない
    */
-  | { type: 'prestige'; perks?: readonly string[] }
+  | { type: 'prestige'; perks?: readonly string[]; terrain?: string }
   /** 湯の華の木のノードを取る（BL-022） */
   | { type: 'takePerk'; perk: string }
   /** R2 掘削ブースト（BL-058）。wallMs は app の壁時計（休みの起点。core は時刻を読まない）。'ad' は app が広告の成功を確かめてから */
@@ -150,24 +154,29 @@ export function dispatch(s: GameState, input: unknown): ActionResult {
       return { ok: true, events };
     }
     case 'prestige': {
-      // S1 は PoC の簡易版（地形・木は S3 の BL-021・022）
       const gain = yunohanaGain(s);
       if (!gain.gt(0)) return fail('locked');
       // 木の振り直し（BL-022）: 転生で得る分を足した累計の範囲で選び直す。正しくなければ転生もしない（状態を変えない）
       const respec = a.perks === undefined ? null : checkPerkSet(a.perks, add(s.meta.yunohana.lifetime, gain));
       if (a.perks !== undefined && !respec) return fail('invalid');
+      // 次の周回の地形（BL-024）: 選ぶなら、この転生の後の回数で解放されているものだけ。選ばなければ今の地形のまま
+      const prestigesAfter = s.meta.prestiges + 1;
+      if (a.terrain !== undefined && !isTerrainId(a.terrain)) return fail('invalid');
+      if (a.terrain !== undefined && !terrainUnlocked(s, a.terrain, prestigesAfter)) return fail('locked');
+      const terrain = a.terrain ?? s.run.terrain;
       const prevMaxDepth = s.run.maxDepth;
       s.meta.yunohana.lifetime = add(s.meta.yunohana.lifetime, gain);
       if (respec) {
         s.meta.perks = respec.perks;
         s.meta.yunohana.spent = num(respec.cost);
       }
-      s.meta.prestiges += 1;
+      s.meta.terrainsUnlocked = unlockedTerrains(s, prestigesAfter); // 解放済みの地形（転生の回数で解放されたものを書き足す。BL-024）
+      s.meta.prestiges = prestigesAfter;
       s.meta.lastPrestigeGain = gain; // 次の周回の「転生の推奨」の基準（BL-021）
       // 掘削ブーストは周回をまたいで続く（効果の残りも休みも。転生で休みを消せないように。BL-058）。
       // 未受け取りのオフライン収入は捨てる（コインは転生でなくなるので、受け取ってから転生しても同じ）。鉱脈は新しい周回で予約し直す
       const boost = { ...s.run.boost };
-      s.run = createRun(sfc32Next(s.rng.run), s.run.terrain);
+      s.run = createRun(sfc32Next(s.rng.run), terrain);
       s.run.boost = boost;
       applyManualRateChange(s, 0); // 長押し中のまま転生したら、新しい周回の端数も 0.5 から
       events.push({ type: 'PrestigeDone', gained: toStr(gain) }); // Decimal はイベントでも "<仮数>e<指数>"（arch §6-3。レビュー N-1）

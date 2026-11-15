@@ -272,7 +272,7 @@ export class MineScene extends Phaser.Scene {
       return f ? { frame: f } : null;
     });
     // 縦穴のこれから掘るところ: 鉱石のきらめき（種類ごとの色）と、次の源泉の気配
-    const hint = nextSpringHint((id) => s.run.springs[id] !== undefined);
+    const hint = nextSpringHint(s.run.terrain, (id) => s.run.springs[id] !== undefined);
     this.shaftMarks.layout(firstRow, 0, T, -T / 2, (row): CellLook | null => {
       if (row < depth) return null;
       const ore = oreAt(s, row);

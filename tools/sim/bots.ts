@@ -18,6 +18,7 @@ import {
   recommendThreshold,
   seedSfc32,
   sfc32Int,
+  terrainChoices,
   yunohanaGain,
   type GameEvent,
   type GameState,
@@ -28,6 +29,7 @@ import {
 } from '../../src/core/index.ts';
 import { PARAMS } from '../../src/content/params.ts';
 import { SPRINGS, type SpringId } from '../../src/content/springs.ts';
+import { TERRAIN_IDS, type TerrainId } from '../../src/content/terrains.ts';
 import { UPGRADES } from '../../src/content/upgrades.ts';
 
 /** ボットが買う品目（道具は別に扱う）。改良は一度きり（BL-018。TS-018-17） */
@@ -239,6 +241,20 @@ export function takePerksCheapest(s: GameState, out?: GameEvent[]): void {
   }
 }
 
+/**
+ * 転生の行き先の地形（gdd §8-2「地形は、解放された順に選ぶ」。BL-024）: 今の地形の次から定義の順（＝解放の順）に回り、
+ * この転生で選べる最初の地形。山あい → 火山のふもと（1 回目）→ 海辺（2 回目）→ 山あい → …。選べるものがなければ今の地形
+ */
+export function botTerrain(s: Readonly<GameState>): TerrainId {
+  const choices = terrainChoices(s);
+  const at = TERRAIN_IDS.indexOf(s.run.terrain);
+  for (let k = 1; k <= TERRAIN_IDS.length; k++) {
+    const id = TERRAIN_IDS[(at + k) % TERRAIN_IDS.length];
+    if (id !== undefined && choices.find((c) => c.id === id)?.selectable) return id;
+  }
+  return s.run.terrain;
+}
+
 /** 転生の規則（gdd §8-2）: 湯の華が前回の 1.5 倍以上（初回は転生の推奨の 30 以上）、または最深の伸びが 2 分止まった */
 function maybePrestige(s: GameState, mem: BotMemory, out?: GameEvent[]): boolean {
   const gain = yunohanaGain(s).toNumber();
@@ -247,7 +263,7 @@ function maybePrestige(s: GameState, mem: BotMemory, out?: GameEvent[]): boolean
   const stalled = s.clock.playedMs - mem.lastDepthChangeMs >= 120_000;
   const last = s.meta.lastPrestigeGain.toNumber(); // 前回の獲得はボットの記憶ではなく状態から読む（読む先を 1 つに。TS-021-12）
   if (!(gain >= target || (stalled && gain >= Math.max(9, last)))) return false;
-  act(s, { type: 'prestige' }, out);
+  act(s, { type: 'prestige', terrain: botTerrain(s) }, out);
   takePerksCheapest(s, out);
   mem.lastMaxDepth = 0;
   mem.lastDepthChangeMs = s.clock.playedMs;
