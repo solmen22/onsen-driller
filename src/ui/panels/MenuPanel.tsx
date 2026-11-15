@@ -1,7 +1,8 @@
 // T5「≡」（gdd §11-2。BL-045）: 記録（図鑑・実績・統計）・設定・セーブ・このゲームについて（クレジット・プライバシーポリシー・版・エラー情報）
 // - 中身がまだないもの（図鑑・実績・統計は BL-050、書き出し・読み込み・初めからは BL-029、プライバシーポリシーの画面は BL-143）は、
 //   行だけ出して押せない（「準備中」）。入口の位置を先に決めておく
-// - 設定: 言語（lang-toggle で日本語⇔英語、lang-auto で端末に合わせる）・効果音・数値の表記・動きを減らす（次の起動から）。
+// - 設定: 言語（lang-toggle で日本語⇔英語、lang-auto で端末に合わせる）・効果音・数値の表記・動きを減らす（次の起動から）・
+//   チュートリアル（setting-tutorial。セーブの tutorial.dismissed。core の {type:'tutorial', dismissed}。BL-049）。
 //   保存は app の設定の口（settings.set・onLangChange）だけを通す（読み取り専用の間は書かない。Q-26 ③）。
 //   環境音・画質・録画モードは、その機能が入るとき（音・画質・BL-048）に足す（効かない設定を出さない）
 // - 外部リンクは置かない（プライバシーポリシーもゲームの中の画面にする。BL-143・Poki の要件）
@@ -9,7 +10,7 @@
 import { useRef, useState } from 'preact/hooks';
 import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from '../../app/settings.ts';
 import { t, type Lang, type TextKey } from '../../i18n/index.ts';
-import { useUi, type SettingsHooks } from '../hooks/use-game.ts';
+import { useGame, useUi, type SettingsHooks } from '../hooks/use-game.ts';
 import { Dialog } from '../overlay/Dialog.tsx';
 import { CREDIT_LIBS, errorReport, nextMotion, nextNotation } from './menu-view.ts';
 
@@ -74,7 +75,8 @@ function CreditsModal({ onClose }: { onClose: () => void }) {
 }
 
 export function MenuPanel({ lang, onLang, onLangAuto, onChanged }: MenuPanelProps) {
-  const { platform, version, errors } = useUi();
+  const { platform, version, errors, store } = useUi();
+  const tutorialOn = useGame((st) => !st.tutorial.dismissed);
   const settings = useSettings();
   const s = settings.get();
   const [credits, setCredits] = useState(false);
@@ -138,6 +140,18 @@ export function MenuPanel({ lang, onLang, onLangAuto, onChanged }: MenuPanelProp
           <span class="buy-lock">{t('menu.nextLaunch')}</span>
         </span>
         <span class="row-cost">{t(s.reduceMotion === 'on' ? 'state.on' : s.reduceMotion === 'off' ? 'state.off' : 'menu.motion.auto')}</span>
+      </button>
+
+      <button
+        class="row"
+        type="button"
+        data-testid="setting-tutorial"
+        data-value={tutorialOn ? 'on' : 'off'}
+        aria-pressed={tutorialOn ? 'true' : 'false'}
+        onClick={() => store.dispatch({ type: 'tutorial', dismissed: tutorialOn })}
+      >
+        <span class="row-name">{t('menu.tutorial')}</span>
+        <span class="row-cost">{t(tutorialOn ? 'state.on' : 'state.off')}</span>
       </button>
 
       <h3 class="inn-head">{t('menu.section.save')}</h3>

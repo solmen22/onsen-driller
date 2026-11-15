@@ -114,7 +114,9 @@ describe('T4 の表示（TS-021-06・07・40 (a)。Q-47 (a)(h)(k)）', () => {
   });
 
   it('Q-47 (g): その周回で初めて推奨に届いたら tab-4 に点（「！」とは別）。T4 を開くと消え、同じ周回では出し直さない', () => {
-    const s = at(depthForGain(P.recommendGain) - 1);
+    const s = at(depthForGain(P.recommendGain) - 1, (x) => {
+      x.tutorial.step = PARAMS.tutorial.steps; // チュートリアルの段 8（転生タブの「！」。BL-049）は済んだものとして、点だけを見る
+    });
     m = mount({ state: s });
     expect(m.q('tab-4-dot')).toBeNull();
     m.run((st) => {

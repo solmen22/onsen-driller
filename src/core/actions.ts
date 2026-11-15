@@ -39,7 +39,12 @@ export type Action =
   | { type: 'refundAdTicket'; placement: 'R1' | 'R2' }
   /** R1 おかえりの収入を受け取る（BL-058）。normal は source なし、double は 'ad' か 'ticket' */
   | { type: 'claimOffline'; mode: 'normal' }
-  | { type: 'claimOffline'; mode: 'double'; source: 'ad' | 'ticket' };
+  | { type: 'claimOffline'; mode: 'double'; source: 'ad' | 'ticket' }
+  /**
+   * チュートリアル（BL-049。gdd §12）。step: その段を済ませた（済んだ段の番号を上げるだけ。下げない。飛ばした前の段も済んだ扱い）。
+   * dismissed: 設定から消す・戻す。どちらも周回をまたいで残り、転生でも消えない
+   */
+  | { type: 'tutorial'; step?: number; dismissed?: boolean };
 
 /**
  * 失敗の理由（arch §6-2）。cooldown・active は R2 の休み中・効果の途中（BL-058。Q-36 (c)）
@@ -212,6 +217,16 @@ export function dispatch(s: GameState, input: unknown): ActionResult {
       }
       if (a.mode !== 'double' || !isAdOrTicket(a.source)) return fail('invalid');
       return done(claimOffline(s, 'double', a.source, events), events);
+    }
+    case 'tutorial': {
+      const st = a.step;
+      const dm = a.dismissed;
+      if (st === undefined && dm === undefined) return fail('invalid');
+      if (st !== undefined && (typeof st !== 'number' || !Number.isInteger(st) || st < 1 || st > PARAMS.tutorial.steps)) return fail('invalid');
+      if (dm !== undefined && typeof dm !== 'boolean') return fail('invalid');
+      if (st !== undefined) s.tutorial.step = Math.max(s.tutorial.step, st);
+      if (dm !== undefined) s.tutorial.dismissed = dm;
+      return { ok: true, events };
     }
     default:
       return fail('invalid');

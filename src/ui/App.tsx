@@ -7,7 +7,8 @@
 //   起動・読み込みの直後の集合は「前」として覚えるだけで、立てない。転生で戻った後にまた解放されたら立てる
 // - 転生の印（BL-045。Q-47 (g)）: その周回で初めて転生の推奨に届いたら（T4 を開いていないとき）tab-4 に「！」と別の色の点を出し、
 //   T4 を開いたら消す。保存しない（メモリだけ）。起動・読み込みの直後に推奨のままなら出す（読み直したら出し直す）。
-//   セーブ全体で初めて 150m に届いたときの「！」は BL-049・050
+//   セーブ全体で初めて 150m に届いたときの「！」はチュートリアルの段 8（BL-049）
+// - チュートリアル（BL-049。gdd §12）: 指の印・吹き出し・光る枠（ui/tutorial）。段 8 の間は tab-4 に「！」
 // - 購入数（×1 → ×10 → 最大）は切り替えボタン（qty-toggle）か Shift。タブをまたいで共通で、保存しない（再読み込みで ×1）
 // - ご褒美のシート（R2: ブーストのボタン、R3: 鉱脈のチップ）とトースト（BL-046）。モーダル・シートの表示中は 1〜5・Shift を使わない
 import { useEffect, useRef, useState } from 'preact/hooks';
@@ -24,6 +25,8 @@ import { Toasts } from './overlay/Toasts.tsx';
 import { WelcomeModal, type WelcomeChoice } from './overlay/WelcomeModal.tsx';
 import { EndingCard } from './overlay/EndingCard.tsx';
 import { endingCardClosed, isEndingCardRequested, onEndingCardRequest } from './overlay/ending-card.ts';
+import { Tutorial } from './tutorial/Tutorial.tsx';
+import { tutorialNow } from './tutorial/tutorial-view.ts';
 import { DigPanel } from './panels/DigPanel.tsx';
 import { InnPanel } from './panels/InnPanel.tsx';
 import { MenuPanel } from './panels/MenuPanel.tsx';
@@ -144,6 +147,10 @@ export function App() {
     if (tabRef.current !== 4) setPrestigeDot(true);
   }, [recommendedRun]);
 
+  // チュートリアルの段が「！」を出すタブ（段 8 の転生タブ）
+  const tutorialTab = useGame((s) => tutorialNow(s)?.alertTab ?? 0);
+  const alertOn = (no: TabNo): boolean => (no === 2 && innAlert) || (no === 3 && upgradeAlert) || no === tutorialTab;
+
   // 源泉の発見で湯宿のタブに「！」（T2 を開いていないとき）
   useEffect(
     () =>
@@ -157,6 +164,7 @@ export function App() {
     <>
       <Hud lang={lang} onSettings={() => setTab(5)} onVein={() => setSheet('R3')} />
       <StageActions onBoost={() => setSheet('R2')} />
+      <Tutorial />
       <section class="panel" data-testid="panel">
         <nav class="tabs" role="tablist">
           {TABS.map((x) => (
@@ -167,13 +175,13 @@ export function App() {
               class="tab"
               aria-selected={tab === x.no}
               data-testid={`tab-${x.no}`}
-              data-alert={(x.no === 2 && innAlert) || (x.no === 3 && upgradeAlert) ? 'true' : undefined}
+              data-alert={alertOn(x.no) ? 'true' : undefined}
               title={`${t(x.key)} (${x.no})`}
               onClick={() => setTab(x.no)}
             >
               <span aria-hidden="true">{x.icon}</span>
               <span class="tab-label">{t(x.key)}</span>
-              {((x.no === 2 && innAlert) || (x.no === 3 && upgradeAlert)) && (
+              {alertOn(x.no) && (
                 <span class="tab-alert" role="img" aria-label={t('ui.tabAlert')}>
                   {t('ui.tabAlertMark')}
                 </span>

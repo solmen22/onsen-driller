@@ -845,3 +845,80 @@ body {
   display: grid;
   gap: 6px;
 }
+
+/* チュートリアル（BL-049。gdd §12）: 指の印（地下を指す。押下を通す）・吹き出し（ステージの上端。画面を止めない）・光る枠 */
+.tutorial-finger {
+  grid-area: stage;
+  align-self: center;
+  justify-self: center;
+  z-index: 4;
+  width: 36px;
+  height: 36px;
+  margin-top: 64px;
+  border: 3px solid var(--gold);
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px #f2c14e55;
+  pointer-events: none;
+  animation: tutorial-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes tutorial-pulse {
+  50% {
+    transform: scale(0.8);
+    box-shadow: 0 0 0 10px #f2c14e22;
+  }
+}
+
+.tutorial-bubble {
+  grid-area: stage;
+  align-self: start;
+  justify-self: center;
+  z-index: 6;
+  max-width: min(360px, calc(100% - 16px));
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  background: #1b1420e6;
+  border: 2px solid var(--gold);
+  border-radius: 6px;
+}
+
+.tutorial-text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.tutorial-ok {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 2px solid var(--line);
+  border-radius: 4px;
+}
+
+[data-tutorial-glow='true'] {
+  outline: 3px solid var(--gold);
+  outline-offset: -3px;
+  animation: tutorial-glow 1.2s ease-in-out infinite;
+}
+
+@keyframes tutorial-glow {
+  50% {
+    outline-color: #f2c14e55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-finger,
+  [data-tutorial-glow='true'] {
+    animation: none;
+  }
+}

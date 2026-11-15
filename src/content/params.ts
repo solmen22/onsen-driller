@@ -61,6 +61,8 @@ export const PARAMS = {
    * （1 周目は 30＝目標表 #10。T4 の表示とボットで同じ値。CEO 回答 2026-10-18）
    */
   prestige: { unlockDepth: 150, divisor: 50, bonusPerYunohana: 0.02, recommendGain: 30, recommendGrowth: 1.5 },
+  /** チュートリアル（gdd §12。BL-049）: 段の数。契機と誘導は ui/tutorial/tutorial-view.ts */
+  tutorial: { steps: 8 },
   /**
    * 伝説の源泉とエンディング（gdd §5-8。BL-023）: どの地形でも depth m。周回の深さがここに届いたら、セーブ全体で 1 回だけエンディング。
    * 伝説の源泉はポンプの源泉ではない（目印とエンディングだけ。CEO 決定 2026-11-15 の D3）
