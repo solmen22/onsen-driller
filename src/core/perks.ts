@@ -11,7 +11,7 @@ import type { GameEvent } from './events.ts';
 import { perkTotals, springDepth, yunohanaGain } from './formulas.ts';
 import { add, num, sub, type Num } from './num.ts';
 import type { GameState } from './state.ts';
-import { discoverSpring, markStratumSeen } from './step.ts';
+import { checkEnding, discoverSpring, markStratumSeen } from './step.ts';
 
 /** 使える湯の華（累計 − 使った分。負にならない） */
 export function yunohanaAvailable(s: Readonly<GameState>): Num {
@@ -161,5 +161,7 @@ export function startRun(s: GameState, prevMaxDepth: number, out: GameEvent[]): 
     STRATA.forEach((b, i) => {
       if (b.start <= start) markStratumSeen(s, i);
     });
+    // 500m 以上から始めた周回で、まだエンディングを見ていなければここで出す（BL-023 の D1。UI は M1 の後にカードを出す）
+    checkEnding(s, out);
   }
 }

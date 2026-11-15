@@ -80,6 +80,17 @@ export function discoverSpring(s: GameState, sp: SpringId, emit: boolean, out: G
   refreshGuests(s, out);
 }
 
+/**
+ * エンディング（BL-023。CEO 決定 2026-11-15 の D1）: まだエンディングを見ていないまま、周回の深さが伝説の源泉の深さ（500m）以上になったら、
+ * その時に 1 回だけ EndingReached を出して meta.endingSeen を立てる。掘って届いたとき（breakBlock）と、近道の坑道で 500m 以上から
+ * 始めた周回（startRun の最後）の 2 か所から呼ぶ。読み込み・テスト用フックの深さの付与では呼ばない（D2・D4: 次に届いたときに出る）
+ */
+export function checkEnding(s: GameState, out: GameEvent[]): void {
+  if (s.meta.endingSeen || s.run.depth < PARAMS.ending.depth) return;
+  s.meta.endingSeen = true;
+  out.push({ type: 'EndingReached', depth: s.run.depth });
+}
+
 /** 帯を「入ったことにする」（幕間・イベントなし）。stratumSeen は昇順で重複なし */
 export function markStratumSeen(s: GameState, band: number): void {
   const seen = s.run.stratumSeen;
@@ -130,6 +141,7 @@ function breakBlock(s: GameState, m: Modifiers, out: GameEvent[]): BreakResult {
       changed = true;
     }
   }
+  checkEnding(s, out); // 伝説の源泉（BL-023）。源泉の発見の後（同じブロックで含鉄泉と届いても、出来事は源泉が先）
   return { changed, interlude };
 }
 

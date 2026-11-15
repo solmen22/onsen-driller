@@ -28,7 +28,11 @@
 //   CrazyGames は要求の間はポータルの側でゲームを止めるので立てない（シートの待ちの間もゲームは動く。Q-37 (e)）
 //   開始の時間切れ（Q-35 (d)）で 'reward'・'break' を外しても、Poki の SDK への合図は SDK の呼び出しが決まるまでアダプタが保留する
 //   （platform/poki.ts。決定 0012 の D-2）。ここでは画面の側（ループ・入力・案内）だけを戻す
-// - 1 つの止まる理由の書き手は 1 か所: ライフサイクルの 'ad'・'break'・'prestige'・'reward' と、入力の 'ad' を書くのはこのファイルだけ
+// - エンディングのカード（BL-023。CEO 決定 2026-11-15 の D6・Q-55）: core の EndingReached を受けたら、ミッドゲームの機会（近道の転生の M1）・
+//   広告の再生・リワードの要求・転生の確認の画面が終わってから showEnding を呼ぶ（UI がカードを出す）。呼ぶと同時に止まる理由 'ending' を立て、
+//   ループを止める（M1 の 'break' を外す前に立てるので、gameplayStart → gameplayStop の行き来が出ない。Poki の合図の保留〔#88〕とも同じ向き）。
+//   UI がカードを飛ばしたら endingClosed で外す。タブが隠れても閉じない（Q-55 (f)）
+// - 1 つの止まる理由の書き手は 1 か所: ライフサイクルの 'ad'・'break'・'prestige'・'reward'・'ending' と、入力の 'ad' を書くのはこのファイルだけ
 import type { GameEvent } from '../core/index.ts';
 import type { LateReward, Platform, RewardPlacement, RewardResult, Target } from '../platform/types.ts';
 import type { PauseReason } from './lifecycle.ts';
@@ -55,6 +59,8 @@ export interface AdFlowDeps {
   refund?: (p: RewardPlacement) => 'refund' | 'full' | null;
   /** リワードの要求の始まりから結果まで gameplay を止めるか（Poki だけ。pausesForReward。BL-060・S-2） */
   pauseForReward?: boolean;
+  /** エンディングのカードを出す（ui/overlay/ending-card.ts の showEndingCard。BL-023）。ない間はカードを出さず、'ending' も立てない */
+  showEnding?: () => void;
   onError?: (e: unknown) => void;
 }
 
@@ -72,8 +78,10 @@ export type LateKind = 'reward' | 'refund' | 'full';
 export interface AdFlow {
   /** UI の Ctx に渡す要求の口（シートの「動画」・おかえりの ×2） */
   requestReward(p: RewardPlacement): Promise<RewardResult>;
-  /** store.onEvents に渡す（BreakOpportunity だけを見る） */
+  /** store.onEvents に渡す（BreakOpportunity と EndingReached を見る） */
   onEvents(evs: readonly GameEvent[]): void;
+  /** エンディングのカードを飛ばした（UI。main.ts が onEndingCardClosed からつなぐ。BL-023）。'ending' を外す */
+  endingClosed(): void;
   /** visibilitychange で呼ぶ（ループと、隠れている間に閉じた確認の画面の 'prestige' の理由を決め直す） */
   syncHidden(): void;
   /**
@@ -90,6 +98,8 @@ export interface AdFlow {
   onAdPlaying(cb: (playing: boolean) => void): () => void;
   /** テスト用: 今ミッドゲームの機会を渡している途中か */
   readonly breaking: boolean;
+  /** テスト用: エンディングのカードを出している（'ending' を立てている）か */
+  readonly endingOpen: boolean;
 }
 
 export function createAdFlow(d: AdFlowDeps): AdFlow {
@@ -103,14 +113,31 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
   /** リワードの要求の間（pauseForReward のときだけ立つ） */
   let rewarding = false;
   let pending: Promise<RewardResult> | null = null;
+  /** EndingReached を受けて、まだカードを出していない（広告・確認の画面の終わりを待っている） */
+  let endingPending = false;
+  /** カードを出している（'ending' を立てている） */
+  let endingOpen = false;
   /** 遅れた報酬を付けた（か断られた）要求の id。同じ id を 2 回扱わない（Q-45） */
   const lateSeen = new Set<number>();
   const lateSubs = new Set<(p: RewardPlacement, kind: LateKind) => void>();
   const playingSubs = new Set<(playing: boolean) => void>();
 
   const syncLoop = (): void => {
-    if (d.isHidden() || adPlaying || breaking || prestigeConfirm || rewarding) d.loop.pause();
+    if (d.isHidden() || adPlaying || breaking || prestigeConfirm || rewarding || endingOpen) d.loop.pause();
     else d.loop.resume();
+  };
+  /** 待っているエンディングのカードを、広告・確認の画面が終わっていれば出す（'ending' を先に立て、ループも止める） */
+  const maybeShowEnding = (): void => {
+    if (!endingPending || endingOpen || !d.showEnding || adPlaying || breaking || rewarding || prestigeConfirm) return;
+    endingPending = false;
+    endingOpen = true;
+    d.life.setPaused('ending', true);
+    syncLoop();
+    try {
+      d.showEnding();
+    } catch (e) {
+      onError(e);
+    }
   };
   const syncPrestige = (): void => {
     const held = prestigeConfirm || (prestigeHeld && d.isHidden());
@@ -123,6 +150,7 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
   const setRewarding = (on: boolean): void => {
     if (!d.pauseForReward || rewarding === on) return;
     rewarding = on;
+    if (!on) maybeShowEnding(); // 'reward' を外す前に 'ending' を立てる（合図を往復させない）
     d.life.setPaused('reward', on);
     syncInput();
     syncLoop();
@@ -134,6 +162,7 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
     d.life.setPaused('ad', playing);
     syncInput();
     d.setMuted(playing || d.isMuted());
+    if (!playing) maybeShowEnding();
     syncLoop();
     if (!playing) d.resumeAudio();
     for (const cb of [...playingSubs]) {
@@ -214,6 +243,7 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
     syncLoop();
     const done = (): void => {
       breaking = false;
+      maybeShowEnding(); // 近道の転生の M1 の後にカード（'break' を外す前に 'ending' を立てる。TS-023-11・12）
       syncInput();
       syncLoop();
       d.life.setPaused('break', false);
@@ -242,7 +272,17 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
       return pr;
     },
     onEvents(evs) {
-      for (const e of evs) if (e.type === 'BreakOpportunity') runBreak(e.placement);
+      for (const e of evs) {
+        if (e.type === 'EndingReached') endingPending = true;
+        else if (e.type === 'BreakOpportunity') runBreak(e.placement);
+      }
+      maybeShowEnding(); // 同じ列の M1 が先（break が立っていれば、終わってから）
+    },
+    endingClosed() {
+      if (!endingOpen) return;
+      endingOpen = false;
+      syncLoop();
+      d.life.setPaused('ending', false);
     },
     syncHidden() {
       syncPrestige();
@@ -251,6 +291,7 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
     setPrestigeConfirm(open) {
       if (open === prestigeConfirm) return;
       prestigeConfirm = open;
+      if (!open) maybeShowEnding();
       syncPrestige();
       syncLoop();
     },
@@ -268,6 +309,9 @@ export function createAdFlow(d: AdFlowDeps): AdFlow {
     },
     get breaking() {
       return breaking;
+    },
+    get endingOpen() {
+      return endingOpen;
     },
   };
 }

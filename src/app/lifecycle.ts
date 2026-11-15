@@ -18,9 +18,10 @@ import type { Platform, Target } from '../platform/types.ts';
  * onPlaying(false) が breakOpportunity の Promise より先に来ても gameplayStart を出さないため（取り合わない）。
  * reward は Poki のリワードの要求の始まりから結果まで（BL-060。PR #68 のレビュー S-2: Poki は gameplayStop → rewardedBreak →
  * gameplayStart の順を求める。onPlaying〔rewardedBreak の onStart〕を待つと stop が SDK の呼び出しの後になる）。
- * **1 つの理由の書き手は 1 か所**: hidden は app/pause-wiring.ts、interlude は main.ts、ad・break・prestige・reward は app/ad-flow.ts
+ * ending はエンディングのカード（簡易版。BL-023。Q-55）を出している間。
+ * **1 つの理由の書き手は 1 か所**: hidden は app/pause-wiring.ts、interlude は main.ts、ad・break・prestige・reward・ending は app/ad-flow.ts
  */
-export type PauseReason = 'hidden' | 'ad' | 'interlude' | 'prestige' | 'break' | 'reward';
+export type PauseReason = 'hidden' | 'ad' | 'interlude' | 'prestige' | 'break' | 'reward' | 'ending';
 
 export type LifecyclePlatform = Pick<Platform, 'loadingStart' | 'loadingStop' | 'gameplayStart' | 'gameplayStop'>;
 

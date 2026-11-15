@@ -146,7 +146,9 @@ describe('TS-021-16 リセットの範囲（gdd §5-8。fast-check）', () => {
         const unlockedAfter = TERRAINS.filter((t) => before.meta.terrainsUnlocked.includes(t.id) || before.meta.prestiges + 1 >= t.unlockPrestiges).map((t) => t.id);
         expect(s.meta.terrainsUnlocked).toEqual(unlockedAfter);
         expect(s.meta.terrainsUnlocked).toEqual(expect.arrayContaining(before.meta.terrainsUnlocked));
-        expect(s.meta.endingSeen).toBe(before.meta.endingSeen);
+        // エンディング済みは残る。近道で 500m 以上から始めた周回で、まだ見ていなければここで立つ（BL-023 の D1。TS-023-03）
+        expect(s.meta.endingSeen).toBe(before.meta.endingSeen || start >= PARAMS.ending.depth);
+        expect(r.events.filter((e) => e.type === 'EndingReached')).toHaveLength(!before.meta.endingSeen && start >= PARAMS.ending.depth ? 1 : 0);
         expect(s.meta.yunohana.spent).toEqual(before.meta.yunohana.spent);
         expect({ ...s.stats, totalCoins: null }).toEqual({ ...before.stats, totalCoins: null });
         // 上限を超えた転生のチケットをコインに替えない（Q-47 (d)）。近道で初めて来たお客さんのチケットのあふれ（今までの規則）は除く
