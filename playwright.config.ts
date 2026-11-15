@@ -58,6 +58,7 @@ const LAYOUT_SPECS = [
   '**/bl042-layout.spec.ts',
   '**/bl044-t3-upgrades.spec.ts',
   '**/bl035-phaser.spec.ts',
+  '**/bl045-t4-prestige.spec.ts', // T4・転生の確認の画面の配置（横スクロール・文字の切れ・44px。PR #91 のレビューの Should）
 ];
 /** 毎晩だけ動かすテストの印 */
 const NIGHTLY_TAG = /@nightly/;

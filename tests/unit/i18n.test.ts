@@ -10,6 +10,7 @@ import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GUESTS } from '../../src/content/guests.ts';
 import { ORES } from '../../src/content/ores.ts';
+import { PERKS } from '../../src/content/perks.ts';
 import { SPRINGS } from '../../src/content/springs.ts';
 import { STRATA } from '../../src/content/strata.ts';
 import { TOOLS } from '../../src/content/tools.ts';
@@ -238,6 +239,7 @@ describe('BL-052 受け入れ基準 3: 文章は en.json・ja.json にあり、�
     ...TOOLS.map((x) => `tool.${x.id}`),
     ...SPRINGS.map((x) => `spring.${x.id}`),
     ...GUESTS.map((x) => `guest.${x.id}`),
+    ...PERKS.map((x) => x.nameKey), // 湯の華の木（BL-022 の定義・BL-045 の画面）
   ];
 
   it('TS-052-07 内容定義（地層・鉱石・道具・源泉・お客さん）が参照するキーが英日の両方にある', () => {
@@ -251,7 +253,7 @@ describe('BL-052 受け入れ基準 3: 文章は en.json・ja.json にあり、�
 
   it('TS-052-07 コードが組み立てて引くキー（タブ・「あと N 秒」の単位・言語の名前）が英日の両方にある', () => {
     const units: readonly EtaUnit[] = ['sec', 'min', 'hour', 'over'];
-    expect(missingIn([...TABS.map((x) => x.key), ...units.map((u) => `eta.${u}`), 'ui.langName.en', 'ui.langName.ja'], EN, JA)).toEqual([]);
+    expect(missingIn([...TABS.map((x) => x.key), ...units.map((u) => `eta.${u}`), 'ui.langName.en', 'ui.langName.ja', ...(['dig', 'inn', 'guest'] as const).map((b) => `perk.branch.${b}`)], EN, JA)).toEqual([]);
   });
 
   it('TS-052-08 検査が働く: キーを 1 つ消した写し・変数を変えた写し・知らない ID は、名前つきで失敗する', () => {
