@@ -55,7 +55,14 @@ function fakePlatform(target: Platform['target'] = 'web', withAdResult = true): 
   return p;
 }
 
-const STATS: RenderStats = { zoom: 3, tileSprites: 180, particles: 0, popups: 0, layout: 'landscape' };
+const STATS: RenderStats = {
+  zoom: 3,
+  tileSprites: 180,
+  particles: 0,
+  popups: 0,
+  layout: 'landscape',
+  effects: { reduceMotion: false, scale: 1, qualityScale: 1, shardsMax: 200, shards: 0, shakes: 0, flashes: 0 },
+};
 
 interface Rig {
   g: TestHooks;

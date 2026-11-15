@@ -27,7 +27,7 @@ import { createLifecycle, signalsHidden } from './lifecycle.ts';
 import { startLoop } from './loop.ts';
 import type { PerfMonitor } from './perf.ts';
 import { makePersistSettings, saveDisplay } from './save-display.ts';
-import { loadSettings } from './settings.ts';
+import { loadSettings, resolveReduceMotion } from './settings.ts';
 import { GameStore } from './store.ts';
 import '../styles/global.css';
 
@@ -193,7 +193,8 @@ async function boot(): Promise<void> {
   let view: View | null = null;
   try {
     const { createView } = await import('../view/game.ts');
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // 動きを減らす: 設定（auto は OS の prefers-reduced-motion）。画質: 設定（auto は描画の側の自動調整）。どちらも起動時に決める（BL-037）
+    const reduceMotion = resolveReduceMotion(settings.reduceMotion, window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     view = await createView(stage, {
       state: () => store.state,
       drain: () => store.drainView(),
@@ -201,6 +202,7 @@ async function boot(): Promise<void> {
       hasPendingInput: () => perf?.hasPendingInput() ?? false,
       stressParticles: params.particles,
       reduceMotion,
+      quality: settings.quality,
       onContext: (ev) => contextEvents.push(ev),
       layout: () => root.dataset.layout,
     });

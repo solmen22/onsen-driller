@@ -62,6 +62,8 @@ export interface RenderStats {
   particles: number;
   popups: number;
   layout: 'landscape' | 'portrait';
+  /** 演出の量（BL-037。src/view/scenes/mine-scene.ts の EffectStats） */
+  effects: { reduceMotion: boolean; scale: number; qualityScale: number; shardsMax: number; shards: number; shakes: number; flashes: number };
 }
 
 /** arch §8-4 の TestHooks のメンバー名（TS-071-01 の一覧。platform は 2 つに分けて数える） */
